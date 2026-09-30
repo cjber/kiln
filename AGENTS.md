@@ -67,3 +67,6 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   work.
 
 Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links.
+
+Android releases use repository signing secrets and attach a signed APK. CI checks both debug
+and release variants; private signing material stays outside the repository.
