@@ -22,7 +22,7 @@ export function claudeBridgeLink(
   }
 }
 
-export function phoneHandoff(session: Session): Handoff {
+export function phoneHandoff(session: Session, codexHost?: string): Handoff {
   if (session.place.kind === "cloud") {
     return session.place.url
       ? { url: session.place.url, label: "Open task", exact: true }
@@ -35,8 +35,19 @@ export function phoneHandoff(session: Session): Handoff {
         ? { url, label: "Open in Claude", exact: true }
         : { reason: "Remote Control is not enabled for this session" };
     }
-    case "codex":
+    case "codex": {
+      if (
+        session.id &&
+        /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(session.id) &&
+        codexHost &&
+        /^slingshot:env_[A-Za-z0-9_-]+:8765$/.test(codexHost)
+      ) {
+        const url = new URL(`https://chatgpt.com/codex/remote/thread/${session.id}`);
+        url.searchParams.set("hostId", codexHost);
+        return { url: url.href, label: "Open in ChatGPT", exact: true };
+      }
       return { url: "https://chatgpt.com/codex", label: "Open ChatGPT, then choose this thread", exact: false };
+    }
     case "pi":
       return { reason: "Pi remote control is not available yet" };
   }
