@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { agents, type Agent } from "./sessions";
+import { type Agent, agents } from "./sessions";
 
 export type Settings = {
   /** tmux key syntax, e.g. `C-q` or `M-Escape`. */
@@ -67,7 +67,8 @@ function fail(path: string, message: string): never {
 }
 
 function stringList(path: string, key: string, value: unknown): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) fail(path, `${key} must be a list of strings`);
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
+    fail(path, `${key} must be a list of strings`);
   return value;
 }
 
@@ -78,7 +79,7 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
   for (const [key, value] of Object.entries(raw)) {
     switch (key) {
       case "detach_key":
-        if (typeof value !== "string" || !value) fail(path, "detach_key must be a tmux key such as \"C-q\"");
+        if (typeof value !== "string" || !value) fail(path, 'detach_key must be a tmux key such as "C-q"');
         settings.detachKey = value;
         break;
       case "status_bar":
@@ -90,7 +91,8 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "agents":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[agents] must be a table");
         for (const [agent, command] of Object.entries(value)) {
-          if (!agents.includes(agent as Agent)) fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
+          if (!agents.includes(agent as Agent))
+            fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
           settings.agents[agent as Agent] = stringList(path, `agents.${agent}`, command);
         }
         break;

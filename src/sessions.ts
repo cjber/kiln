@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { codexThreads, type CodexThread } from "./codex";
+import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { panes } from "./tmux";
 
@@ -96,7 +96,12 @@ function gitBranch(cwd: string): string | undefined {
       if (!existsSync(dotGit)) continue;
       // A linked worktree's `.git` is a file pointing at its real git directory.
       const gitDir = statSync(dotGit).isFile()
-        ? resolve(dir, readFileSync(dotGit, "utf8").replace(/^gitdir:\s*/, "").trim())
+        ? resolve(
+            dir,
+            readFileSync(dotGit, "utf8")
+              .replace(/^gitdir:\s*/, "")
+              .trim(),
+          )
         : dotGit;
       const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
       return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head.slice(0, 7);
@@ -149,7 +154,17 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
         case "background":
           // `attach` and `stop` take the short job id, not the sessionId.
           if (!item.id) return [];
-          return [{ ...session, background: { kind: "background" as const, id: item.id, attach: ["claude", "attach", item.id], stop: ["claude", "stop", item.id] } }];
+          return [
+            {
+              ...session,
+              background: {
+                kind: "background" as const,
+                id: item.id,
+                attach: ["claude", "attach", item.id],
+                stop: ["claude", "stop", item.id],
+              },
+            },
+          ];
         default:
           return [];
       }
@@ -158,7 +173,10 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
 
 /** The first bare word, so a flag that merely contains a subcommand's name still counts as interactive. */
 function subcommand(command: string): string | undefined {
-  return command.split(/\s+/).slice(1).find((word) => !word.startsWith("-"));
+  return command
+    .split(/\s+/)
+    .slice(1)
+    .find((word) => !word.startsWith("-"));
 }
 
 export function isInteractiveCodex(command: string): boolean {
@@ -168,7 +186,8 @@ export function isInteractiveCodex(command: string): boolean {
 
 export function isInteractivePi(command: string): boolean {
   const words = command.split(/\s+/);
-  if (words.some((word) => ["-p", "--print", "--mode", "--export", "--list-models", "-h", "--help"].includes(word))) return false;
+  if (words.some((word) => ["-p", "--print", "--mode", "--export", "--list-models", "-h", "--help"].includes(word)))
+    return false;
   const word = subcommand(command);
   return !word || !["install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"].includes(word);
 }
@@ -177,13 +196,17 @@ export function isInteractivePi(command: string): boolean {
 function processesNamed(agent: Agent, isInteractive: (command: string) => boolean): AgentProcess[] {
   const listed = Bun.spawnSync(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore" });
   if (listed.exitCode !== 0) return [];
-  return listed.stdout.toString().split("\n").filter(Boolean).flatMap((line) => {
-    const [rawPid, ...rest] = line.split(" ");
-    const pid = Number(rawPid);
-    const cwd = processCwd(pid);
-    if (!cwd || !isInteractive(rest.join(" ")) || isDaemon(pid)) return [];
-    return [{ pid, agent, cwd, startedAt: startedAt(pid) }];
-  });
+  return listed.stdout
+    .toString()
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      const [rawPid, ...rest] = line.split(" ");
+      const pid = Number(rawPid);
+      const cwd = processCwd(pid);
+      if (!cwd || !isInteractive(rest.join(" ")) || isDaemon(pid)) return [];
+      return [{ pid, agent, cwd, startedAt: startedAt(pid) }];
+    });
 }
 
 /**
@@ -191,53 +214,77 @@ function processesNamed(agent: Agent, isInteractive: (command: string) => boolea
  * TUI holds it, so they pair up by directory in start order. A paired TUI takes
  * its thread's status; a thread left over runs with no terminal (`codex agents`).
  */
-function withCodexThreads(processes: AgentProcess[], threads: CodexThread[]): { processes: AgentProcess[]; headless: Session[] } {
+function withCodexThreads(
+  processes: AgentProcess[],
+  threads: CodexThread[],
+): { processes: AgentProcess[]; headless: Session[] } {
   const unpaired = [...threads].sort((left, right) => left.createdAt - right.createdAt);
-  const paired = [...processes].sort((left, right) => left.startedAt - right.startedAt).map((process) => {
-    const index = unpaired.findIndex((thread) => thread.cwd === process.cwd);
-    if (index < 0) return process;
-    const [thread] = unpaired.splice(index, 1);
-    return { ...process, activity: thread?.activity };
-  });
+  const paired = [...processes]
+    .sort((left, right) => left.startedAt - right.startedAt)
+    .map((process) => {
+      const index = unpaired.findIndex((thread) => thread.cwd === process.cwd);
+      if (index < 0) return process;
+      const [thread] = unpaired.splice(index, 1);
+      return { ...process, activity: thread?.activity };
+    });
   const headless = unpaired.map((thread) => ({
     agent: "codex" as const,
     cwd: thread.cwd,
     startedAt: thread.createdAt,
     activity: thread.activity,
     branch: gitBranch(thread.cwd),
-    place: { kind: "background" as const, id: thread.id, attach: ["codex", "resume", thread.id, "--remote", "unix://"] },
+    place: {
+      kind: "background" as const,
+      id: thread.id,
+      attach: ["codex", "resume", thread.id, "--remote", "unix://"],
+    },
   }));
   return { processes: paired, headless };
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listSessions({ kitty = true } = {}): Promise<Session[]> {
-  const [claude, owned, windows, threads] = await Promise.all([claudeProcesses(), panes(), kitty ? kittyWindows() : [], codexThreads()]);
+  const [claude, owned, windows, threads] = await Promise.all([
+    claudeProcesses(),
+    panes(),
+    kitty ? kittyWindows() : [],
+    codexThreads(),
+  ]);
   const codex = withCodexThreads(processesNamed("codex", isInteractiveCodex), threads);
   const running = [...claude, ...codex.processes, ...processesNamed("pi", isInteractivePi)];
 
   const places = new Map<number, { place: Place; activityAt?: number }>();
   for (const window of windows) {
-    for (const pid of window.pids) places.set(pid, { place: { kind: "kitty", socket: window.socket, windowId: window.id } });
+    for (const pid of window.pids)
+      places.set(pid, { place: { kind: "kitty", socket: window.socket, windowId: window.id } });
   }
   // A kiln pane wins over a kitty window: the window only holds the tmux client, never the agent.
-  for (const pane of owned) places.set(pane.pid, { place: { kind: "kiln", name: pane.name }, activityAt: pane.activityAt });
+  for (const pane of owned)
+    places.set(pane.pid, { place: { kind: "kiln", name: pane.name }, activityAt: pane.activityAt });
 
   const located = running.map(({ background, ...process }) => {
     let found: { place: Place; activityAt?: number } | undefined;
     for (let pid: number | undefined = process.pid; pid && !found; pid = parentPid(pid)) found = places.get(pid);
     const place = background ?? found?.place ?? { kind: "elsewhere" as const };
-    const activity = process.activity
-      ?? (found?.activityAt === undefined ? undefined : Date.now() - found.activityAt < workingWindowMs ? "working" : "idle");
+    const activity =
+      process.activity ??
+      (found?.activityAt === undefined
+        ? undefined
+        : Date.now() - found.activityAt < workingWindowMs
+          ? "working"
+          : "idle");
     return { ...process, activity, branch: gitBranch(process.cwd), place };
   });
-  return [...located, ...codex.headless]
-    .sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt);
+  return [...located, ...codex.headless].sort(
+    (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
+  );
 }
 
 /** The status bar's right side: only the counts that are non-zero, working first. */
 export function summarise(sessions: readonly Session[]): string {
   const count = (activity: Activity) => sessions.filter((session) => session.activity === activity).length;
-  const parts = (["working", "waiting", "idle"] as const).flatMap((activity) => count(activity) ? [`${count(activity)} ${activity}`] : []);
+  const parts = (["working", "waiting", "idle"] as const).flatMap((activity) =>
+    count(activity) ? [`${count(activity)} ${activity}`] : [],
+  );
   return parts.length ? parts.join(" · ") : `${sessions.length} sessions`;
 }

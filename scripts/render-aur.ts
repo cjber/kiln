@@ -83,7 +83,9 @@ function srcinfo(version: string, sha256: string): string {
 }
 
 if (import.meta.main) {
-  const { values } = parseArgs({ options: { version: { type: "string" }, sha256: { type: "string" }, out: { type: "string" } } });
+  const { values } = parseArgs({
+    options: { version: { type: "string" }, sha256: { type: "string" }, out: { type: "string" } },
+  });
   const { version, sha256, out } = values;
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`--version must be X.Y.Z, got ${version}`);
   if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) throw new Error("--sha256 must be a 64-character hex digest");

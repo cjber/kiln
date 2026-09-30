@@ -1,12 +1,12 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
+import type { KeyEvent } from "@opentui/core";
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { focus } from "./kitty";
-import { agents, listSessions, type Activity, type Agent, type Session } from "./sessions";
+import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { attach, exists, kill, start } from "./tmux";
 import { rankedDirectories, recordDirectory } from "./zoxide";
@@ -95,7 +95,9 @@ function launch(agent: Agent, settings: Settings): { argv: string[]; problem?: s
       return { argv: argv.includes("--remote-control") ? argv : [...argv, "--remote-control"] };
     case "codex": {
       const daemon = Bun.spawnSync(["codex", "remote-control", "start"], { stdout: "ignore", stderr: "pipe" });
-      return daemon.exitCode === 0 ? { argv } : { argv, problem: `codex remote control did not start: ${daemon.stderr.toString().trim()}` };
+      return daemon.exitCode === 0
+        ? { argv }
+        : { argv, problem: `codex remote control did not start: ${daemon.stderr.toString().trim()}` };
     }
     case "pi":
       return { argv };
@@ -153,8 +155,13 @@ function useLatest<T>(initial: T): [T, () => T, (next: T | ((current: T) => T)) 
 
 function matching(sessions: readonly Session[], filter: string): Session[] {
   const needle = filter.toLowerCase();
-  return sessions.filter((session) =>
-    !needle || `${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""}`.toLowerCase().includes(needle));
+  return sessions.filter(
+    (session) =>
+      !needle ||
+      `${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""}`
+        .toLowerCase()
+        .includes(needle),
+  );
 }
 
 type AppProps = {
@@ -197,57 +204,81 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
 
   const current = visible[Math.min(selected, visible.length - 1)];
 
-  const withTerminal = useCallback(async <T,>(action: () => T): Promise<T> => {
-    renderer.suspend();
-    try {
-      return action();
-    } finally {
-      renderer.resume();
-      await refresh();
-    }
-  }, [refresh, renderer]);
-
-  const handOver = useCallback((name: string) => withTerminal(() => attach(name, getSettings())), [getSettings, withTerminal]);
-
-  const open = useCallback(async (session: Session) => {
-    switch (session.place.kind) {
-      case "kiln":
-        return handOver(session.place.name);
-      case "kitty":
-        if (!focus(session.place.socket, session.place.windowId)) setNotice("kitty would not focus that window");
-        return;
-      case "background": {
-        // One kiln session per background agent, so leaving and coming back finds the same attach.
-        const name = `${session.agent}-bg-${session.place.id.slice(0, 8)}`;
-        if (!exists(name) && !start(name, session.cwd, session.place.attach, `${session.agent} · ${basename(session.cwd)}`)) {
-          return setNotice(`could not attach to ${session.agent} in ${tilde(session.cwd)}`);
-        }
-        return handOver(name);
+  const withTerminal = useCallback(
+    async <T,>(action: () => T): Promise<T> => {
+      renderer.suspend();
+      try {
+        return action();
+      } finally {
+        renderer.resume();
+        await refresh();
       }
-      case "elsewhere":
-        return setNotice(`this ${session.agent} runs outside kiln and kitty (pid ${session.pid}), so there is nothing to open`);
-    }
-  }, [handOver]);
+    },
+    [refresh, renderer],
+  );
 
-  const create = useCallback(async (agent: Agent) => {
-    if (!Bun.which("fzf")) return setNotice("choosing a directory needs fzf on PATH");
-    const settings = getSettings();
-    const cwd = await withTerminal(() => pickDirectory(settings.zoxide ? rankedDirectories() : []));
-    if (!cwd) return;
-    if (!isDirectory(cwd)) return setNotice(`${tilde(cwd)} is not a directory`);
-    const name = sessionName(agent, cwd);
-    const { argv, problem } = launch(agent, settings);
-    if (!start(name, cwd, argv, `${agent} · ${basename(cwd)}`)) return setNotice(`could not start ${agent} in ${tilde(cwd)}`);
-    if (settings.zoxide) recordDirectory(cwd);
-    await handOver(name);
-    if (problem) setNotice(problem);
-  }, [getSettings, handOver, withTerminal]);
+  const handOver = useCallback(
+    (name: string) => withTerminal(() => attach(name, getSettings())),
+    [getSettings, withTerminal],
+  );
+
+  const open = useCallback(
+    async (session: Session) => {
+      switch (session.place.kind) {
+        case "kiln":
+          return handOver(session.place.name);
+        case "kitty":
+          if (!focus(session.place.socket, session.place.windowId)) setNotice("kitty would not focus that window");
+          return;
+        case "background": {
+          // One kiln session per background agent, so leaving and coming back finds the same attach.
+          const name = `${session.agent}-bg-${session.place.id.slice(0, 8)}`;
+          if (
+            !exists(name) &&
+            !start(name, session.cwd, session.place.attach, `${session.agent} · ${basename(session.cwd)}`)
+          ) {
+            return setNotice(`could not attach to ${session.agent} in ${tilde(session.cwd)}`);
+          }
+          return handOver(name);
+        }
+        case "elsewhere":
+          return setNotice(
+            `this ${session.agent} runs outside kiln and kitty (pid ${session.pid}), so there is nothing to open`,
+          );
+      }
+    },
+    [handOver],
+  );
+
+  const create = useCallback(
+    async (agent: Agent) => {
+      if (!Bun.which("fzf")) return setNotice("choosing a directory needs fzf on PATH");
+      const settings = getSettings();
+      const cwd = await withTerminal(() => pickDirectory(settings.zoxide ? rankedDirectories() : []));
+      if (!cwd) return;
+      if (!isDirectory(cwd)) return setNotice(`${tilde(cwd)} is not a directory`);
+      const name = sessionName(agent, cwd);
+      const { argv, problem } = launch(agent, settings);
+      if (!start(name, cwd, argv, `${agent} · ${basename(cwd)}`))
+        return setNotice(`could not start ${agent} in ${tilde(cwd)}`);
+      if (settings.zoxide) recordDirectory(cwd);
+      await handOver(name);
+      if (problem) setNotice(problem);
+    },
+    [getSettings, handOver, withTerminal],
+  );
 
   /** Settings are a file: open it in $EDITOR, then re-read it, keeping the old ones if the edit does not parse. */
   const editSettings = useCallback(async () => {
     const path = ensureSettingsFile();
     const editor = Bun.env.VISUAL || Bun.env.EDITOR || "vi";
-    await withTerminal(() => Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], { stdin: "inherit", stdout: "inherit", stderr: "inherit" }));
+    await withTerminal(() =>
+      Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      }),
+    );
     try {
       setSettings(loadSettings());
       setNotice("settings reloaded");
@@ -256,11 +287,14 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
     }
   }, [setSettings, withTerminal]);
 
-  const close = useCallback(async (session: Session) => {
-    const closed = stop(session);
-    setNotice(closed === true ? `closed ${session.agent} in ${tilde(session.cwd)}` : closed);
-    await refresh();
-  }, [refresh]);
+  const close = useCallback(
+    async (session: Session) => {
+      const closed = stop(session);
+      setNotice(closed === true ? `closed ${session.agent} in ${tilde(session.cwd)}` : closed);
+      await refresh();
+    },
+    [refresh],
+  );
 
   useKeyboard((key) => {
     // Shadow the render values with the latest ones; see useLatest.
@@ -291,8 +325,10 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
 
     if (mode === "agent") {
       if (key.name === "escape") return setMode("normal");
-      if (key.name === "j" || key.name === "down" || key.name === "l") return setAgentIndex((index) => (index + 1) % choices.length);
-      if (key.name === "k" || key.name === "up" || key.name === "h") return setAgentIndex((index) => (index + choices.length - 1) % choices.length);
+      if (key.name === "j" || key.name === "down" || key.name === "l")
+        return setAgentIndex((index) => (index + 1) % choices.length);
+      if (key.name === "k" || key.name === "up" || key.name === "h")
+        return setAgentIndex((index) => (index + choices.length - 1) % choices.length);
       if (key.name === "return") {
         setMode("normal");
         const agent = choices[agentIndex % choices.length];
@@ -330,17 +366,22 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
   // Columns before the path: marker, agent, status, where, age.
   const fixedWidth = 2 + 7 + 9 + 6 + 6;
   const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
-  const pathWidth = Math.max(12, Math.min(
-    Math.max(0, ...visible.map((session) => tilde(session.cwd).length)),
-    width - 2 - fixedWidth - branchWidth - 2,
-  ));
+  const pathWidth = Math.max(
+    12,
+    Math.min(
+      Math.max(0, ...visible.map((session) => tilde(session.cwd).length)),
+      width - 2 - fixedWidth - branchWidth - 2,
+    ),
+  );
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
       <text>
-        <span fg={color.fgBright} attributes={1}>kiln</span>
-        <span fg={color.comment}>  {sessions.length} sessions</span>
-        {filter ? <span fg={color.peach}>  /{filter}</span> : null}
+        <span fg={color.fgBright} attributes={1}>
+          kiln
+        </span>
+        <span fg={color.comment}> {sessions.length} sessions</span>
+        {filter ? <span fg={color.peach}> /{filter}</span> : null}
       </text>
       <box flexDirection="column" marginTop={1} flexGrow={1}>
         {visible.length ? (
@@ -348,28 +389,41 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
             {`  ${"agent".padEnd(7)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
           </text>
         ) : null}
-        {visible.length ? visible.map((session) => {
-          const active = session === current;
-          return (
-            <box key={session.pid ?? (session.place.kind === "background" ? session.place.id : session.cwd)} backgroundColor={active ? color.bg2 : undefined}>
-              <text>
-                <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                <span fg={agentColor[session.agent]}>{session.agent.padEnd(7)}</span>
-                <span fg={activityColor(session.activity)}>{(session.activity ?? "·").padEnd(9)}</span>
-                <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
-                <span fg={color.comment}>{age(session.startedAt).padStart(4)}  </span>
-                <span fg={active ? color.fgBright : color.fg}>{fit(tilde(session.cwd), pathWidth, "start").padEnd(pathWidth)}  </span>
-                <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
-              </text>
-            </box>
-          );
-        }) : <text fg={color.comment}>{filter ? "no sessions match" : "no agents running · n to start one"}</text>}
+        {visible.length ? (
+          visible.map((session) => {
+            const active = session === current;
+            return (
+              <box
+                key={session.pid ?? (session.place.kind === "background" ? session.place.id : session.cwd)}
+                backgroundColor={active ? color.bg2 : undefined}
+              >
+                <text>
+                  <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
+                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(7)}</span>
+                  <span fg={activityColor(session.activity)}>{(session.activity ?? "·").padEnd(9)}</span>
+                  <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
+                  <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
+                  <span fg={active ? color.fgBright : color.fg}>
+                    {fit(tilde(session.cwd), pathWidth, "start").padEnd(pathWidth)}{" "}
+                  </span>
+                  <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
+                </text>
+              </box>
+            );
+          })
+        ) : (
+          <text fg={color.comment}>{filter ? "no sessions match" : "no agents running · n to start one"}</text>
+        )}
       </box>
       {mode === "agent" ? (
         <text>
-          <span fg={color.fgDim}>new  </span>
+          <span fg={color.fgDim}>new </span>
           {offered.map((agent, index) => (
-            <span key={agent} fg={index === agentIndex ? agentColor[agent] : color.comment} attributes={index === agentIndex ? 1 : 0}>
+            <span
+              key={agent}
+              fg={index === agentIndex ? agentColor[agent] : color.comment}
+              attributes={index === agentIndex ? 1 : 0}
+            >
               {index === agentIndex ? `[${agent}]` : ` ${agent} `}{" "}
             </span>
           ))}
@@ -388,7 +442,10 @@ function stop(session: Session): true | string {
       return kill(place.name) || `could not close kiln session ${place.name}`;
     case "background":
       if (!place.stop) return `${session.agent} cannot stop this session from outside; open it and quit there`;
-      return Bun.spawnSync(place.stop, { stdout: "ignore", stderr: "ignore" }).exitCode === 0 || `${place.stop.join(" ")} failed`;
+      return (
+        Bun.spawnSync(place.stop, { stdout: "ignore", stderr: "ignore" }).exitCode === 0 ||
+        `${place.stop.join(" ")} failed`
+      );
     case "kitty":
     case "elsewhere":
       if (session.pid === undefined) return `${session.agent} in ${tilde(session.cwd)} has no process to close`;

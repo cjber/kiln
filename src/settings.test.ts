@@ -3,7 +3,10 @@ import { expect, test } from "bun:test";
 import { defaults, parseSettings } from "./settings";
 
 test("a partial file overrides only what it names", () => {
-  const settings = parseSettings(`status_bar = false\n[agents]\nclaude = ["claude", "--dangerously-skip-permissions"]\npi = []\n`, "config.toml");
+  const settings = parseSettings(
+    `status_bar = false\n[agents]\nclaude = ["claude", "--dangerously-skip-permissions"]\npi = []\n`,
+    "config.toml",
+  );
   expect(settings.statusBar).toBe(false);
   expect(settings.remoteControl).toBe(true);
   expect(settings.detachKey).toBe(defaults.detachKey);
