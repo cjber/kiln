@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  hasSessionIdentity,
   isInteractiveCodex,
   isInteractivePi,
   nestSessions,
@@ -9,16 +8,9 @@ import {
   resumedCodexThread,
   type Session,
   sessionLocation,
+  sessionParent,
   withCodexThreads,
 } from "./sessions";
-
-test("unassigned Codex terminals are hidden while real local and daemon tasks remain", () => {
-  expect(hasSessionIdentity({ agent: "codex" })).toBe(false);
-  expect(hasSessionIdentity({ agent: "codex", id: "local-thread" })).toBe(true);
-  expect(hasSessionIdentity({ agent: "codex", lastActiveAt: 100 })).toBe(true);
-  expect(hasSessionIdentity({ agent: "claude" })).toBe(true);
-  expect(hasSessionIdentity({ agent: "pi" })).toBe(true);
-});
 
 describe("isInteractiveCodex", () => {
   test("keeps a plain session, a resume, and flags that merely contain a subcommand name", () => {
@@ -88,25 +80,31 @@ describe("Codex thread matching", () => {
     expect(result.headless).toHaveLength(2);
   });
 
-  test("ambiguous terminals remain unknown while daemon threads stay attachable", () => {
+  test("unidentified terminals defer to attachable daemon tasks", () => {
     const result = withCodexThreads([process(1), process(2)], threads);
-    expect(result.processes.map((item) => item.activity)).toEqual([undefined, undefined]);
+    expect(result.processes).toHaveLength(0);
     expect(result.headless.map((item) => item.place.kind)).toEqual(["background", "background"]);
   });
 
-  test("one terminal with multiple threads remains unknown", () => {
-    expect(withCodexThreads([process(1)], threads).processes[0]?.activity).toBeUndefined();
+  test("unidentified terminals stay visible when daemon inventory is unavailable", () => {
+    expect(withCodexThreads([process(1)], []).processes).toHaveLength(1);
   });
 
-  test("known IDs are removed before matching an unambiguous remaining terminal", () => {
+  test("unidentified clients do not steal a remaining daemon task", () => {
     const result = withCodexThreads([process(1), process(2, "older")], threads);
-    expect(result.processes.map((item) => item.activity)).toEqual(["working", "idle"]);
-    expect(result.headless).toEqual([]);
+    expect(result.processes.map((item) => item.activity)).toEqual(["idle"]);
+    expect(result.headless.map((item) => item.id)).toEqual(["newer"]);
+  });
+
+  test("several terminals attached to one thread produce one task", () => {
+    const result = withCodexThreads([process(1, "newer"), process(2, "newer"), process(3)], threads);
+    expect(result.processes.map((item) => item.id)).toEqual(["newer"]);
+    expect(result.headless.map((item) => item.id)).toEqual(["older"]);
   });
 
   test("two terminals cannot share a single daemon status", () => {
     const result = withCodexThreads([process(1), process(2)], threads.slice(0, 1));
-    expect(result.processes.map((item) => item.activity)).toEqual([undefined, undefined]);
+    expect(result.processes).toHaveLength(0);
   });
 });
 
@@ -121,6 +119,15 @@ describe("nested sessions", () => {
     place: { kind: "elsewhere" },
   };
   const other: Session = { pid: 3, agent: "pi", cwd: "/b", startedAt: 3, place: { kind: "elsewhere" } };
+  test("provider ancestry takes precedence and cycles stay visible", () => {
+    const provider = { ...other, agent: "codex" as const, id: "provider" };
+    const nested = { ...parent, id: "nested", parentSessionId: "provider", parentSessionPid: 2 };
+    expect(sessionParent(nested, [child, nested, provider])).toBe(provider);
+    const a = { ...parent, id: "a", parentSessionId: "b" };
+    const b = { ...provider, id: "b", parentSessionId: "a" };
+    expect(nestSessions([a, b])).toHaveLength(2);
+    expect(sessionParent(a, [a, b])).toBeUndefined();
+  });
   test("a child sorts beneath its parent even when its directory sorts first", () => {
     expect(nestSessions([child, other, parent])).toEqual([other, parent, child]);
   });

@@ -23,6 +23,23 @@ const child: Session = {
 const entries = (rows: ReturnType<typeof sessionRows>) =>
   rows.flatMap((row) => (row.kind === "session" ? [row.session.pid] : []));
 
+test("daemon children nest by provider thread identity without process ancestry", () => {
+  const root: Session = { ...parent, id: "root" };
+  const nested: Session = {
+    ...parent,
+    pid: undefined,
+    id: "child",
+    parentSessionId: "root",
+    place: { kind: "background", id: "child", attach: [] },
+  };
+  expect(sessionRows([nested, root], "project", "", new Set()).filter((row) => row.kind === "session")).toHaveLength(1);
+  expect(
+    sessionRows([nested, root], "project", "", new Set(["pid:1"]))
+      .filter((row) => row.kind === "session")
+      .map((row) => row.depth),
+  ).toEqual([0, 1]);
+});
+
 test("unopenable roots are hidden and children expand or match with their parent", () => {
   const orphan: Session = { ...child, pid: 3, parentSessionPid: undefined };
   const sessions = [child, orphan, parent];
