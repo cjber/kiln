@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-30
+
 - **Local directory and branch follow the session.** Claude uses its live process working directory
   and Codex uses the matched daemon thread’s directory. Branches are read again on each refresh,
   including when a session moves to another worktree.
