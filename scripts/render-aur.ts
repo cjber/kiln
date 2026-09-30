@@ -38,7 +38,7 @@ depends=(${quoted(depends)})
 optdepends=(${quoted(optdepends)})
 provides=('kiln')
 # The AUR's \`kiln\` is an unrelated static site generator that also installs /usr/bin/kiln.
-conflicts=('kiln')
+conflicts=('kiln' 'kiln-agents-bin')
 options=('!strip')
 source=("\${pkgname}-\${pkgver}.tar.gz::${url}/archive/refs/tags/v\${pkgver}.tar.gz")
 sha256sums=('${sha256}')
@@ -73,6 +73,7 @@ function srcinfo(version: string, sha256: string): string {
     ...optdepends.map((item) => `\toptdepends = ${item}`),
     "\tprovides = kiln",
     "\tconflicts = kiln",
+    "\tconflicts = kiln-agents-bin",
     "\toptions = !strip",
     `\tsource = ${pkgname}-${version}.tar.gz::${url}/archive/refs/tags/v${version}.tar.gz`,
     `\tsha256sums = ${sha256}`,
@@ -82,14 +83,90 @@ function srcinfo(version: string, sha256: string): string {
   return `${lines.join("\n")}\n`;
 }
 
+function binaryPackage(version: string, sha256: string, x64: string, arm64: string): { build: string; info: string } {
+  const name = "kiln-agents-bin";
+  const binaryDepends = depends.filter((item) => item !== "bun");
+  const build = `# Maintainer: cjber <cjberragan at gmail dot com>
+pkgname=${name}
+pkgver=${version}
+pkgrel=1
+pkgdesc="${pkgdesc}"
+arch=('x86_64' 'aarch64')
+url="${url}"
+license=('MIT')
+depends=(${quoted(binaryDepends)})
+optdepends=(${quoted(optdepends)})
+provides=('kiln' 'kiln-agents')
+conflicts=('kiln' 'kiln-agents')
+options=('!strip')
+source=("kiln-\${pkgver}.tar.gz::${url}/archive/refs/tags/v\${pkgver}.tar.gz")
+sha256sums=('${sha256}')
+source_x86_64=("kiln-linux-x64-\${pkgver}::${url}/releases/download/v\${pkgver}/kiln-linux-x64")
+sha256sums_x86_64=('${x64}')
+source_aarch64=("kiln-linux-arm64-\${pkgver}::${url}/releases/download/v\${pkgver}/kiln-linux-arm64")
+sha256sums_aarch64=('${arm64}')
+
+package() {
+  local binary=kiln-linux-x64
+  if [[ "$CARCH" == aarch64 ]]; then binary=kiln-linux-arm64; fi
+  install -Dm755 "$binary-\${pkgver}" "\${pkgdir}/usr/bin/kiln"
+  install -Dm644 "kiln-\${pkgver}/LICENSE" "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
+  install -Dm644 "kiln-\${pkgver}/README.md" "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"
+}
+`;
+  const info = [
+    `pkgbase = ${name}`,
+    `\tpkgdesc = ${pkgdesc}`,
+    `\tpkgver = ${version}`,
+    "\tpkgrel = 1",
+    `\turl = ${url}`,
+    "\tarch = x86_64",
+    "\tarch = aarch64",
+    "\tlicense = MIT",
+    ...binaryDepends.map((item) => `\tdepends = ${item}`),
+    ...optdepends.map((item) => `\toptdepends = ${item}`),
+    "\tprovides = kiln",
+    "\tprovides = kiln-agents",
+    "\tconflicts = kiln",
+    "\tconflicts = kiln-agents",
+    "\toptions = !strip",
+    `\tsource = kiln-${version}.tar.gz::${url}/archive/refs/tags/v${version}.tar.gz`,
+    `\tsha256sums = ${sha256}`,
+    `\tsource_x86_64 = kiln-linux-x64-${version}::${url}/releases/download/v${version}/kiln-linux-x64`,
+    `\tsha256sums_x86_64 = ${x64}`,
+    `\tsource_aarch64 = kiln-linux-arm64-${version}::${url}/releases/download/v${version}/kiln-linux-arm64`,
+    `\tsha256sums_aarch64 = ${arm64}`,
+    "",
+    `pkgname = ${name}`,
+    "",
+  ].join("\n");
+  return { build, info };
+}
+
 if (import.meta.main) {
   const { values } = parseArgs({
-    options: { version: { type: "string" }, sha256: { type: "string" }, out: { type: "string" } },
+    options: {
+      version: { type: "string" },
+      sha256: { type: "string" },
+      out: { type: "string" },
+      "bin-x64-sha256": { type: "string" },
+      "bin-arm64-sha256": { type: "string" },
+    },
   });
   const { version, sha256, out } = values;
   if (!version || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`--version must be X.Y.Z, got ${version}`);
   if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256)) throw new Error("--sha256 must be a 64-character hex digest");
   if (!out) throw new Error("--out is required");
+  const x64 = values["bin-x64-sha256"];
+  const arm64 = values["bin-arm64-sha256"];
+  if (x64 || arm64) {
+    if (!x64 || !arm64 || ![x64, arm64].every((hash) => /^[0-9a-f]{64}$/.test(hash)))
+      throw new Error("both binary sha256 digests must be 64-character hex digests");
+    const binary = binaryPackage(version, sha256, x64, arm64);
+    mkdirSync(join(out, "bin"), { recursive: true });
+    writeFileSync(join(out, "bin", "PKGBUILD"), binary.build);
+    writeFileSync(join(out, "bin", ".SRCINFO"), binary.info);
+  }
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "PKGBUILD"), pkgbuild(version, sha256));
   writeFileSync(join(out, ".SRCINFO"), srcinfo(version, sha256));
