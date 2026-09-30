@@ -48,7 +48,7 @@ export default function remote(pi) {
       title: context.sessionManager.getSessionName(),
       cwd: context.cwd,
       activity: pendingPrompt || !context.isIdle() ? "working" : "idle",
-      updatedAt: updatedAt ?? (Number.isFinite(timestamp) ? timestamp : undefined),
+      updatedAt: Math.max(updatedAt ?? 0, Number.isFinite(timestamp) ? timestamp : 0) || undefined,
       messages,
       writer: leaseUntil > Date.now() ? writer : undefined,
       localAction: "Extension dialogs must be answered in the local terminal",
@@ -158,7 +158,7 @@ export default function remote(pi) {
       chmodSync(socket, 0o600);
       writeFileSync(
         join(directory, "session.json"),
-        JSON.stringify({ pid: process.pid, socket, startedAt: statSync(`/proc/${process.pid}`).mtimeMs }),
+        JSON.stringify({ pid: process.pid, socket, startedAt: Math.trunc(statSync(`/proc/${process.pid}`).mtimeMs) }),
         {
           mode: 0o600,
         },
@@ -184,7 +184,7 @@ export default function remote(pi) {
       if (event === "message_update") streaming = record.message;
       if (["message_end", "agent_end", "agent_settled"].includes(event)) streaming = undefined;
       if (["agent_end", "agent_settled"].includes(event)) pendingPrompt = false;
-      for (const client of clients) send(client, { type: "event", event: record });
+      for (const client of clients) send(client, { type: "event", sequence, event: { type: record.type } });
     });
   }
   for (const event of ["session_switch", "session_fork", "session_tree"]) {

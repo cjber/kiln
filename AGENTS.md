@@ -49,7 +49,9 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/bundled-skills.ts`, `bundled-skills/` - embedded helpers synced to the shared user store before the TUI starts.
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
 - `src/session-titles.ts` - incremental Claude/Pi title metadata; titles never establish activity.
-- `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
+- `extensions/` - opt-in Pi socket bridge and protocol tests, embedded for source and binary installs.
+- `src/pi.ts`, `src/pi-install.ts` - verified owner/PID discovery, bounded bridge calls and managed installation.
+  Phone commands require pairing and an exact live session ID; the extension enforces one writer lease.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
 - `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.

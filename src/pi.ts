@@ -44,7 +44,7 @@ export function piBridges(root = Bun.env.XDG_RUNTIME_DIR || tmpdir()): PiBridge[
         const processInfo = lstatSync(`/proc/${data.pid}`);
         if (
           processInfo.uid !== process.getuid?.() ||
-          processInfo.mtimeMs !== data.startedAt ||
+          Math.trunc(processInfo.mtimeMs) !== data.startedAt ||
           !owned(data.socket, "socket", 0o600)
         )
           return [];
@@ -65,7 +65,6 @@ export function piRequest<T>(
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(bridge.socket);
-    const id = requestId;
     let buffer = "";
     const timer = setTimeout(() => finish(new Error("Pi bridge did not respond")), timeout);
     function finish(error?: Error, data?: T) {
@@ -75,7 +74,7 @@ export function piRequest<T>(
       else resolve(data as T);
     }
     socket.setEncoding("utf8");
-    socket.once("connect", () => socket.write(`${JSON.stringify({ ...command, id })}\n`));
+    socket.once("connect", () => socket.write(`${JSON.stringify({ ...command, id: requestId })}\n`));
     socket.once("error", () => finish(new Error("Cannot connect to the Pi bridge")));
     socket.once("end", () => finish(new Error("Pi bridge closed the connection")));
     socket.on("data", (chunk) => {
@@ -86,7 +85,7 @@ export function piRequest<T>(
         buffer = buffer.slice(newline + 1);
         try {
           const reply = JSON.parse(line);
-          if (reply.type !== "response" || reply.id !== id) continue;
+          if (reply.type !== "response" || reply.id !== requestId) continue;
           finish(
             reply.success
               ? undefined

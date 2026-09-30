@@ -129,6 +129,7 @@ export function startServer({
           );
           return response({ success: true });
         } catch (error) {
+          if (error instanceof SyntaxError) return response({ error: "Invalid Pi command JSON" }, 400);
           return response({ error: error instanceof Error ? error.message : "Pi command failed" }, 409);
         }
       }

@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
+        var piSession by remember { mutableStateOf<Row?>(null) }
         var state by remember { mutableStateOf("Connecting") }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
         var retry by remember { mutableIntStateOf(0) }
@@ -106,7 +107,10 @@ class MainActivity : ComponentActivity() {
                 clock = System.currentTimeMillis()
             }
         }
-        LaunchedEffect(host?.origin) { snapshot = null }
+        LaunchedEffect(host?.origin) {
+            snapshot = null
+            piSession = null
+        }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
         DisposableEffect(host, retry, pairing, foreground) {
             if (host != null && !pairing && foreground) {
@@ -134,6 +138,10 @@ class MainActivity : ComponentActivity() {
                 delay(5000)
                 retry++
             }
+        }
+        if (piSession != null && host != null && !pairing) {
+            PiRemoteScreen(host, piSession!!, foreground) { piSession = null }
+            return
         }
         details?.let { row ->
             AlertDialog(
@@ -257,7 +265,8 @@ class MainActivity : ComponentActivity() {
                 now = clock,
                 expanded = expanded,
                 open = { row ->
-                    if (row.exact) openSession(row) { error = it } else handoff = row
+                    if (row.piRemote) piSession = row
+                    else if (row.exact) openSession(row) { error = it } else handoff = row
                 },
                 details = { details = it },
                 toggle = { row ->

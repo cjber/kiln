@@ -85,7 +85,7 @@ fun SessionCard(
                                 },
                         )
                     }
-                if (row.url != null)
+                if (row.url != null || row.piRemote)
                     TextButton(onClick = open, contentPadding = PaddingValues(horizontal = 6.dp)) {
                         Text("Open")
                     }
