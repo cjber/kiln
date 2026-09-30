@@ -2,7 +2,8 @@
 set -euo pipefail
 
 case "${1:-}" in
-  x64|arm64) ;;
+  x64) package_image="archlinux:base@sha256:b21322c663be387c0ed9cbc7bbbfe18e41633ad4e7b7c77cfad45f128be20040" ;;
+  arm64) package_image="menci/archlinuxarm:base@sha256:517984e192ff5cd89d0ecfc776da43956151f03b5329d226d0caa0fbdc5d1d98" ;;
   *) printf '%s\n' 'usage: bash scripts/check-binary-package.sh <x64|arm64>' >&2; exit 2 ;;
 esac
 
@@ -17,8 +18,14 @@ bun scripts/render-aur.ts --version "$version" \
   --bin-arm64-sha256 "$(sha256sum dist/kiln-linux-arm64 | cut -d' ' -f1)" \
   --out "$package_scratch/aur"
 
-docker run --rm -i -v "$package_scratch:/work" archlinux:base bash -s <<'ARCH'
+docker run --rm -i -v "$package_scratch:/work" \
+  -e "PACKAGE_UID=$(id -u)" -e "PACKAGE_GID=$(id -g)" "$package_image" bash -s <<'ARCH'
 set -euo pipefail
+cleanup() {
+  tmux -L kiln-package-smoke kill-server 2>/dev/null || true
+  chown -R "$PACKAGE_UID:$PACKAGE_GID" /work
+}
+trap cleanup EXIT
 pacman -Syu --noconfirm --needed base-devel tmux fzf
 useradd -m builder
 chown -R builder:builder /work
@@ -38,7 +45,6 @@ pacman -U --noconfirm /work/aur/bin/*.pkg.tar.zst
 if command -v bun; then printf '%s\n' 'binary package test must run without Bun' >&2; exit 1; fi
 kiln --version
 kiln status
-trap 'tmux -L kiln-package-smoke kill-server 2>/dev/null || true' EXIT
 tmux -L kiln-package-smoke -f /dev/null new-session -d -s list -x 100 -y 20 /usr/bin/kiln
 for attempt in {1..50}; do
   if tmux -L kiln-package-smoke capture-pane -p -t list | grep -q 'q quit'; then
