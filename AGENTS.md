@@ -39,7 +39,10 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
-- `src/skills.ts`, `src/skills-view.tsx` - shared user/project stores, compatibility links and the `S` view.
+- `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
+- `src/bundled-skills.ts`, `bundled-skills/` - embedded helpers synced to the shared user store before the TUI starts.
+  Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
+- `src/session-titles.ts` - incremental Claude/Pi title metadata; titles never establish activity.
 - `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.

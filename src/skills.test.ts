@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSkill, importSkill, listSkills, shareSkill, skillStore, unshareSkill } from "./skills";
+import { createSkill, importSkill, listSkills, repairSkill, shareSkill, skillStore, unshareSkill } from "./skills";
 
 const scratch: string[] = [];
 afterEach(() => {
@@ -61,4 +61,25 @@ test("name clashes and broken links are preserved without partially sharing or o
   unshareSkill(user, "deploy");
   expect(lstatSync(clash).isSymbolicLink()).toBe(true);
   expect(() => importSkill(user, join(user.directory, "deploy"))).toThrow("already exists");
+});
+
+test("repair preserves conflicting directories and symlink targets before sharing the canonical skill", () => {
+  const { path, user } = fixture();
+  createSkill(user, "deploy");
+  const conflicting = join(user.adapters.claude, "deploy");
+  mkdirSync(conflicting, { recursive: true });
+  writeFileSync(join(conflicting, "SKILL.md"), "Claude's original");
+  const external = join(path, "original");
+  mkdirSync(external);
+  writeFileSync(join(external, "SKILL.md"), "Pi's original");
+  mkdirSync(user.adapters.pi, { recursive: true });
+  symlinkSync("../../../original", join(user.adapters.pi, "deploy"));
+  const backups = repairSkill(user, "deploy");
+  expect(backups).toHaveLength(2);
+  expect(readFileSync(join(backups[0] as string, "SKILL.md"), "utf8")).toBe("Claude's original");
+  expect(realpathSync(backups[1] as string)).toBe(external);
+  expect(listSkills(user)[0]).toMatchObject({ claude: "shared", pi: "shared" });
+  expect(readFileSync(join(external, "SKILL.md"), "utf8")).toBe("Pi's original");
+  expect(repairSkill(user, "deploy")).toEqual([]);
+  expect(() => repairSkill(user, "../outside")).toThrow("not a path");
 });

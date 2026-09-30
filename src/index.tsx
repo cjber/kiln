@@ -1,3 +1,4 @@
+import { syncBundledSkills } from "./bundled-skills";
 import { runCli } from "./cli";
 import { loadSettings, type Settings } from "./settings";
 
@@ -13,6 +14,7 @@ try {
   process.exit(1);
 }
 
+const skillProblems = syncBundledSkills();
 const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
   import("@opentui/core"),
   import("@opentui/react"),
@@ -28,4 +30,4 @@ const quit = () => {
 process.once("SIGINT", quit);
 process.once("SIGTERM", quit);
 process.once("SIGHUP", quit);
-createRoot(renderer).render(<App initialSettings={settings} onQuit={quit} />);
+createRoot(renderer).render(<App initialSettings={settings} onQuit={quit} initialNotice={skillProblems.join("; ")} />);

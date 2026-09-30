@@ -155,13 +155,14 @@ function typed(key: KeyEvent): string | undefined {
 }
 
 type AppProps = {
+  initialNotice?: string;
   initialSettings: Settings;
   onQuit: () => void;
   /** Where the list comes from; scripts/screenshots.tsx passes demo sessions. */
   loadSessions?: () => Promise<Session[]>;
 };
 
-export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
+export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" }: AppProps) {
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -173,7 +174,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
   const [updatedAt, setUpdatedAt] = useState<number>();
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(initialNotice);
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);

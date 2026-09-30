@@ -57,3 +57,30 @@ test("fast keyboard input creates a project skill, shares it and returns without
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("long skill lists scroll while repair guidance stays visible", async () => {
+  const skills = Array.from({ length: 30 }, (_, index) => ({
+    name: `skill-${index.toString().padStart(2, "0")}`,
+    directory: "/unused",
+    external: false,
+    claude: "conflict" as const,
+    pi: "missing" as const,
+  }));
+  const setup = await testRender(
+    <SkillsView project="/unused" onBack={() => {}} edit={async () => {}} loadSkills={() => skills} />,
+    { width: 70, height: 16 },
+  );
+  try {
+    await setup.waitForFrame((frame) => frame.includes("f repair"));
+    await act(async () => {
+      await setup.mockInput.pressKeys(Array(29).fill("j"));
+    });
+    await setup.waitForFrame((frame) => frame.includes("skill-29"));
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("f repair");
+    expect(frame).toContain("q back");
+    expect(frame).toContain("30/30");
+  } finally {
+    await act(async () => setup.renderer.destroy());
+  }
+});
