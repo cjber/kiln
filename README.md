@@ -15,7 +15,7 @@ kiln lists every interactive Claude Code, Codex and Pi session on the machine, w
 it, and takes you to the one you pick. The keys are vim's, there is no tmux prefix to learn, and one
 key brings you back to the list while the agent keeps working.
 
-It does one thing. There is no chat pane, no dashboard and no daemon of its own.
+The session list and shared skills view have no chat pane or daemon of their own.
 
 ## Install
 
@@ -51,6 +51,7 @@ The list is normal mode. Filtering is the only mode that takes text, and Esc lea
 | `x` | Close the selected session, or archive a Codex background thread (`y` confirms) |
 | `/` | Filter by agent, directory, branch or status |
 | `s` | Edit settings in `$EDITOR`; they reload when you close it |
+| `S` | Manage shared skills for this user or the selected session's project |
 | `r` | Refresh now (the list refreshes every two seconds anyway) |
 | `q` | Quit |
 
@@ -146,6 +147,26 @@ background at most once a minute with a ten-second deadline. Failures retain the
 show a notice. Unknown worker states display `·`. Enter opens the selected session on claude.ai
 using `xdg-open`; it does not teleport or change a local branch. `x` cannot close cloud sessions.
 `cloud = false` hides both providers. Long lists scroll with the selected row.
+
+## Shared skills
+
+`S` opens the skills view. `u` selects `~/.agents/skills`, which applies to this user across
+projects on this machine. `p` selects `.agents/skills` at the selected session's git root, or its
+working directory when it is outside git. These are the canonical directories for all three agents.
+
+`n` creates a skill and opens `SKILL.md` in `$EDITOR`. `Enter` edits an existing skill. `i` copies
+an existing skill directory, including supporting files, into the selected scope. `l` shares it:
+Codex reads the shared directory directly; Claude and Pi use relative compatibility links in their
+own discovery directories. Existing entries that point somewhere else are marked `conflict` and
+are never replaced. `x`, then `y`, removes only those Claude and Pi links. It keeps the shared
+files and Codex access. `q` returns to sessions.
+
+Project skills stay in their project; importing them into the user scope is an explicit action.
+kiln does not migrate existing harness folders automatically. A `link` in the source column means
+the shared entry still points to files elsewhere. Plugin, synced and built-in skills remain managed
+by their harness. Reload skills or restart existing sessions after changing the links.
+
+<img src="assets/skills.png" alt="Shared project skills and their Claude and Pi compatibility links" />
 
 ## Development
 
