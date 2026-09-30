@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
 import { claudeBridgeLink } from "./phone-links";
 import { phoneSession, startServer } from "./server";
-import type { Session } from "./sessions";
+import { type Session, sessionParent } from "./sessions";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -140,5 +140,5 @@ test("phone projection retains provider ancestry without terminal PIDs", () => {
     place: { kind: "background", id: "parent", attach: [] },
   };
   const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
-  expect(phoneSession(child, [child, parent]).parentId).toBe(phoneSession(parent).id);
+  expect(phoneSession(child, sessionParent(child, [child, parent])).parentId).toBe(phoneSession(parent).id);
 });
