@@ -63,6 +63,15 @@ describe("Codex thread matching", () => {
     expect(result.headless).toEqual([]);
   });
 
+  test("a matched daemon thread supplies its current directory instead of the terminal launch path", () => {
+    const result = withCodexThreads(
+      [process(1, "older")],
+      [{ id: "older", cwd: "/new-worktree", createdAt: 1, activity: "idle" }],
+    );
+    expect(result.processes[0]?.cwd).toBe("/new-worktree");
+    expect(result.headless).toEqual([]);
+  });
+
   test("a local thread absent from the daemon never borrows its status", () => {
     const result = withCodexThreads([process(1, "local")], threads);
     expect(result.processes[0]?.activity).toBeUndefined();

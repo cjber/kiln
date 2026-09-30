@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Local directory and branch follow the session.** Claude uses its live process working directory
+  and Codex uses the matched daemon thread’s directory. Branches are read again on each refresh,
+  including when a session moves to another worktree.
+
 - **List Claude cloud sessions through its existing login.** `claude_cloud = true` opts into the
   internal API used by Claude Code's cloud picker. Enter opens the session on claude.ai; archived
   and local bridge sessions are left out. Refreshes run in the background, and long lists scroll

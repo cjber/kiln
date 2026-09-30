@@ -175,7 +175,7 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
       const session = {
         pid: item.pid,
         agent: "claude" as const,
-        cwd: item.cwd,
+        cwd: processCwd(item.pid) ?? item.cwd,
         startedAt: item.startedAt ?? startedAt(item.pid),
         activity: claudeActivity(item.status),
       };
@@ -268,7 +268,7 @@ export function withCodexThreads(
   const identified = processes.map(({ threadId, ...process }) => {
     const thread = threadId ? unpaired.find((thread) => thread.id === threadId) : undefined;
     if (thread) unpaired.splice(unpaired.indexOf(thread), 1);
-    return { process: { ...process, activity: thread?.activity }, threadId };
+    return { process: { ...process, cwd: thread?.cwd ?? process.cwd, activity: thread?.activity }, threadId };
   });
   const paired = identified.map(({ process, threadId }) => {
     if (threadId) return process;
@@ -278,7 +278,7 @@ export function withCodexThreads(
     const thread = candidates[0];
     if (!thread) return process;
     unpaired.splice(unpaired.indexOf(thread), 1);
-    return { ...process, activity: thread.activity };
+    return { ...process, cwd: thread.cwd, activity: thread.activity };
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired.map((thread) => ({
