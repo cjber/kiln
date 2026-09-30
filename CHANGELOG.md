@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-30
+
 - **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating
   agent or parent process when available. Children of a known kiln session appear directly below it.
 
