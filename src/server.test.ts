@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
 import { claudeBridgeLink } from "./phone-links";
-import { startServer } from "./server";
+import { phoneSession, startServer } from "./server";
 import type { Session } from "./sessions";
 
 const directories: string[] = [];
@@ -129,4 +129,16 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     server.stop();
     pairing.close();
   }
+});
+
+test("phone projection retains provider ancestry without terminal PIDs", () => {
+  const parent: Session = {
+    id: "parent",
+    agent: "codex",
+    cwd: "/project",
+    startedAt: 1,
+    place: { kind: "background", id: "parent", attach: [] },
+  };
+  const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
+  expect(phoneSession(child, [child, parent]).parentId).toBe(phoneSession(parent).id);
 });
