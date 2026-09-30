@@ -297,10 +297,11 @@ bun scripts/build.ts
 The files in `dist/` include OpenTUI's native library and the tmux configuration. They still
 need tmux and fzf. Release assets can also be installed directly as `kiln` on your PATH.
 
-A release is `bun scripts/release.ts patch` (or `minor`, `major`) on `main`. It turns the
-`[Unreleased]` entry in [CHANGELOG.md](CHANGELOG.md) into the new version's, then makes a signed
-commit and tag. Pushing the tag publishes the GitHub release, with that entry as its notes, and the
-source and binary AUR packages.
+Prepare a release with `bun scripts/release.ts patch` (or `minor`, `major`) on a separate PR
+branch. It updates desktop and Android versions, moves the unreleased notes and makes a signed
+commit. Run the full gate, open the PR and merge after CI passes. From a clean worktree at the
+merged origin/main commit, run `bun scripts/release.ts tag`, run the full gate again and push only
+the version tag. The tag publishes the Linux binaries, signed Android APK and both AUR packages.
 
 ## Changelog
 
