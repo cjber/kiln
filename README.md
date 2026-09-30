@@ -108,6 +108,7 @@ gets neither remote control nor a real status.
 
 ```sh
 bun install
+bunx biome ci .                           # format and lint; `bunx biome check --write .` fixes
 bunx tsc --noEmit -p .
 bun test
 bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI

@@ -8,6 +8,7 @@ from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ```sh
 bun install --frozen-lockfile
+bunx biome ci .
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
