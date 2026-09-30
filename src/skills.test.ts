@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -82,4 +83,24 @@ test("repair preserves conflicting directories and symlink targets before sharin
   expect(readFileSync(join(external, "SKILL.md"), "utf8")).toBe("Pi's original");
   expect(repairSkill(user, "deploy")).toEqual([]);
   expect(() => repairSkill(user, "../outside")).toThrow("not a path");
+});
+
+test("directory backups retain external relative links and internal supporting links", () => {
+  const { path, user } = fixture();
+  createSkill(user, "deploy");
+  const original = join(user.adapters.claude, "deploy");
+  mkdirSync(join(original, "scripts"), { recursive: true });
+  writeFileSync(join(path, "instructions.md"), "Original instructions");
+  symlinkSync("../../../instructions.md", join(original, "SKILL.md"));
+  writeFileSync(join(original, "scripts", "run.sh"), "echo deploy");
+  symlinkSync("scripts/run.sh", join(original, "run.sh"));
+  symlinkSync(join(original, "scripts", "run.sh"), join(original, "absolute.sh"));
+  symlinkSync("../../../absent.md", join(original, "missing.md"));
+  const [backup] = repairSkill(user, "deploy");
+  expect(backup).toBeDefined();
+  expect(readFileSync(join(backup as string, "SKILL.md"), "utf8")).toBe("Original instructions");
+  expect(readlinkSync(join(backup as string, "run.sh"))).toBe("scripts/run.sh");
+  expect(readFileSync(join(backup as string, "run.sh"), "utf8")).toBe("echo deploy");
+  expect(readFileSync(join(backup as string, "absolute.sh"), "utf8")).toBe("echo deploy");
+  expect(readlinkSync(join(backup as string, "missing.md"))).toBe(join(path, "absent.md"));
 });
