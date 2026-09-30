@@ -35,11 +35,20 @@ function activity(status: ThreadStatus): Activity | undefined {
   }
 }
 
-/** One JSON-RPC exchange with the daemon: initialize, list the loaded threads, read each one. */
-async function rpc(socket: string): Promise<Thread[]> {
+type Call = <T>(method: string, params: object) => Promise<T>;
+
+/** Bound the connection lifetime, including initialization, and close timed-out sockets. */
+async function rpc<T>(socket: string, action: (call: Call) => Promise<T>): Promise<T> {
   const ws = new WebSocket(`ws+unix://${socket}`);
   const pending = new Map<number, (reply: Reply) => void>();
   let next = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("the Codex daemon did not answer"));
+    }, timeoutMs);
+  });
   const call = <T>(method: string, params: object) =>
     new Promise<T>((resolve, reject) => {
       const id = ++next;
@@ -50,20 +59,24 @@ async function rpc(socket: string): Promise<Thread[]> {
     });
   ws.onmessage = (event) => {
     const reply = JSON.parse(String(event.data)) as Reply;
-    if (reply.id !== undefined) pending.get(reply.id)?.(reply);
+    if (reply.id !== undefined) {
+      pending.get(reply.id)?.(reply);
+      pending.delete(reply.id);
+    }
   };
   try {
-    await new Promise((resolve, reject) => {
-      ws.onopen = resolve;
-      ws.onerror = () => reject(new Error(`cannot connect to ${socket}`));
-    });
-    await call("initialize", { clientInfo: { name: "kiln", version: "0" } });
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        ws.onopen = resolve;
+        ws.onerror = () => reject(new Error(`cannot connect to ${socket}`));
+      }),
+      timeout,
+    ]);
+    await Promise.race([call("initialize", { clientInfo: { name: "kiln", version: "0" } }), timeout]);
     ws.send(JSON.stringify({ method: "initialized" }));
-    const loaded = await call<{ data: string[] }>("thread/loaded/list", {});
-    return await Promise.all(
-      loaded.data.map(async (threadId) => (await call<{ thread: Thread }>("thread/read", { threadId })).thread),
-    );
+    return await Promise.race([action(call), timeout]);
   } finally {
+    clearTimeout(timer);
     ws.close();
   }
 }
@@ -74,12 +87,28 @@ export async function codexThreads(): Promise<CodexThread[]> {
   if (!existsSync(socket)) return [];
   let threads: Thread[];
   try {
-    threads = await Promise.race([
-      rpc(socket),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("the Codex daemon did not answer")), timeoutMs),
-      ),
-    ]);
+    threads = await rpc(socket, async (call) => {
+      const loaded = await call<{ data: string[] }>("thread/loaded/list", {});
+      if (!loaded.data.length) return [];
+      const archived = new Set<string>();
+      let cursor: string | null = null;
+      do {
+        const page: { data: { id: string }[]; nextCursor: string | null } = await call("thread/list", {
+          archived: true,
+          useStateDbOnly: true,
+          sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
+          limit: 100,
+          cursor,
+        });
+        for (const thread of page.data) archived.add(thread.id);
+        cursor = page.nextCursor;
+      } while (cursor);
+      return Promise.all(
+        loaded.data
+          .filter((id) => !archived.has(id))
+          .map(async (threadId) => (await call<{ thread: Thread }>("thread/read", { threadId })).thread),
+      );
+    });
   } catch {
     // A socket left behind by a stopped daemon refuses the connection; that is no daemon, not a fault.
     return [];
@@ -90,4 +119,9 @@ export async function codexThreads(): Promise<CodexThread[]> {
     if (thread.parentThreadId || !state) return [];
     return [{ id: thread.id, cwd: thread.cwd, createdAt: thread.createdAt * 1000, activity: state }];
   });
+}
+
+/** Archive through the daemon, retaining history and letting Codex manage its descendants. */
+export async function archiveCodexThread(threadId: string): Promise<void> {
+  await rpc(controlSocket(), (call) => call("thread/archive", { threadId }));
 }
