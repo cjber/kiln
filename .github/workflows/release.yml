@@ -10,7 +10,13 @@ on:
 permissions: {}
 
 jobs:
+  binaries:
+    permissions:
+      contents: read
+    uses: $/.github/workflows/binaries.yml
+
   release:
+    needs: binaries
     runs-on: ubuntu-latest
     permissions:
       contents: write
