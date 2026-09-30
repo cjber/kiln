@@ -9,7 +9,7 @@
   [![License](https://img.shields.io/badge/license-MIT-475569?style=flat-square)](LICENSE)
 </div>
 
-<img src="assets/list.png" alt="kiln listing Claude, Codex and Pi sessions with their status, directory and branch" />
+<img src="assets/list.png" alt="kiln listing Claude, Codex and Pi sessions with their status, last activity, directory and branch" />
 
 kiln lists every interactive Claude Code, Codex and Pi session on the machine, wherever you started
 it, and takes you to the one you pick. The keys are vim's, there is no tmux prefix to learn, and one
@@ -51,6 +51,7 @@ The list is normal mode. Filtering is the only mode that takes text, and Esc lea
 | `x` | Close the selected session (`y` confirms) |
 | `/` | Filter by agent, directory, branch or status |
 | `s` | Edit settings in `$EDITOR`; they reload when you close it |
+| `o` | Cycle last activity, age, harness, directory and project order |
 | `r` | Refresh now (the list refreshes every two seconds anyway) |
 | `q` | Quit |
 
@@ -93,6 +94,8 @@ a quiet tool may still be running. Codex threads are matched by their local thre
 ambiguous directory matches show `·` rather than borrowing another session's status. Unmatched daemon
 threads stay available as `bg` rows. Remote Control
 servers run by a systemd service and Codex daemon sub-threads are left out.
+
+The `active` column shows time since the last transcript update or terminal output. Unavailable timestamps show `unknown` and sort last. The list defaults to most recently active first. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.
 
 ## Settings
 
@@ -163,5 +166,3 @@ Goplani and has since been rewritten down to this list; the original copyright n
 [LICENSE](LICENSE).
 
 Made by Cillian Berragan · [GitHub](https://github.com/cjber)
-
-The `active` column shows time since the last transcript update or terminal output. Unavailable timestamps show `unknown` and sort last. The list defaults to most recently active first. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.

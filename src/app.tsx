@@ -423,7 +423,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     }
   });
 
-  // Columns before the path: marker, agent, status, where, age.
+  // Columns before the path: marker, agent, status, where, age and last activity.
   const fixedWidth = 2 + 9 + 9 + 6 + 6 + 9;
   const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
   const pathWidth = Math.max(
