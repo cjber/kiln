@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-30
+
 - **Archive Codex background threads with x.** The confirmation names the archive action; history
   is kept and archived threads stay hidden. Other sessions retain their close action, and
   unsupported actions explain why before confirmation.
