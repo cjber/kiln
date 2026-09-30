@@ -15,7 +15,7 @@ import type { CapturedFrame, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 
 import { App } from "../src/app";
-import type { Session } from "../src/sessions";
+import { nestSessions, type Session } from "../src/sessions";
 import { defaults } from "../src/settings";
 import type { Skill } from "../src/skills";
 import { SkillsView } from "../src/skills-view";
@@ -75,12 +75,13 @@ const demo: Session[] = [
   },
   {
     pid: 105,
+    parentSessionPid: 102,
     agent: "claude",
     cwd: code("kiln"),
     startedAt: minutes(64),
     activity: "waiting",
     branch: "main",
-    place: kiln("d"),
+    place: { kind: "elsewhere", source: "pid 105 · spawned by codex (102)" },
   },
   {
     agent: "codex",
@@ -143,7 +144,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
     name === "skills" ? (
       <SkillsView project={code("atlas")} onBack={() => {}} edit={async () => {}} loadSkills={() => demoSkills} />
     ) : (
-      <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />
+      <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => nestSessions(demo)} />
     ),
     {
       width: cols,
@@ -164,6 +165,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 await shoot("list", ["j"]);
+await shoot("unavailable", ["j", "j"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
 rmSync(scratch, { recursive: true, force: true });

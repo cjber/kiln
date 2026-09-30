@@ -79,13 +79,21 @@ opens it anyway.
   Claude cloud discovery is unavailable in the CLI.
 - **Anywhere else** (another multiplexer, an SSH session): listed, but there is nothing to attach to.
 
+Sessions outside kiln and kitty appear grey because kiln cannot open them. Select one to see its
+PID, terminal and originating agent or parent process when available. When that agent is a known
+kiln session, the child appears beneath it with a small arrow.
+
+<img src="assets/unavailable.png" alt="A grey child session nested beneath its Codex parent, with its source shown below" />
+
 ## Status
 
 `working` is mid-turn, `waiting` has stopped to ask you something, and `idle` is ready for your next
 message. Claude reports its own status through `claude agents --json`, and Codex through its daemon.
-A Pi session kiln started counts as `working` while its pane is drawing and `idle` when it stops. One
-started elsewhere shows `·`, since there is nothing to ask. Remote Control servers run by a systemd
-service, and sub-agents, are left out.
+Recent pane output counts as `working` when no agent status is available. Silence shows `·`, since
+a quiet tool may still be running. Codex threads are matched by their local thread ID when available;
+ambiguous directory matches show `·` rather than borrowing another session's status. Unmatched daemon
+threads stay available as `bg` rows. Remote Control
+servers run by a systemd service and Codex daemon sub-threads are left out.
 
 ## Settings
 
@@ -139,11 +147,13 @@ by their harness. Reload skills or restart existing sessions after changing the 
 ## Development
 
 ```sh
-bun install
+bun install --frozen-lockfile
 bunx biome ci .                           # format and lint; `bunx biome check --write .` fixes
 bunx tsc --noEmit -p .
 bun test
+bun scripts/changelog.ts --check
 python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/sift-project)
+python3 .sift/agents.py check
 bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI
 ```
 

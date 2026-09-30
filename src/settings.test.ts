@@ -22,3 +22,10 @@ test("a typo is an error naming the file and key, not a silent default", () => {
   expect(() => parseSettings(`zoxide = "yes"\n`, "config.toml")).toThrow("zoxide must be true or false");
   expect(() => parseSettings(`[agents]\ngemini = ["gemini"]\n`, "config.toml")).toThrow('unknown agent "gemini"');
 });
+
+test("the README settings example matches the shipped defaults", async () => {
+  const readme = await Bun.file(new URL("../README.md", import.meta.url)).text();
+  const example = readme.match(/```toml\n([\s\S]*?)```/);
+  expect(example).not.toBeNull();
+  expect(parseSettings(example?.[1] ?? "", "README.md")).toEqual(defaults);
+});

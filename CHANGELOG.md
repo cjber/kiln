@@ -13,6 +13,15 @@ verbatim.
   Create, edit or copy a skill, then share it through Claude and Pi compatibility links. Codex reads
   the shared directory directly. Name clashes are reported before linking; unlinking keeps the files.
 
+## [0.1.1] - 2026-09-30
+
+- **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating
+  agent or parent process when available. Children of a known kiln session appear directly below it.
+
+- **Session status avoids false idle readings.** Codex sessions with a local thread ID no longer
+  borrow another thread's status, and ambiguous directory matches remain unknown. Quiet terminal
+  output no longer counts as evidence that a session is idle.
+
 - **Try a local Pi remote control bridge.** An opt-in extension exposes state, transcript events,
   prompts and abort through an owner-only Unix socket. It needs no fork of Pi and is not enabled
   automatically. Remote dialog replies are not supported.
