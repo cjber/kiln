@@ -5,13 +5,20 @@ import { join } from "node:path";
 import type { Activity } from "./sessions";
 
 /** A thread loaded on Codex's shared app-server daemon: every live `codex` TUI has one, and `codex agents` starts more. */
-export type CodexThread = { id: string; cwd: string; createdAt: number; activity: Activity };
+export type CodexThread = { id: string; cwd: string; createdAt: number; updatedAt?: number; activity: Activity };
 
 type ThreadStatus =
   | { type: "notLoaded" | "idle" | "systemError" }
   | { type: "active"; activeFlags: ("waitingOnApproval" | "waitingOnUserInput")[] };
 
-type Thread = { id: string; cwd: string; createdAt: number; parentThreadId: string | null; status: ThreadStatus };
+type Thread = {
+  id: string;
+  cwd: string;
+  createdAt: number;
+  updatedAt: number;
+  parentThreadId: string | null;
+  status: ThreadStatus;
+};
 
 type Reply = { id?: number; result?: unknown; error?: { message: string } };
 
@@ -117,7 +124,15 @@ export async function codexThreads(): Promise<CodexThread[]> {
     const state = activity(thread.status);
     // Sub-agent threads belong to their parent's session.
     if (thread.parentThreadId || !state) return [];
-    return [{ id: thread.id, cwd: thread.cwd, createdAt: thread.createdAt * 1000, activity: state }];
+    return [
+      {
+        id: thread.id,
+        cwd: thread.cwd,
+        createdAt: thread.createdAt * 1000,
+        updatedAt: thread.updatedAt * 1000,
+        activity: state,
+      },
+    ];
   });
 }
 

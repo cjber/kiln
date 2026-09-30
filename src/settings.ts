@@ -2,11 +2,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { type SessionSort, sessionSorts } from "./session-sort";
+
 import { type Agent, agents } from "./sessions";
 
 export type Settings = {
   /** tmux key syntax, e.g. `C-q` or `M-Escape`. */
   detachKey: string;
+  /** Initial list order; o cycles it for the current run. */
+  sort: SessionSort;
   /** One line at the bottom of an attached session with counts across every session. */
   statusBar: boolean;
   /** Rank new-session directories with zoxide, and record the ones kiln opens. */
@@ -23,6 +27,7 @@ export type Settings = {
 
 export const defaults: Settings = {
   detachKey: "C-q",
+  sort: "last_active",
   statusBar: true,
   zoxide: true,
   remoteControl: true,
@@ -32,6 +37,9 @@ export const defaults: Settings = {
 };
 
 const template = `# kiln settings. Delete a line to use its default.
+
+# List order: last_active, age (oldest first), harness, directory or project.
+sort = "last_active"
 
 # Leaves an attached session and returns to the list (tmux key syntax).
 detach_key = "C-q"
@@ -91,6 +99,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
   const settings: Settings = { ...defaults, agents: { ...defaults.agents } };
   for (const [key, value] of Object.entries(raw)) {
     switch (key) {
+      case "sort":
+        if (!sessionSorts.includes(value as SessionSort)) fail(path, `sort must be one of ${sessionSorts.join(", ")}`);
+        settings.sort = value as SessionSort;
+        break;
       case "detach_key":
         if (typeof value !== "string" || !value) fail(path, 'detach_key must be a tmux key such as "C-q"');
         settings.detachKey = value;
