@@ -8,6 +8,7 @@ import { runSessionAction, sessionAction } from "./actions";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
+import { turnNotifications } from "./notifications";
 import { sessionKey, sessionRows, sessionTitle } from "./session-list";
 import { sessionSorts } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
@@ -177,6 +178,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
+  const notifications = useRef(turnNotifications());
 
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
@@ -185,6 +187,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       const loaded = await (loadSessions
         ? loadSessions()
         : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
+      if (!loadSessions) notifications.current(loaded, getSettings().notifications);
       const before = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
         row.kind === "session" ? [row.session] : [],
       );
@@ -217,10 +220,10 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const firstRow = Math.max(0, selectedRow - pageSize + 1);
 
   const withTerminal = useCallback(
-    async <T,>(action: () => T): Promise<T> => {
+    async <T,>(action: () => T | Promise<T>): Promise<T> => {
       renderer.suspend();
       try {
-        return action();
+        return await action();
       } finally {
         renderer.resume();
         await refresh();

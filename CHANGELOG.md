@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Desktop notifications when agent turns finish.** kiln uses notify-send when an observed
+  working turn reaches idle, including while attached to tmux. Approval pauses and quiet output
+  do not trigger alerts. Set `notifications = false` to disable them.
+
 ## [0.3.0] - 2026-09-30
 
 - **Group sessions by directory or task, with recent updates first.** Titles and update times distinguish sessions. Unopenable roots are hidden and children start collapsed. Android uses compact rows, a black OLED background and muted oxide colours.

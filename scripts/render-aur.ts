@@ -16,6 +16,7 @@ const pkgdesc = "Vim-style overview of every Claude, Codex and Pi session on the
 const url = "https://github.com/cjber/kiln";
 const depends = ["bun", "tmux", "fzf"];
 const optdepends = [
+  "libnotify: desktop notifications when agent turns finish",
   "zoxide: rank the directories offered for new sessions",
   "kitty: jump to agents running in other kitty windows",
   "claude-code: Claude sessions",

@@ -112,6 +112,12 @@ ambiguous directory matches show `unknown` rather than borrowing another session
 threads stay available as `bg` rows. Remote Control
 servers run by a systemd service and Codex daemon sub-threads are left out.
 
+While kiln is running, it sends a native desktop notification when an observed working turn
+reaches `idle`, including while you are attached to a session. Approval pauses, quiet output and
+sessions already idle when kiln opens do not trigger notifications. This requires `notify-send`
+(Arch: `libnotify`) and a desktop notification service. Pi and older Codex sessions without a
+reported idle status cannot confirm completion; cloud tasks are excluded.
+
 The `updated` column shows the time of the last provider or transcript update. Unavailable timestamps show `unknown`. Status comes from the agent itself; terminal output does not imply that an agent is working. The list defaults to directory/task groups ordered by name, with the most recently updated sessions first in each group. Titles use the session name or Codex thread preview when available, otherwise the session ID. Unopenable sessions are hidden unless they have a visible parent. Children are collapsed by default; press `Tab` to expand them. Filtering also searches titles and reveals matching children with their parents. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.
 
 ## Settings
@@ -125,6 +131,7 @@ detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
 cloud = true        # list read-only Codex Cloud tasks
+notifications = true # native desktop notifications when turns finish
 claude_cloud = false # opt into Claude's internal cloud-listing API; requires cloud = true
 remote_control = true  # new Claude and Codex sessions can be driven from their phone apps
 

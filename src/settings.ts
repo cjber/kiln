@@ -19,6 +19,8 @@ export type Settings = {
   remoteControl: boolean;
   /** Include read-only Codex Cloud tasks. */
   cloud: boolean;
+  /** Native desktop notifications when an observed turn reaches idle. */
+  notifications: boolean;
   /** Opt into Claude Code's internal cloud-listing API using its existing login. */
   claudeCloud: boolean;
   /** The command each agent starts with; an empty list hides it from the new-session picker. */
@@ -32,6 +34,7 @@ export const defaults: Settings = {
   zoxide: true,
   remoteControl: true,
   cloud: true,
+  notifications: true,
   claudeCloud: false,
   agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
 };
@@ -57,6 +60,9 @@ remote_control = true
 
 # Include read-only Codex Cloud tasks, refreshed at most once a minute.
 cloud = true
+
+# Notify when a turn finishes (requires notify-send and a desktop notification service).
+notifications = true
 
 # Opt into Claude cloud listing through its internal API using the existing login.
 # Enter opens the session on claude.ai. This API can change between CLI versions.
@@ -121,6 +127,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "claude_cloud":
         if (typeof value !== "boolean") fail(path, "claude_cloud must be true or false");
         settings.claudeCloud = value;
+        break;
+      case "notifications":
+        if (typeof value !== "boolean") fail(path, "notifications must be true or false");
+        settings.notifications = value;
         break;
       case "agents":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[agents] must be a table");
