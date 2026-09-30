@@ -92,7 +92,7 @@ const hex = (color: RGBA) =>
     .slice(0, 3)
     .map((part) => part.toString(16).padStart(2, "0"))
     .join("")}`;
-const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeXml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function svg(frame: CapturedFrame): string {
   const width = cols * cell.width + pad * 2;
@@ -112,7 +112,7 @@ function svg(frame: CapturedFrame): string {
       if (span.text.trim()) {
         const weight = span.attributes & 1 ? ' font-weight="bold"' : "";
         shapes.push(
-          `<text x="${x}" y="${y + 15}" fill="${hex(span.fg)}"${weight} xml:space="preserve">${escape(span.text)}</text>`,
+          `<text x="${x}" y="${y + 15}" fill="${hex(span.fg)}"${weight} xml:space="preserve">${escapeXml(span.text)}</text>`,
         );
       }
       col += span.width;

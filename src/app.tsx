@@ -192,7 +192,7 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
     } finally {
       refreshing.current = false;
     }
-  }, [loadSessions]);
+  }, [loadSessions, setSessions]);
 
   useEffect(() => {
     void refresh();

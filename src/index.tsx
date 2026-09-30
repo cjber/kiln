@@ -3,13 +3,13 @@ import { createRoot } from "@opentui/react";
 
 import { App } from "./app";
 import { runCli } from "./cli";
-import { loadSettings } from "./settings";
+import { loadSettings, type Settings } from "./settings";
 
 const cliExitCode = await runCli(process.argv.slice(2));
 if (cliExitCode !== undefined) process.exit(cliExitCode);
 
 // A broken settings file is reported before the TUI takes the screen, not as a silent fallback to defaults.
-let settings;
+let settings: Settings;
 try {
   settings = loadSettings();
 } catch (error) {
