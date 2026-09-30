@@ -48,7 +48,7 @@ The list is normal mode. Filtering is the only mode that takes text, and Esc lea
 | `j` `k`, `g` `G`, `Ctrl+D` `Ctrl+U` | Move |
 | `Enter` | Open the selected session |
 | `n` | New session: pick an agent with `h` `l`, then a directory in fzf |
-| `x` | Close the selected session (`y` confirms) |
+| `x` | Close the selected session, or archive a Codex background thread (`y` confirms) |
 | `/` | Filter by agent, directory, branch or status |
 | `s` | Edit settings in `$EDITOR`; they reload when you close it |
 | `S` | Manage shared skills for this user or the selected session's project |
@@ -84,6 +84,15 @@ PID, terminal and originating agent or parent process when available. When that 
 kiln session, the child appears beneath it with a small arrow.
 
 <img src="assets/unavailable.png" alt="A grey child session nested beneath its Codex parent, with its source shown below" />
+
+`x` archives Codex background threads through their daemon, keeping history and hiding archived
+threads from the list, including threads archived elsewhere. Codex may also archive descendant
+threads. This action does not promise to stop active work. Use `codex unarchive <id>` to restore history.
+For Claude background jobs, `x` stops the job and keeps its conversation. For kiln, kitty and other
+terminal sessions of any agent, it closes the tmux session or terminates the agent process. Unsupported
+actions explain why immediately, without asking for confirmation. Cloud tasks remain read-only.
+
+<img src="assets/archive.png" alt="Codex background thread selected with confirmation to archive and keep its history" />
 
 ## Status
 

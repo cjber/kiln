@@ -13,6 +13,12 @@ verbatim.
   Create, edit or copy a skill, then share it through Claude and Pi compatibility links. Codex reads
   the shared directory directly. Name clashes are reported before linking; unlinking keeps the files.
 
+## [0.1.2] - 2026-09-30
+
+- **Archive Codex background threads with x.** The confirmation names the archive action; history
+  is kept and archived threads stay hidden. Other sessions retain their close action, and
+  unsupported actions explain why before confirmation.
+
 ## [0.1.1] - 2026-09-30
 
 - **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating

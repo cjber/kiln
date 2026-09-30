@@ -21,7 +21,7 @@ import type { Skill } from "../src/skills";
 import { SkillsView } from "../src/skills-view";
 
 const cols = 92;
-const rows = 12;
+const rows = 13;
 const cell = { width: 9, height: 20 };
 const pad = 20;
 const background = "#121113";
@@ -166,6 +166,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 
 await shoot("list", ["j"]);
 await shoot("unavailable", ["j", "j"]);
+await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
 rmSync(scratch, { recursive: true, force: true });
