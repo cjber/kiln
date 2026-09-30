@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +66,7 @@ test("Claude listing follows and validates cursors, deduplicates rows and report
   const previousFetch = globalThis.fetch;
   const previousConfig = Bun.env.CLAUDE_CONFIG_DIR;
   const previousPath = Bun.env.PATH;
+  const which = spyOn(Bun, "which").mockReturnValue(join(root, "bin", "claude"));
   mkdirSync(join(root, "bin"));
   writeFileSync(join(root, "bin", "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   writeFileSync(
@@ -91,6 +92,7 @@ test("Claude listing follows and validates cursors, deduplicates rows and report
     globalThis.fetch = (async () => new Response("private response", { status: 401 })) as unknown as typeof fetch;
     await expect(loadClaudeCloud()).rejects.toThrow("HTTP 401");
   } finally {
+    which.mockRestore();
     globalThis.fetch = previousFetch;
     if (previousConfig === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
     else Bun.env.CLAUDE_CONFIG_DIR = previousConfig;
