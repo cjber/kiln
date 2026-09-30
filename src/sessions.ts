@@ -195,7 +195,7 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
   if (!Array.isArray(listed)) return [];
   return (listed as ClaudeAgent[])
     .filter((item) => typeof item.pid === "number" && typeof item.cwd === "string")
-    .filter((item) => !isDaemon(item.pid))
+    .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
     .flatMap((item) => {
       const session = {
         pid: item.pid,
@@ -421,7 +421,7 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       place,
     };
   });
-  const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
+  const sessions = located.filter(hasSessionIdentity).map(({ ancestorSessionPid, ...session }) => ({
     ...session,
     parentSessionPid: ancestorSessionPid,
   }));
@@ -433,6 +433,11 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
     ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),
   );
+}
+
+/** A Codex launch screen has a process but no task to open or report activity for. */
+export function hasSessionIdentity(session: Pick<Session, "agent" | "id" | "lastActiveAt">): boolean {
+  return session.agent !== "codex" || session.id !== undefined || session.lastActiveAt !== undefined;
 }
 
 /** A child can own a terminal, but cannot inherit one through another live agent. */
