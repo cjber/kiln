@@ -84,6 +84,13 @@ const demo: Session[] = [
     branch: "feat/search-index",
     place: { kind: "background", id: "01a0f1ac", attach: [] },
   },
+  {
+    agent: "codex",
+    cwd: homedir(),
+    startedAt: minutes(12),
+    activity: "waiting",
+    place: { kind: "cloud", id: "task_demo", title: "atlas: update search index" },
+  },
 ];
 
 const hex = (color: RGBA) =>

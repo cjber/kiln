@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { cloudSnapshot } from "./cloud";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { panes } from "./tmux";
@@ -38,6 +39,7 @@ export type Place =
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
   | { kind: "background"; id: string; attach: string[]; stop?: string[] }
+  | { kind: "cloud"; id: string; title: string }
   | { kind: "elsewhere" };
 
 export type Session = {
@@ -243,7 +245,7 @@ function withCodexThreads(
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
-export async function listSessions({ kitty = true } = {}): Promise<Session[]> {
+export async function listSessions({ kitty = true, cloud = false } = {}): Promise<Session[]> {
   const [claude, owned, windows, threads] = await Promise.all([
     claudeProcesses(),
     panes(),
@@ -275,7 +277,7 @@ export async function listSessions({ kitty = true } = {}): Promise<Session[]> {
           : "idle");
     return { ...process, activity, branch: gitBranch(process.cwd), place };
   });
-  return [...located, ...codex.headless].sort(
+  return [...located, ...codex.headless, ...(cloud ? cloudSnapshot().sessions : [])].sort(
     (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
   );
 }

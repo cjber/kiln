@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Codex Cloud tasks appear in the list.** Read-only cloud rows show their title and activity.
+  Enter opens status and diff in tmux; they cannot be closed from kiln. Cloud refreshes at most
+  once a minute without delaying local sessions, and `cloud = false` hides them.
+
 ## [0.1.0] - 2026-09-30
 
 - **First release.** One list of every interactive Claude, Codex and Pi session on the machine, with
