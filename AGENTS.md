@@ -24,6 +24,8 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 
 ## Layout
 
+- Local session directories refresh from live processes or matched Codex daemon threads; branches
+  are read from that directory on every refresh. Temporary tool-command directories are not session roots.
 - `src/sessions.ts` - discovery: `claude agents --json`, the Codex daemon (`src/codex.ts`), `pgrep`
   for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.

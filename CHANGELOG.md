@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Local directory and branch follow the session.** Claude uses its live process working directory
+  and Codex uses the matched daemon thread’s directory. Branches are read again on each refresh,
+  including when a session moves to another worktree.
+
 - **Show last activity and choose the list order.** Sessions default to most recently active first.
   Set `sort` or press `o` to cycle age, harness, directory and project order while keeping children
   beneath their parent. Unknown activity timestamps are labelled and sort last.

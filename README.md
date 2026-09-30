@@ -95,6 +95,11 @@ actions explain why immediately, without asking for confirmation. Cloud tasks re
 
 <img src="assets/archive.png" alt="Codex background thread selected with confirmation to archive and keep its history" />
 
+Local directories refresh with the list: Claude and Pi use their live process working directory,
+and a matched Codex daemon thread supplies its current session directory. The branch is read from
+that directory on every refresh, including linked worktrees. A temporary `cd` inside a tool command
+does not change the session directory. Cloud rows show task titles rather than a local checkout.
+
 ## Status
 
 `working` is mid-turn, `waiting` has stopped to ask you something, and `idle` is ready for your next
