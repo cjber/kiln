@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-30
+
 - **Group sessions by directory or task, with recent updates first.** Titles and update times distinguish sessions. Unopenable roots are hidden and children start collapsed. Android uses compact rows, a black OLED background and muted oxide colours.
 
 - **Avoid duplicate background rows for resumed Codex threads.** Read the explicit thread ID from a resumed terminal even when the daemon owns its thread lock. The terminal receives its own daemon status and directory, and the same thread is no longer also listed as background.
