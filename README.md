@@ -111,6 +111,7 @@ bun install
 bunx biome ci .                           # format and lint; `bunx biome check --write .` fixes
 bunx tsc --noEmit -p .
 bun test
+python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/sift-project)
 bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI
 ```
 

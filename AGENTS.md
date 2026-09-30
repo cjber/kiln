@@ -12,6 +12,8 @@ bunx biome ci .
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
+python3 .sift/gate.py --base origin/main
+python3 .sift/agents.py check
 ```
 
 CI runs the same, plus actionlint, zizmor and gitleaks over the workflows and history.

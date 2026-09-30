@@ -23,6 +23,11 @@ jobs:
       - run: bun test
       # A release publishes its changelog entry, so every tagged version needs one.
       - run: bun scripts/changelog.ts --check
+      # Project rules and suppression markers. `--base` because actions/checkout creates no origin/HEAD.
+      - env:
+          BASE: ${{ github.base_ref || github.event.repository.default_branch }}
+        run: python3 .sift/gate.py --base "origin/$BASE"
+      - run: python3 .sift/agents.py check
 
   workflows:
     runs-on: ubuntu-latest
