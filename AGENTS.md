@@ -70,3 +70,6 @@ Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android
 
 Android releases use repository signing secrets and attach a signed APK. CI checks both debug
 and release variants; private signing material stays outside the repository.
+
+Prepare release metadata on a PR branch; the release helper updates desktop and Android together.
+Its separate tag action requires the merged origin/main commit. Never push main directly.
