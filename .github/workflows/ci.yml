@@ -54,7 +54,7 @@ jobs:
       - name: Install Android SDK platform
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
       - name: Check and build Android client
-        run: android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug --console plain
+        run: android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug lintRelease assembleRelease --console plain
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: kiln-android
