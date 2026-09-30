@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
@@ -61,7 +62,15 @@ export type Session = {
 
 type AgentProcess = Omit<Session, "place" | "branch"> & { pid: number; background?: Place };
 
-type ClaudeAgent = { pid: number; cwd: string; startedAt?: number; status?: string; kind?: string; id?: string };
+type ClaudeAgent = {
+  sessionId?: string;
+  pid: number;
+  cwd: string;
+  startedAt?: number;
+  status?: string;
+  kind?: string;
+  id?: string;
+};
 
 /** Recent output suggests work; silence alone cannot establish that a turn has finished. */
 const workingWindowMs = 3_000;
@@ -157,6 +166,18 @@ function isDaemon(pid: number): boolean {
   }
 }
 
+function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
+  if (!item.sessionId || !/^[A-Za-z0-9-]+$/.test(item.sessionId)) return undefined;
+  const root = Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const project = item.cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  try {
+    return statSync(join(root, "projects", project, `${item.sessionId}.jsonl`)).mtimeMs;
+  } catch {
+    // A new or unsaved session may not yet have a transcript.
+    return undefined;
+  }
+}
+
 async function claudeProcesses(): Promise<AgentProcess[]> {
   if (!Bun.which("claude")) return [];
   const process = Bun.spawn(["claude", "agents", "--json"], { stdout: "pipe", stderr: "ignore" });
@@ -177,6 +198,7 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
         agent: "claude" as const,
         cwd: item.cwd,
         startedAt: item.startedAt ?? startedAt(item.pid),
+        lastActiveAt: claudeTranscriptActivity(item),
         activity: claudeActivity(item.status),
       };
       switch (item.kind ?? "interactive") {
@@ -241,6 +263,30 @@ function processesNamed(agent: Agent, isInteractive: (command: string) => boolea
     });
 }
 
+/** Open transcript files establish recent activity without reading conversation contents. */
+function transcriptActivity(pid: number): number | undefined {
+  let latest: number | undefined;
+  try {
+    for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+      try {
+        const path = readlinkSync(`/proc/${pid}/fd/${fd}`);
+        if (path.endsWith(".jsonl") && (path.includes("/projects/") || path.includes("/sessions/")))
+          latest = latestActivity(latest, statSync(path).mtimeMs);
+      } catch {
+        // File descriptors can close during discovery.
+      }
+    }
+  } catch {
+    // The process may have exited.
+  }
+  return latest;
+}
+
+function latestActivity(...times: (number | undefined)[]): number | undefined {
+  const valid = times.filter((time): time is number => time !== undefined && Number.isFinite(time) && time > 0);
+  return valid.length ? Math.max(...valid) : undefined;
+}
+
 /** Older Codex TUIs hold a local thread lock; they must not borrow a daemon thread's status. */
 function codexThreadId(pid: number): string | undefined {
   try {
@@ -268,7 +314,7 @@ export function withCodexThreads(
   const identified = processes.map(({ threadId, ...process }) => {
     const thread = threadId ? unpaired.find((thread) => thread.id === threadId) : undefined;
     if (thread) unpaired.splice(unpaired.indexOf(thread), 1);
-    return { process: { ...process, activity: thread?.activity }, threadId };
+    return { process: { ...process, activity: thread?.activity, lastActiveAt: thread?.updatedAt }, threadId };
   });
   const paired = identified.map(({ process, threadId }) => {
     if (threadId) return process;
@@ -278,13 +324,14 @@ export function withCodexThreads(
     const thread = candidates[0];
     if (!thread) return process;
     unpaired.splice(unpaired.indexOf(thread), 1);
-    return { ...process, activity: thread.activity };
+    return { ...process, activity: thread.activity, lastActiveAt: thread.updatedAt };
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired.map((thread) => ({
     agent: "codex" as const,
     cwd: thread.cwd,
     startedAt: thread.createdAt,
+    lastActiveAt: thread.updatedAt,
     activity: thread.activity,
     branch: gitBranch(thread.cwd),
     place: {
@@ -335,7 +382,14 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
     const activity =
       process.activity ??
       (found?.activityAt !== undefined && Date.now() - found.activityAt < workingWindowMs ? "working" : undefined);
-    return { ...process, ancestorSessionPid, activity, branch: gitBranch(process.cwd), place };
+    return {
+      ...process,
+      lastActiveAt: latestActivity(process.lastActiveAt, found?.activityAt, transcriptActivity(process.pid)),
+      ancestorSessionPid,
+      activity,
+      branch: gitBranch(process.cwd),
+      place,
+    };
   });
   const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
     ...session,

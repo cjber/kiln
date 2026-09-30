@@ -42,6 +42,7 @@ export function parseCloudPage(source: string): { sessions: Session[]; cursor: s
       agent: "codex",
       cwd: homedir(),
       startedAt: Date.parse(task.updated_at),
+      lastActiveAt: Date.parse(task.updated_at),
       activity: activity(status),
       place: { kind: "cloud", id: task.id, title: task.title },
     };

@@ -27,6 +27,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/sessions.ts` - discovery: `claude agents --json`, the Codex daemon (`src/codex.ts`), `pgrep`
   for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
+- `src/session-sort.ts` - list ordering, preserving parent/child groups.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/claude-cloud.ts` - opt-in internal Claude cloud API, existing login, cached reads and safe errors.
 
