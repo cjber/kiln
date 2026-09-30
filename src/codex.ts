@@ -10,7 +10,7 @@ export type CodexThread = {
   cwd: string;
   createdAt: number;
   updatedAt?: number;
-  activity: Activity;
+  activity?: Activity;
   title?: string;
 };
 
@@ -98,14 +98,14 @@ async function rpc<T>(socket: string, action: (call: Call) => Promise<T>): Promi
 }
 
 /** The daemon's loaded top-level threads; without a running daemon there are none. */
-export async function codexThreads(): Promise<CodexThread[]> {
+export async function codexThreads(localIds: readonly string[] = []): Promise<CodexThread[]> {
   const socket = controlSocket();
   if (!existsSync(socket)) return [];
   let threads: Thread[];
   try {
     threads = await rpc(socket, async (call) => {
       const loaded = await call<{ data: string[] }>("thread/loaded/list", {});
-      if (!loaded.data.length) return [];
+      if (!loaded.data.length && !localIds.length) return [];
       const archived = new Set<string>();
       let cursor: string | null = null;
       do {
@@ -119,11 +119,19 @@ export async function codexThreads(): Promise<CodexThread[]> {
         for (const thread of page.data) archived.add(thread.id);
         cursor = page.nextCursor;
       } while (cursor);
-      return Promise.all(
-        loaded.data
+      const read = await Promise.all(
+        [...new Set([...loaded.data, ...localIds])]
           .filter((id) => !archived.has(id))
-          .map(async (threadId) => (await call<{ thread: Thread }>("thread/read", { threadId })).thread),
+          .map(async (threadId) => {
+            try {
+              return (await call<{ thread: Thread }>("thread/read", { threadId })).thread;
+            } catch (error) {
+              if (loaded.data.includes(threadId)) throw error;
+              return undefined;
+            }
+          }),
       );
+      return read.filter((thread): thread is Thread => thread !== undefined);
     });
   } catch {
     // A socket left behind by a stopped daemon refuses the connection; that is no daemon, not a fault.
@@ -132,7 +140,7 @@ export async function codexThreads(): Promise<CodexThread[]> {
   return threads.flatMap((thread) => {
     const state = activity(thread.status);
     // Sub-agent threads belong to their parent's session.
-    if (thread.parentThreadId || !state) return [];
+    if (thread.parentThreadId || (!state && !localIds.includes(thread.id))) return [];
     return [
       {
         id: thread.id,

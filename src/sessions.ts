@@ -5,6 +5,7 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
+import { transcriptTitle } from "./session-titles";
 import { panes } from "./tmux";
 
 export type Agent = "claude" | "codex" | "pi";
@@ -167,14 +168,21 @@ function isDaemon(pid: number): boolean {
   }
 }
 
-function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
+function claudeTranscriptPath(item: ClaudeAgent): string | undefined {
   if (!item.sessionId || !/^[A-Za-z0-9-]+$/.test(item.sessionId)) return undefined;
-  const root = Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-  const project = item.cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  return join(
+    Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+    "projects",
+    item.cwd.replace(/[^a-zA-Z0-9]/g, "-"),
+    `${item.sessionId}.jsonl`,
+  );
+}
+
+function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
+  const path = claudeTranscriptPath(item);
   try {
-    return statSync(join(root, "projects", project, `${item.sessionId}.jsonl`)).mtimeMs;
+    return path ? statSync(path).mtimeMs : undefined;
   } catch {
-    // A new or unsaved session may not yet have a transcript.
     return undefined;
   }
 }
@@ -197,10 +205,11 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
     .filter((item) => typeof item.pid === "number" && typeof item.cwd === "string")
     .filter((item) => !isDaemon(item.pid))
     .flatMap((item) => {
+      const transcript = claudeTranscriptPath(item);
       const session = {
         pid: item.pid,
         id: item.sessionId,
-        title: item.name,
+        title: transcript ? (transcriptTitle(transcript, "claude") ?? item.name) : item.name,
         agent: "claude" as const,
         cwd: processCwd(item.pid) ?? item.cwd,
         startedAt: item.startedAt ?? startedAt(item.pid),
@@ -265,7 +274,25 @@ function processesNamed(agent: Agent, isInteractive: (command: string) => boolea
       const pid = Number(rawPid);
       const cwd = processCwd(pid);
       if (!cwd || !isInteractive(rest.join(" ")) || isDaemon(pid)) return [];
-      return [{ pid, agent, cwd, startedAt: startedAt(pid) }];
+      let args: string[];
+      try {
+        args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+      } catch (error) {
+        if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) return [];
+        throw error;
+      }
+      const nameIndex = args.findIndex((arg) => arg === "--name" || arg === "-n");
+      const sessionIndex = args.indexOf("--session");
+      const sessionFile = sessionIndex >= 0 ? args[sessionIndex + 1] : undefined;
+      const title =
+        agent === "pi"
+          ? sessionFile?.endsWith(".jsonl")
+            ? transcriptTitle(resolve(cwd, sessionFile), "pi")
+            : nameIndex >= 0
+              ? args[nameIndex + 1]
+              : undefined
+          : undefined;
+      return [{ pid, agent, cwd, title, startedAt: startedAt(pid) }];
     });
 }
 
@@ -360,39 +387,39 @@ export function withCodexThreads(
     };
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
-  const headless = unpaired.map((thread) => ({
-    agent: "codex" as const,
-    id: thread.id,
-    title: thread.title,
-    cwd: thread.cwd,
-    startedAt: thread.createdAt,
-    lastActiveAt: thread.updatedAt,
-    activity: thread.activity,
-    branch: gitBranch(thread.cwd),
-    place: {
-      kind: "background" as const,
+  const headless = unpaired
+    .filter((thread) => thread.activity !== undefined)
+    .map((thread) => ({
+      agent: "codex" as const,
       id: thread.id,
-      attach: ["codex", "resume", thread.id, "--remote", "unix://"],
-    },
-  }));
+      title: thread.title,
+      cwd: thread.cwd,
+      startedAt: thread.createdAt,
+      lastActiveAt: thread.updatedAt,
+      activity: thread.activity,
+      branch: gitBranch(thread.cwd),
+      place: {
+        kind: "background" as const,
+        id: thread.id,
+        attach: ["codex", "resume", thread.id, "--remote", "unix://"],
+      },
+    }));
   return { processes: paired, headless };
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listSessions({ kitty = true, cloud = false, claudeCloud = false } = {}): Promise<Session[]> {
+  const codexProcesses = processesNamed("codex", isInteractiveCodex).map((process) => ({
+    ...process,
+    threadId: codexThreadId(process.pid),
+  }));
   const [claude, owned, windows, threads] = await Promise.all([
     claudeProcesses(),
     panes(),
     kitty ? kittyWindows() : [],
-    codexThreads(),
+    codexThreads(codexProcesses.flatMap((process) => (process.threadId ? [process.threadId] : []))),
   ]);
-  const codex = withCodexThreads(
-    processesNamed("codex", isInteractiveCodex).map((process) => ({
-      ...process,
-      threadId: codexThreadId(process.pid),
-    })),
-    threads,
-  );
+  const codex = withCodexThreads(codexProcesses, threads);
   const running = [...claude, ...codex.processes, ...processesNamed("pi", isInteractivePi)];
 
   const places = new Map<number, { place: Place }>();
