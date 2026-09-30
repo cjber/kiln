@@ -15,7 +15,9 @@ Codex reads `.agents/skills` directly. Claude and Pi use compatibility links.
 - `conflict`: another file, directory or broken link occupies the adapter name.
 
 For a conflict, inspect the canonical `SKILL.md` and the clashing adapter before
-choosing which content to retain. The shared store is the source used by kiln's
+choosing which content to retain. Confirm the canonical directory contains a
+valid SKILL.md. If it is empty, recover the existing adapter’s instructions and
+supporting files into it before sharing; preserve the original adapter. The shared store is the source used by kiln's
 repair action. If the user wants that version, run
 `kiln skills share NAME --backup-conflicts`; add `--project /absolute/project`
 for project scope. This preserves conflicting entries under the shared store's

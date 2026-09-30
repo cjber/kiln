@@ -195,7 +195,11 @@ remote extension is enabled. Local Codex sessions open the selected thread direc
 Remote Control host. Older or disconnected daemons keep the manual ChatGPT handoff. Cloud tasks and Claude Remote Control sessions have
 exact links when their provider reports one.
 
-Install the `kiln-android` APK artifact from a green CI run, or build it with JDK 21 and Android
+Install `kiln-android.apk` from a GitHub release for a consistently signed build. Debug APKs
+from CI have temporary signing keys. Moving from a debug installation to a release build requires
+a one-time reinstall and pairing again; later release updates preserve pairing data.
+
+For development, build with JDK 21 and Android
 SDK 36: `android/gradlew -p android assembleDebug`. The APK is at
 `android/app/build/outputs/apk/debug/app-debug.apk`.
 
@@ -254,7 +258,7 @@ names are preserved and reported. Run `kiln skills sync` to update them without 
 
 Agents can inspect `kiln skills list [--project DIR]`, create missing links with
 `kiln skills share NAME [--project DIR]`, or repair conflicts explicitly with
-`kiln skills share NAME [--project DIR] --backup-conflicts`. Repair prints the backup paths.
+`kiln skills share NAME [--project DIR] --backup-conflicts`. Repair prints the backup paths and keeps links to external supporting files readable.
 
 <img src="assets/skills.png" alt="Shared project skills and their Claude and Pi compatibility links" />
 

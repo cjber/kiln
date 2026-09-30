@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export type SkillScope = "user" | "project";
 export type SkillStore = { scope: SkillScope; directory: string; adapters: { claude: string; pi: string } };
@@ -140,6 +140,26 @@ export function unshareSkill(store: SkillStore, name: string): void {
   }
 }
 
+/** Preserve external targets and relocate absolute links within a moved directory. */
+function relocatedLinks(
+  root: string,
+  directory = root,
+): { path: string; value: string; target: string; internal: boolean }[] {
+  return readdirSync(directory).flatMap((name) => {
+    const path = join(directory, name);
+    const info = lstatSync(path);
+    if (info.isDirectory()) return relocatedLinks(root, path);
+    if (!info.isSymbolicLink()) return [];
+    const value = readlinkSync(path);
+    const target = resolve(dirname(path), value);
+    const inside = relative(root, target);
+    const internal = inside === "" || (!inside.startsWith("../") && inside !== "..");
+    return internal && !isAbsolute(value)
+      ? []
+      : [{ path: relative(root, path), value, target: internal ? inside : target, internal }];
+  });
+}
+
 /** Keep the canonical skill and preserve clashing adapters before replacing them with links. */
 export function repairSkill(store: SkillStore, name: string): string[] {
   checkName(name);
@@ -148,23 +168,36 @@ export function repairSkill(store: SkillStore, name: string): string[] {
   const conflicts = Object.entries(store.adapters).filter(
     ([, directory]) => linkState(join(directory, name), target) === "conflict",
   );
-  const backups: { original: string; backup: string }[] = [];
+  const backups: { original: string; backup: string; links: ReturnType<typeof relocatedLinks> }[] = [];
   const root = join(store.directory, ".kiln-backups", randomUUID());
   try {
     for (const [agent, directory] of conflicts) {
       const original = join(directory, name);
       const backup = join(root, agent, name);
       mkdirSync(dirname(backup), { recursive: true });
+      const links = lstatSync(original).isDirectory() ? relocatedLinks(original) : [];
       if (lstatSync(original).isSymbolicLink()) {
         symlinkSync(resolve(dirname(original), readlinkSync(original)), backup);
         unlinkSync(original);
       } else renameSync(original, backup);
-      backups.push({ original, backup });
+      backups.push({ original, backup, links });
+      for (const link of links) {
+        const path = join(backup, link.path);
+        unlinkSync(path);
+        symlinkSync(link.internal ? resolve(backup, link.target) : link.target, path);
+      }
     }
     shareSkill(store, name);
     return backups.map(({ backup }) => backup);
   } catch (error) {
-    for (const { original, backup } of backups.reverse()) renameSync(backup, original);
+    for (const { original, backup, links } of backups.reverse()) {
+      for (const link of links) {
+        const path = join(backup, link.path);
+        if (entry(path)) unlinkSync(path);
+        symlinkSync(link.value, path);
+      }
+      renameSync(backup, original);
+    }
     throw error;
   }
 }
