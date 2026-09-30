@@ -27,7 +27,7 @@ fun sessionItems(
 ): List<SessionItem> {
     val byId = rows.associateBy { it.id }
     fun canShow(row: Row, seen: Set<String> = emptySet()): Boolean {
-        if (row.url != null) return true
+        if (row.where != "elsewhere" || row.url != null) return true
         if (row.id in seen) return false
         return byId[row.parent]?.let { canShow(it, seen + row.id) } ?: false
     }
