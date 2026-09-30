@@ -64,11 +64,19 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
       agent: "claude",
       cwd: homedir(),
       startedAt: Date.parse(row.created_at),
+      lastActiveAt: lastActivity(row.last_event_at, row.updated_at),
       activity: activity(status),
       place: { kind: "cloud", id: row.id, title: row.title },
     });
   }
   return { sessions, cursor: page.next_cursor ?? null };
+}
+
+function lastActivity(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && Number.isFinite(Date.parse(value))) return Date.parse(value);
+  }
+  return undefined;
 }
 
 /** Never include credentials or response bodies in a diagnostic shown in the TUI. */

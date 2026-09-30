@@ -50,6 +50,8 @@ export type Session = {
   agent: Agent;
   cwd: string;
   startedAt: number;
+  /** Last transcript update or terminal output, when available. */
+  lastActiveAt?: number;
   /** Agent-reported status, or recent pane output when no status is available. */
   activity?: Activity;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
