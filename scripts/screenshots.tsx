@@ -8,7 +8,7 @@
  * The fonts are JetBrains Mono where installed, else any monospace.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CapturedFrame, RGBA } from "@opentui/core";
@@ -17,6 +17,8 @@ import { testRender } from "@opentui/react/test-utils";
 import { App } from "../src/app";
 import type { Session } from "../src/sessions";
 import { defaults } from "../src/settings";
+import type { Skill } from "../src/skills";
+import { SkillsView } from "../src/skills-view";
 
 const cols = 92;
 const rows = 12;
@@ -25,6 +27,10 @@ const pad = 20;
 const background = "#121113";
 const out = join(import.meta.dir, "..", "assets");
 const scratch = mkdtempSync(join(tmpdir(), "kiln-shots-"));
+const demoSkills: Skill[] = [
+  { name: "deploy", directory: ".agents/skills/deploy", external: false, claude: "shared", pi: "shared" },
+  { name: "review", directory: ".agents/skills/review", external: false, claude: "missing", pi: "missing" },
+];
 
 const minutes = (count: number) => Date.now() - count * 60_000;
 const code = (repo: string) => join(homedir(), "code", repo);
@@ -133,11 +139,18 @@ ${shapes.join("\n")}
 }
 
 async function shoot(name: string, keys: string[]): Promise<void> {
-  const setup = await testRender(<App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />, {
-    width: cols,
-    height: rows,
-  });
-  await setup.waitForFrame((frame) => frame.includes("atlas"));
+  const setup = await testRender(
+    name === "skills" ? (
+      <SkillsView project={code("atlas")} onBack={() => {}} edit={async () => {}} loadSkills={() => demoSkills} />
+    ) : (
+      <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />
+    ),
+    {
+      width: cols,
+      height: rows,
+    },
+  );
+  await setup.waitForFrame((frame) => frame.includes(name === "skills" ? "kiln skills" : "atlas"));
   for (const key of keys) await setup.mockInput.pressKey(key);
   await setup.flush();
   const path = join(scratch, `${name}.svg`);
@@ -152,4 +165,6 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 
 await shoot("list", ["j"]);
 await shoot("new", ["n", "l"]);
+await shoot("skills", ["p"]);
+rmSync(scratch, { recursive: true, force: true });
 process.exit(0);

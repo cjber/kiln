@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Manage skills in shared directories.** `S` opens user and project skills in `.agents/skills`.
+  Create, edit or copy a skill, then share it through Claude and Pi compatibility links. Codex reads
+  the shared directory directly. Name clashes are reported before linking; unlinking keeps the files.
+
 - **Try a local Pi remote control bridge.** An opt-in extension exposes state, transcript events,
   prompts and abort through an owner-only Unix socket. It needs no fork of Pi and is not enabled
   automatically. Remote dialog replies are not supported.

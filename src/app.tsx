@@ -9,7 +9,9 @@ import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
+import { SkillsView } from "./skills-view";
 import { attach, exists, kill, start } from "./tmux";
+import { useLatest } from "./use-latest";
 import { rankedDirectories, recordDirectory } from "./zoxide";
 
 const color = {
@@ -144,22 +146,6 @@ function typed(key: KeyEvent): string | undefined {
   return key.sequence.length === 1 && key.sequence >= " " ? key.sequence : undefined;
 }
 
-/**
- * State the key handler reads when a key arrives. A paste or fast typing
- * delivers several keys before React re-renders the handler, so reading render
- * state would apply `/xy` as a filter, a close and a confirm.
- */
-function useLatest<T>(initial: T): [T, () => T, (next: T | ((current: T) => T)) => void] {
-  const ref = useRef(initial);
-  const [value, setValue] = useState(initial);
-  const get = useCallback(() => ref.current, []);
-  const set = useCallback((next: T | ((current: T) => T)) => {
-    ref.current = typeof next === "function" ? (next as (current: T) => T)(ref.current) : next;
-    setValue(ref.current);
-  }, []);
-  return [value, get, set];
-}
-
 function matching(sessions: readonly Session[], filter: string): Session[] {
   const needle = filter.toLowerCase();
   return sessions.filter(
@@ -188,6 +174,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
   const [notice, setNotice] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
+  const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
 
@@ -318,6 +305,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   );
 
   useKeyboard((key) => {
+    if (getSkillsProject() !== undefined) return;
     // Shadow the render values with the latest ones; see useLatest.
     const mode = getMode();
     const agentIndex = getAgentIndex();
@@ -379,6 +367,11 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       if (current.place.kind === "cloud") return setNotice("cloud tasks are read-only and cannot be closed here");
       return setMode("confirm");
     }
+    if (key.name === "s" && key.shift) {
+      const cwd = current && current.place.kind !== "cloud" ? current.cwd : process.cwd();
+      const root = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], { stderr: "ignore" });
+      return setSkillsProject(root.exitCode === 0 ? root.stdout.toString().trim() : cwd);
+    }
     if (key.name === "s") return void editSettings();
     if (key.name === "n") {
       if (!choices.length) return setNotice("every agent is hidden in settings; press s to add one");
@@ -386,6 +379,25 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       return setMode("agent");
     }
   });
+
+  if (skillsProject !== undefined)
+    return (
+      <SkillsView
+        project={skillsProject}
+        onBack={() => setSkillsProject(undefined)}
+        edit={async (path) => {
+          const editor = Bun.env.VISUAL || Bun.env.EDITOR || "vi";
+          await withTerminal(() => {
+            const result = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], {
+              stdin: "inherit",
+              stdout: "inherit",
+              stderr: "inherit",
+            });
+            if (result.exitCode !== 0) throw new Error(`editor exited with status ${result.exitCode}`);
+          });
+        }}
+      />
+    );
 
   // Columns before the path: marker, agent, status, where, age.
   const fixedWidth = 2 + 7 + 9 + 6 + 6;
@@ -490,7 +502,7 @@ function stop(session: Session): true | string {
 function hints(mode: Mode, current: Session | undefined): string {
   switch (mode) {
     case "normal":
-      return "j/k move · enter open · n new · x close · / filter · s settings · q quit";
+      return "j/k move · enter open · n new · x close · / filter · s settings · S skills · q quit";
     case "filter":
       return "type to filter · enter keep · esc clear";
     case "agent":
