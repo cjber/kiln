@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Install kiln without Bun.** Releases include Linux x64 and arm64 executables, and
+  `kiln-agents-bin` installs them from the AUR. The tmux configuration and native UI library
+  are embedded.
+
 ## [0.1.0] - 2026-09-30
 
 - **First release.** One list of every interactive Claude, Codex and Pi session on the machine, with

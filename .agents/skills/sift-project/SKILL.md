@@ -7,7 +7,8 @@ description: "Project skill for sift in kiln: the exact quality-gate and evidenc
 
 kiln is a Bun + TypeScript terminal UI (OpenTUI React) that lists every interactive Claude Code,
 Codex and Pi session on a Linux machine and takes you to the one you pick. It runs from source under
-Bun (`bin/kiln` execs `src/index.tsx`); nothing is bundled. Arch users install it from the AUR as
+Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
+with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
 `node_modules` (production install), `package.json` and `tmux.conf`. No other repository imports it.
 
@@ -58,9 +59,10 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
 - `bin/kiln` execs `src/index.tsx`; `package.json` `start` runs the same file.
 - `src/cli.ts` `kiln status` is called by kiln's own tmux status bar (`src/tmux.ts` sets
   `status-right` to `#('<kiln>' status)`), so it has no caller in TypeScript.
-- `tmux.conf` is loaded by path from `src/tmux.ts` and shipped in the AUR package.
+- `tmux.conf` is imported as text by `src/tmux.ts`, embedded in binaries and written to a private
+  temporary file when tmux needs it. It also ships in the source AUR package.
 - `scripts/changelog.ts` and `scripts/render-aur.ts` run from `.github/workflows/`;
-  `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
+  `scripts/build.ts` runs in releases; `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
 - `App`'s `loadSessions` prop exists for `scripts/screenshots.tsx`, which passes demo sessions.
 - External formats parsed, not owned: `claude agents --json`, the Codex app-server JSON-RPC over
   `$CODEX_HOME/app-server-control/app-server-control.sock`, `kitty @ ls`, `pgrep`/`/proc`. Fields

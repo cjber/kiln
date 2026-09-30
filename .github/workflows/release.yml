@@ -22,7 +22,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           no-cache: true
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --os linux --cpu "*"
       - run: bunx tsc --noEmit -p .
       - run: bun test
 
@@ -37,19 +37,22 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: Build standalone binaries
+        run: bun scripts/build.ts
+
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           bun scripts/changelog.ts "$VERSION" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
 
       - name: Render AUR package
         run: |
           set -euo pipefail
           curl -fsSL -o source.tar.gz "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
-          bun scripts/render-aur.ts --version "$VERSION" --sha256 "$(sha256sum source.tar.gz | cut -d' ' -f1)" --out aur
+          bun scripts/render-aur.ts --version "$VERSION" --sha256 "$(sha256sum source.tar.gz | cut -d' ' -f1)" --bin-x64-sha256 "$(sha256sum dist/kiln-linux-x64 | cut -d' ' -f1)" --bin-arm64-sha256 "$(sha256sum dist/kiln-linux-arm64 | cut -d' ' -f1)" --out aur
 
       - name: Push to AUR
         env:
@@ -68,13 +71,15 @@ jobs:
           KEYS
           sed -i 's/^ *//' ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
-          pkgname=$(bun -e 'import { pkgname } from "./scripts/render-aur.ts"; console.log(pkgname)')
-          git clone "ssh://aur@aur.archlinux.org/${pkgname}.git" aur-repo
-          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
-          cd aur-repo
-          git config user.name "cjber"
-          git config user.email "cjberragan@gmail.com"
-          git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "${pkgname} ${VERSION}"
-          git push origin HEAD:master
+          for pkgname in kiln-agents kiln-agents-bin; do
+            rendered=aur
+            if [ "$pkgname" = kiln-agents-bin ]; then rendered=aur/bin; fi
+            git clone "ssh://aur@aur.archlinux.org/${pkgname}.git" "aur-${pkgname}"
+            cp "$rendered/PKGBUILD" "$rendered/.SRCINFO" "aur-${pkgname}/"
+            git -C "aur-${pkgname}" config user.name "cjber"
+            git -C "aur-${pkgname}" config user.email "cjberragan@gmail.com"
+            git -C "aur-${pkgname}" add PKGBUILD .SRCINFO
+            if git -C "aur-${pkgname}" diff --cached --quiet; then continue; fi
+            git -C "aur-${pkgname}" commit -m "${pkgname} ${VERSION}"
+            git -C "aur-${pkgname}" push origin HEAD:master
+          done

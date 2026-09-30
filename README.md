@@ -22,7 +22,8 @@ It does one thing. There is no chat pane, no dashboard and no daemon of its own.
 On Arch, from the AUR:
 
 ```sh
-paru -S kiln-agents
+paru -S kiln-agents     # source package, requires Bun
+paru -S kiln-agents-bin # compiled binary, no Bun dependency
 ```
 
 From source, with [Bun](https://bun.sh), [tmux](https://github.com/tmux/tmux) and
@@ -115,10 +116,20 @@ python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/s
 bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI
 ```
 
+Build standalone Linux x64 and arm64 executables with:
+
+```sh
+bun install --frozen-lockfile --os linux --cpu "*"
+bun scripts/build.ts
+```
+
+The files in `dist/` include OpenTUI's native library and the tmux configuration. They still
+need tmux and fzf. Release assets can also be installed directly as `kiln` on your PATH.
+
 A release is `bun scripts/release.ts patch` (or `minor`, `major`) on `main`. It turns the
 `[Unreleased]` entry in [CHANGELOG.md](CHANGELOG.md) into the new version's, then makes a signed
 commit and tag. Pushing the tag publishes the GitHub release, with that entry as its notes, and the
-AUR package.
+source and binary AUR packages.
 
 ## Changelog
 
