@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
@@ -35,8 +37,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         incoming = intent.dataString.orEmpty()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(Modifier.fillMaxSize()) { Kiln() }
+            MaterialTheme(
+                colorScheme =
+                    darkColorScheme(
+                        background = Color.Black,
+                        surface = Color(0xff101214),
+                        surfaceContainer = Color(0xff101214),
+                        primary = Color(0xffc18362),
+                        onPrimary = Color.Black,
+                        secondary = Color(0xff82968a),
+                        onSurface = Color(0xffc8c9cb),
+                        onBackground = Color(0xffc8c9cb),
+                        onSurfaceVariant = Color(0xff85898d),
+                        outline = Color(0xff333638),
+                    )
+            ) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Kiln()
+                }
             }
         }
     }
@@ -44,6 +62,20 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         incoming = intent.dataString.orEmpty()
+    }
+
+    private fun copyId(row: Row) {
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("kiln session", row.id.substringAfter(':')))
+    }
+
+    private fun openSession(row: Row, error: (String) -> Unit) {
+        val url = row.url ?: return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        } catch (_: android.content.ActivityNotFoundException) {
+            error("Install the provider app or a browser to open this session")
+        }
     }
 
     @Composable
@@ -65,7 +97,10 @@ class MainActivity : ComponentActivity() {
         var invitation by remember { mutableStateOf(incoming) }
         var pairingBusy by remember { mutableStateOf(false) }
         var filter by remember { mutableStateOf("") }
-        var sort by remember { mutableStateOf("Last active") }
+        var sort by remember { mutableStateOf(SessionOrder.PROJECT) }
+        var expanded by remember { mutableStateOf(emptySet<String>()) }
+        var details by remember { mutableStateOf<Row?>(null) }
+        var handoff by remember { mutableStateOf<Row?>(null) }
         var state by remember { mutableStateOf("Connecting") }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
         var retry by remember { mutableIntStateOf(0) }
@@ -123,11 +158,55 @@ class MainActivity : ComponentActivity() {
                 retry++
             }
         }
+        details?.let { row ->
+            AlertDialog(
+                onDismissRequest = { details = null },
+                title = { Text(row.title) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(row.cwd)
+                        Text("${row.agent} · ${row.activity} · ${row.where}")
+                        if (row.branch.isNotEmpty()) Text(row.branch)
+                        Text(
+                            "Updated ${if (row.active > 0) java.time.Instant.ofEpochMilli(row.active).toString() else "unknown"} · age ${age(clock - row.started)}"
+                        )
+                        if (row.url == null) Text(row.label)
+                        TextButton(onClick = { copyId(row) }) { Text("Copy session ID") }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { details = null }) { Text("Done") } },
+            )
+        }
+        handoff?.let { row ->
+            AlertDialog(
+                onDismissRequest = { handoff = null },
+                title = { Text("Open in ChatGPT") },
+                text = {
+                    Column {
+                        Text(
+                            "Choose ${row.title} on ${host?.name}. This thread has no verified direct link."
+                        )
+                        TextButton(onClick = { copyId(row) }) { Text("Copy thread ID") }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            handoff = null
+                            openSession(row) { error = it }
+                        }
+                    ) {
+                        Text("Open ChatGPT")
+                    }
+                },
+                dismissButton = { TextButton(onClick = { handoff = null }) { Text("Cancel") } },
+            )
+        }
         Column(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("kiln", style = MaterialTheme.typography.headlineLarge)
+            if (pairing) Text("kiln", style = MaterialTheme.typography.titleLarge)
             if (error.isNotEmpty()) {
                 Text(error, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = { error = "" }) { Text("Dismiss") }
@@ -205,10 +284,12 @@ class MainActivity : ComponentActivity() {
                 return@Column
             }
             var menu by remember { mutableStateOf(false) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("kiln", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.weight(1f))
                 Box {
-                    OutlinedButton(onClick = { menu = true }) {
-                        Text(host?.name ?: "Choose machine")
+                    TextButton(onClick = { menu = true }) {
+                        Text(host?.name ?: "Choose machine", maxLines = 1)
                     }
                     DropdownMenu(menu, { menu = false }) {
                         hosts.forEach { item ->
@@ -221,138 +302,121 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         DropdownMenuItem(
+                            text = { Text("Reconnect") },
+                            onClick = {
+                                retry++
+                                menu = false
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text("Pair another machine") },
                             onClick = {
                                 pairing = true
                                 menu = false
                             },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Forget this machine") },
+                            onClick = {
+                                if (
+                                    host != null && save(hosts.filter { it.origin != host.origin })
+                                ) {
+                                    selected = hosts.firstOrNull()?.origin
+                                    pairing = hosts.isEmpty()
+                                }
+                                menu = false
+                            },
+                        )
                     }
-                }
-                TextButton(onClick = { retry++ }) { Text("Reconnect") }
-                TextButton(
-                    onClick = {
-                        if (host != null && save(hosts.filter { it.origin != host.origin })) {
-                            selected = hosts.firstOrNull()?.origin
-                            pairing = hosts.isEmpty()
-                        }
-                    }
-                ) {
-                    Text("Forget")
                 }
             }
             Text(
-                "$state · ${snapshot?.updated?.takeIf { it > 0 }?.let { "updated ${age(clock - it)} ago" } ?: "no list yet"}"
+                "$state · refreshed ${updateTime(snapshot?.updated ?: 0)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             snapshot
                 ?.problem
                 ?.takeIf { it.isNotEmpty() }
-                ?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                ?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             OutlinedTextField(
                 filter,
                 { filter = it },
-                label = { Text("Filter sessions, projects or harnesses") },
+                placeholder = {
+                    Text("Filter sessions", style = MaterialTheme.typography.bodySmall)
+                },
                 singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val items = sessionItems(snapshot?.rows.orEmpty(), sort, filter, expanded)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 TextButton(
                     onClick = {
-                        val sorts = listOf("Last active", "Age", "Harness", "Directory", "Project")
-                        sort = sorts[(sorts.indexOf(sort) + 1) % sorts.size]
-                    }
+                        sort = SessionOrder.entries[(sort.ordinal + 1) % SessionOrder.entries.size]
+                    },
+                    contentPadding = PaddingValues(horizontal = 0.dp),
                 ) {
-                    Text("Sort: $sort")
+                    Text(sort.label, style = MaterialTheme.typography.labelMedium)
                 }
+                Spacer(Modifier.weight(1f))
                 Text(
-                    "${snapshot?.rows?.size ?: 0} sessions",
-                    modifier = Modifier.padding(top = 12.dp),
+                    "${items.count { it is SessionItem.Entry }} shown",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            val rows =
-                snapshot?.rows.orEmpty().filter { row ->
-                    listOf(row.title, row.cwd, row.agent, row.branch).any {
-                        it.contains(filter, ignoreCase = true)
-                    }
-                }
-            val ordered =
-                when (sort) {
-                    "Age" -> rows.sortedBy { it.started }
-                    "Harness" -> rows.sortedBy { it.agent }
-                    "Directory" -> rows.sortedBy { it.cwd }
-                    "Project" -> rows.sortedBy { it.cwd.substringAfterLast('/') }
-                    else ->
-                        rows.sortedByDescending {
-                            it.active.takeIf { time -> time > 0 } ?: it.started
-                        }
-                }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (ordered.isEmpty())
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (items.isEmpty())
                     item {
                         Text(
                             if (snapshot == null) "Waiting for the machine…"
-                            else "No matching sessions"
+                            else "No openable sessions match",
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                items(ordered, key = { it.id }) { row ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(
-                            Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                "${row.agent} · ${row.activity} · ${row.where}",
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            Text(row.title, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                row.cwd + if (row.branch.isNotEmpty()) " · ${row.branch}" else "",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Text(
-                                "Last active: ${if (row.active > 0) age(clock - row.active) + " ago" else "unknown"} · age ${age(clock - row.started)}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            if (row.url != null) {
-                                if (!row.exact)
+                items(items, key = { it.key }) { item ->
+                    when (item) {
+                        is SessionItem.Header ->
+                            if (item.directory != null)
+                                Column(Modifier.padding(top = 8.dp, bottom = 2.dp)) {
                                     Text(
-                                        "Choose ${row.title} on ${host?.name}. Copy the thread ID if needed.",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        item.name,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
-                                Row {
-                                    TextButton(
-                                        onClick = {
-                                            try {
-                                                startActivity(
-                                                    Intent(
-                                                        Intent.ACTION_VIEW,
-                                                        android.net.Uri.parse(row.url),
-                                                    )
-                                                )
-                                            } catch (_: android.content.ActivityNotFoundException) {
-                                                error =
-                                                    "Install the provider app or a browser to open this session"
-                                            }
-                                        }
-                                    ) {
-                                        Text(row.label)
-                                    }
-                                    TextButton(
-                                        onClick = {
-                                            getSystemService(ClipboardManager::class.java)
-                                                .setPrimaryClip(
-                                                    ClipData.newPlainText(
-                                                        "kiln session",
-                                                        row.id.substringAfter(':'),
-                                                    )
-                                                )
-                                        }
-                                    ) {
-                                        Text("Copy ID")
+                                    item.directory?.let {
+                                        Text(
+                                            it,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
                                 }
-                            } else Text(row.label, style = MaterialTheme.typography.bodySmall)
-                        }
+                        is SessionItem.Entry ->
+                            SessionCard(
+                                item,
+                                item.row.id in expanded,
+                                open = {
+                                    if (item.row.exact) openSession(item.row) { error = it }
+                                    else handoff = item.row
+                                },
+                                details = { details = item.row },
+                                toggle = {
+                                    expanded =
+                                        if (item.row.id in expanded) expanded - item.row.id
+                                        else expanded + item.row.id
+                                },
+                            )
                     }
                 }
             }

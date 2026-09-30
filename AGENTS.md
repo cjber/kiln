@@ -30,7 +30,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
   for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
-- `src/session-sort.ts` - list ordering, preserving parent/child groups.
+- `src/session-sort.ts`, `src/session-list.ts` - ordering and directory/task groups with collapsed children.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/claude-cloud.ts` - opt-in internal Claude cloud API, existing login, cached reads and safe errors.
 
@@ -50,7 +50,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 
 - Commits are signed (`git commit -S`) with the personal email, in Conventional Commits form.
 - Activity is a closed set (`working`, `waiting`, `idle`); map each agent's own states onto it with an
-  exhaustive switch, never a fallthrough guess.
+  exhaustive switch, never a fallthrough guess. Unknown activity stays unknown; pane output is not working status.
 - Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
   screen; nothing prints to the console while it is up.
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.

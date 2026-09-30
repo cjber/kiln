@@ -21,8 +21,8 @@ test("all sort modes distinguish activity, age, harness, full directory and proj
   expect(sortSessions([...rows, child], "last_active").map((row) => row.pid)).toEqual([2, 1, 4, 3]);
 });
 
-test("list order defaults to last activity and rejects unknown settings", () => {
-  expect(defaults.sort).toBe("last_active");
+test("list order defaults to directory/task groups and rejects unknown settings", () => {
+  expect(defaults.sort).toBe("project");
   expect(parseSettings('sort = "project"').sort).toBe("project");
   expect(() => parseSettings('sort = "recent"')).toThrow("sort must be one of");
   expect(() => parseSettings("sort = false")).toThrow("sort must be one of");

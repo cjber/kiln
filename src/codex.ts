@@ -5,13 +5,22 @@ import { join } from "node:path";
 import type { Activity } from "./sessions";
 
 /** A thread loaded on Codex's shared app-server daemon: every live `codex` TUI has one, and `codex agents` starts more. */
-export type CodexThread = { id: string; cwd: string; createdAt: number; updatedAt?: number; activity: Activity };
+export type CodexThread = {
+  id: string;
+  cwd: string;
+  createdAt: number;
+  updatedAt?: number;
+  activity: Activity;
+  title?: string;
+};
 
 type ThreadStatus =
   | { type: "notLoaded" | "idle" | "systemError" }
   | { type: "active"; activeFlags: ("waitingOnApproval" | "waitingOnUserInput")[] };
 
 type Thread = {
+  name?: string | null;
+  preview?: string;
   id: string;
   cwd: string;
   createdAt: number;
@@ -131,6 +140,7 @@ export async function codexThreads(): Promise<CodexThread[]> {
         createdAt: thread.createdAt * 1000,
         updatedAt: thread.updatedAt * 1000,
         activity: state,
+        title: (thread.name || thread.preview)?.replace(/\s+/g, " ").trim().slice(0, 160),
       },
     ];
   });

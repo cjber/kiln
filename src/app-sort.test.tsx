@@ -9,13 +9,21 @@ test("cycling sort keeps the selected session, updates the label and shows activ
   const sessions: Session[] = [
     {
       pid: 1,
+      title: "project-z",
       agent: "pi",
       cwd: "/z/project-z",
       startedAt: 10,
       lastActiveAt: Date.now(),
       place: { kind: "kiln", name: "z" },
     },
-    { pid: 2, agent: "claude", cwd: "/a/project-a", startedAt: 20, place: { kind: "elsewhere" } },
+    {
+      pid: 2,
+      title: "project-a",
+      agent: "claude",
+      cwd: "/a/project-a",
+      startedAt: 20,
+      place: { kind: "kiln", name: "a" },
+    },
   ];
   let calls = 0;
   let complete!: (rows: Session[]) => void;
@@ -28,7 +36,11 @@ test("cycling sort keeps the selected session, updates the label and shows activ
   let setup!: Awaited<ReturnType<typeof testRender>>;
   await act(async () => {
     setup = await testRender(
-      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={load} />,
+      <App
+        initialSettings={{ ...defaults, sort: "last_active", cloud: false }}
+        onQuit={() => {}}
+        loadSessions={load}
+      />,
       { width: 120, height: 12 },
     );
   });

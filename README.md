@@ -53,6 +53,7 @@ The list is normal mode. Filtering is the only mode that takes text, and Esc lea
 | `/` | Filter by agent, directory, branch or status |
 | `s` | Edit settings in `$EDITOR`; they reload when you close it |
 | `o` | Cycle last activity, age, harness, directory and project order |
+| `Tab`, `←`, `→` | Expand or collapse the selected session’s children |
 | `S` | Manage shared skills for this user or the selected session's project |
 | `r` | Refresh now (the list refreshes every two seconds anyway) |
 | `q` | Quit |
@@ -106,13 +107,12 @@ does not change the session directory. Cloud rows show task titles rather than a
 
 `working` is mid-turn, `waiting` has stopped to ask you something, and `idle` is ready for your next
 message. Claude reports its own status through `claude agents --json`, and Codex through its daemon.
-Recent pane output counts as `working` when no agent status is available. Silence shows `·`, since
-a quiet tool may still be running. Codex threads are matched by their local thread ID when available;
-ambiguous directory matches show `·` rather than borrowing another session's status. Unmatched daemon
+Unknown status, including Pi without a status source, shows `unknown`. Codex threads are matched by their local thread ID when available;
+ambiguous directory matches show `unknown` rather than borrowing another session's status. Unmatched daemon
 threads stay available as `bg` rows. Remote Control
 servers run by a systemd service and Codex daemon sub-threads are left out.
 
-The `active` column shows time since the last transcript update or terminal output. Unavailable timestamps show `unknown` and sort last. The list defaults to most recently active first. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.
+The `updated` column shows the time of the last provider or transcript update. Unavailable timestamps show `unknown`. Status comes from the agent itself; terminal output does not imply that an agent is working. The list defaults to directory/task groups ordered by name, with the most recently updated sessions first in each group. Titles use the session name or Codex thread preview when available, otherwise the session ID. Unopenable sessions are hidden unless they have a visible parent. Children are collapsed by default; press `Tab` to expand them. Filtering also searches titles and reveals matching children with their parents. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.
 
 ## Settings
 
@@ -120,7 +120,7 @@ The `active` column shows time since the last transcript update or terminal outp
 option at its default. An unknown key is an error, never silently ignored.
 
 ```toml
-sort = "last_active"
+sort = "project"
 detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
@@ -165,7 +165,8 @@ diagnostics do not include raw CLI output; run `codex cloud list` directly to in
 ## Android
 
 The native Android client lists sessions from one or more machines. It shows live directories,
-branches and activity, supports filtering and the same sort choices as the terminal list, and
+branches, titles and update times in compact rows on a black OLED theme with muted oxide accents.
+It supports filtering and the same sort choices as the terminal list, and
 hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
 stop sessions. Pi has no phone handoff yet. Local Codex sessions open ChatGPT's Codex view; choose
 the displayed thread on the named machine. Cloud tasks and Claude Remote Control sessions have

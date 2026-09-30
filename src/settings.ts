@@ -27,7 +27,7 @@ export type Settings = {
 
 export const defaults: Settings = {
   detachKey: "C-q",
-  sort: "last_active",
+  sort: "project",
   statusBar: true,
   zoxide: true,
   remoteControl: true,
@@ -38,8 +38,9 @@ export const defaults: Settings = {
 
 const template = `# kiln settings. Delete a line to use its default.
 
-# List order: last_active, age (oldest first), harness, directory or project.
-sort = "last_active"
+# List order: project (directory/task groups), directory (full paths),
+# last_active, age (oldest first) or harness. Groups show the most recent rows first.
+sort = "project"
 
 # Leaves an attached session and returns to the list (tmux key syntax).
 detach_key = "C-q"

@@ -8,7 +8,8 @@ import { runSessionAction, sessionAction } from "./actions";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
-import { sessionSorts, sortSessions } from "./session-sort";
+import { sessionKey, sessionRows, sessionTitle } from "./session-list";
+import { sessionSorts } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
@@ -40,6 +41,10 @@ const refreshMs = 2_000;
 function tilde(path: string): string {
   const home = homedir();
   return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+function clock(time: number | undefined): string {
+  return time ? new Date(time).toLocaleTimeString("en-GB", { hour12: false }) : "unknown";
 }
 
 function age(startedAt: number): string {
@@ -148,32 +153,6 @@ function typed(key: KeyEvent): string | undefined {
   return key.sequence.length === 1 && key.sequence >= " " ? key.sequence : undefined;
 }
 
-function sessionKey(session: Session): string {
-  if (session.pid !== undefined) return `pid:${session.pid}`;
-  switch (session.place.kind) {
-    case "cloud":
-    case "background":
-      return `${session.agent}:${session.place.kind}:${session.place.id}`;
-    case "kiln":
-      return `kiln:${session.place.name}`;
-    case "kitty":
-      return `kitty:${session.place.socket}:${session.place.windowId}`;
-    case "elsewhere":
-      return `${session.agent}:${session.cwd}`;
-  }
-}
-
-function matching(sessions: readonly Session[], filter: string): Session[] {
-  const needle = filter.toLowerCase();
-  return sessions.filter(
-    (session) =>
-      !needle ||
-      `${session.agent} ${label(session)} ${where(session)} ${session.branch ?? ""} ${session.activity ?? ""}`
-        .toLowerCase()
-        .includes(needle),
-  );
-}
-
 type AppProps = {
   initialSettings: Settings;
   onQuit: () => void;
@@ -190,6 +169,8 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const [filter, getFilter, setFilter] = useLatest("");
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
   const [order, getOrder, setOrder] = useLatest(initialSettings.sort);
+  const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
+  const [updatedAt, setUpdatedAt] = useState<number>();
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
@@ -204,16 +185,23 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       const loaded = await (loadSessions
         ? loadSessions()
         : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
-      const before = matching(sortSessions(getSessions(), getOrder()), getFilter());
+      const before = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
+        row.kind === "session" ? [row.session] : [],
+      );
       const current = before[Math.min(getSelected(), before.length - 1)];
       setSessions(loaded);
-      const after = matching(sortSessions(loaded, getOrder()), getFilter());
+      setUpdatedAt(Date.now());
+      const after = sessionRows(loaded, getOrder(), getFilter(), getExpanded()).flatMap((row) =>
+        row.kind === "session" ? [row.session] : [],
+      );
       const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
       setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
+    } catch {
+      setNotice("session discovery failed; showing the last successful list");
     } finally {
       refreshing.current = false;
     }
-  }, [getSettings, getSessions, getOrder, getFilter, getSelected, loadSessions, setSessions, setSelected]);
+  }, [getSettings, getSessions, getOrder, getFilter, getExpanded, getSelected, loadSessions, setSessions, setSelected]);
 
   useEffect(() => {
     void refresh();
@@ -221,11 +209,12 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  const visible = useMemo(() => matching(sortSessions(sessions, order), filter), [filter, sessions, order]);
-
+  const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
+  const visible = rows.flatMap((row) => (row.kind === "session" ? [row.session] : []));
   const current = visible[Math.min(selected, visible.length - 1)];
-  const pageSize = Math.max(1, height - (mode === "agent" || current?.place.kind === "elsewhere" ? 6 : 5));
-  const firstRow = Math.max(0, Math.min(selected, visible.length - 1) - pageSize + 1);
+  const pageSize = Math.max(1, height - (mode === "agent" ? 7 : 6));
+  const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
+  const firstRow = Math.max(0, selectedRow - pageSize + 1);
 
   const withTerminal = useCallback(
     async <T,>(action: () => T): Promise<T> => {
@@ -358,7 +347,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     const mode = getMode();
     const agentIndex = getAgentIndex();
     const choices = agents.filter((agent) => getSettings().agents[agent].length);
-    const visible = matching(sortSessions(getSessions(), getOrder()), getFilter());
+    const visible = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
+      row.kind === "session" ? [row.session] : [],
+    );
     const current = visible[Math.min(getSelected(), visible.length - 1)];
     const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible.length - 1, index + delta)));
 
@@ -415,9 +406,23 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       const next = sessionSorts[(sessionSorts.indexOf(getOrder()) + 1) % sessionSorts.length];
       if (next) {
         setOrder(next);
-        const reordered = matching(sortSessions(getSessions(), next), getFilter());
+        const reordered = sessionRows(getSessions(), next, getFilter(), getExpanded()).flatMap((row) =>
+          row.kind === "session" ? [row.session] : [],
+        );
         setSelected(Math.max(0, current ? reordered.indexOf(current) : 0));
       }
+      return;
+    }
+    if ((key.name === "tab" || key.name === "right" || key.name === "left") && current) {
+      const keyForCurrent = sessionKey(current);
+      const next = new Set(getExpanded());
+      if (key.name === "left" || next.has(keyForCurrent)) next.delete(keyForCurrent);
+      else next.add(keyForCurrent);
+      setExpanded(next);
+      const reordered = sessionRows(getSessions(), getOrder(), getFilter(), next).flatMap((row) =>
+        row.kind === "session" ? [row.session] : [],
+      );
+      setSelected(Math.max(0, reordered.indexOf(current)));
       return;
     }
     if (key.name === "r") return void refresh();
@@ -460,13 +465,13 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       />
     );
 
-  // Columns before the path: marker, agent, status, where, age and last activity.
-  const fixedWidth = 2 + 9 + 9 + 6 + 6 + 9;
-  const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
-  const pathWidth = Math.max(
-    15,
-    Math.min(Math.max(0, ...visible.map((session) => label(session).length)), width - 2 - fixedWidth - branchWidth - 2),
+  const availableWidth = Math.max(1, width - 46);
+  const branchWidth = Math.min(
+    24,
+    Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)),
+    Math.floor(availableWidth / 3),
   );
+  const titleWidth = Math.max(1, availableWidth - branchWidth);
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
@@ -476,52 +481,48 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
         </span>
         <span fg={color.comment}>
           {" "}
-          {sessions.length} sessions · {order.replaceAll("_", " ")}
+          {visible.length} shown · {order === "project" ? "directory / task" : order.replaceAll("_", " ")} · refreshed{" "}
+          {clock(updatedAt)}
         </span>
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
       </text>
       <box flexDirection="column" marginTop={1} flexGrow={1}>
         {visible.length ? (
           <text fg={color.comment}>
-            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"active".padStart(7)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
+            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"updated".padStart(8)}  ${"title".padEnd(titleWidth)}  ${branchWidth ? "branch" : ""}`}
           </text>
         ) : null}
         {visible.length ? (
-          visible.slice(firstRow, firstRow + pageSize).map((session) => {
+          rows.slice(firstRow, firstRow + pageSize).map((row) => {
+            if (row.kind === "header")
+              return (
+                <text key={row.key} fg={color.fgBright} attributes={1}>
+                  {fit(
+                    `${row.name}${row.directory ? ` · ${tilde(row.directory)}` : " · cloud task"}`,
+                    Math.max(1, width - 2),
+                    "end",
+                  )}
+                </text>
+              );
+            const { session, depth, children } = row;
             const active = session === current;
             const unavailable = session.place.kind === "elsewhere";
-            const nested =
-              session.parentSessionPid !== undefined &&
-              visible.some((parent) => parent.pid === session.parentSessionPid);
+            const title = `${depth ? "↳ " : ""}${sessionTitle(session)}${children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : ""}`;
             return (
-              <box
-                key={
-                  session.pid ??
-                  (session.place.kind === "background" || session.place.kind === "cloud"
-                    ? `${session.place.kind}:${session.place.id}`
-                    : session.cwd)
-                }
-                backgroundColor={active ? color.bg2 : undefined}
-              >
+              <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text>
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>
-                    {(nested ? `↳ ${session.agent}` : session.agent).padEnd(9)}
-                  </span>
+                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
                   <span fg={unavailable ? color.comment : activityColor(session.activity)}>
-                    {(session.activity ?? "·").padEnd(9)}
+                    {(session.activity ?? "unknown").padEnd(9)}
                   </span>
-                  <span fg={unavailable ? color.comment : color.fgDim}>{where(session).padEnd(6)}</span>
+                  <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
                   <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
-                  <span fg={color.comment}>
-                    {(session.lastActiveAt === undefined ? "unknown" : age(session.lastActiveAt)).padStart(7)}{" "}
-                  </span>
+                  <span fg={color.comment}>{clock(session.lastActiveAt).padStart(8)} </span>
                   <span fg={unavailable ? color.comment : active ? color.fgBright : color.fg}>
-                    {fit(label(session), pathWidth, "start").padEnd(pathWidth)}{" "}
+                    {fit(title, titleWidth, "end").padEnd(titleWidth)}{" "}
                   </span>
-                  <span fg={unavailable ? color.comment : color.teal}>
-                    {fit(session.branch ?? "", branchWidth, "end")}
-                  </span>
+                  <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
                 </text>
               </box>
             );
@@ -544,8 +545,14 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
           ))}
         </text>
       ) : null}
-      {mode === "normal" && !notice && current?.place.kind === "elsewhere" ? (
-        <text fg={color.comment}>cannot open · {current.place.source ?? `pid ${current.pid}`}</text>
+      {current ? (
+        <text fg={color.comment}>
+          {fit(
+            `${sessionTitle(current)} · ${label(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · cannot open this child" : ""}`,
+            Math.max(1, width - 2),
+            "end",
+          )}
+        </text>
       ) : null}
       <text fg={notice ? color.peach : color.comment}>
         {mode === "confirm"
@@ -566,7 +573,7 @@ function hints(mode: Mode, current: Session | undefined): string {
   const action = current ? sessionAction(current) : undefined;
   switch (mode) {
     case "normal":
-      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · o sort · s settings · S skills · q quit`;
+      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · o sort · tab children · s settings · S skills · q quit`;
     case "filter":
       return "type to filter · enter keep · esc clear";
     case "agent":
