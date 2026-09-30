@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Try a local Pi remote control bridge.** An opt-in extension exposes state, transcript events,
+  prompts and abort through an owner-only Unix socket. It needs no fork of Pi and is not enabled
+  automatically. Remote dialog replies are not supported.
+
 - **Codex Cloud tasks appear in the list.** Read-only cloud rows show their title and activity.
   Enter opens status and diff in tmux; they cannot be closed from kiln. Cloud refreshes at most
   once a minute without delaying local sessions, and `cloud = false` hides them.
