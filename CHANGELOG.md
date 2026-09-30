@@ -13,6 +13,12 @@ verbatim.
   Set `sort` or press `o` to cycle age, harness, directory and project order while keeping children
   beneath their parent. Unknown activity timestamps are labelled and sort last.
 
+## [0.1.2] - 2026-09-30
+
+- **Archive Codex background threads with x.** The confirmation names the archive action; history
+  is kept and archived threads stay hidden. Other sessions retain their close action, and
+  unsupported actions explain why before confirmation.
+
 ## [0.1.1] - 2026-09-30
 
 - **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating

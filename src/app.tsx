@@ -4,12 +4,14 @@ import { basename, resolve } from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { runSessionAction, sessionAction } from "./actions";
 import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
 import { sessionSorts, sortSessions } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
-import { attach, exists, kill, start } from "./tmux";
+import { attach, exists, start } from "./tmux";
 import { rankedDirectories, recordDirectory } from "./zoxide";
 
 const color = {
@@ -202,6 +204,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const [filter, getFilter, setFilter] = useLatest("");
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
   const [order, getOrder, setOrder] = useLatest(initialSettings.sort);
+  const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
   const offered = agents.filter((agent) => settings.agents[agent].length);
@@ -337,8 +340,15 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
 
   const close = useCallback(
     async (session: Session) => {
-      const closed = stop(session);
-      setNotice(closed === true ? `closed ${session.agent} in ${tilde(session.cwd)}` : closed);
+      const action = sessionAction(session);
+      const closed = await runSessionAction(session);
+      setNotice(
+        closed === true && "verb" in action
+          ? `${action.verb === "archive" ? "archived" : "closed"} ${session.agent} in ${tilde(session.cwd)}`
+          : closed === true
+            ? "session closed"
+            : closed,
+      );
       await refresh();
     },
     [refresh],
@@ -387,7 +397,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
 
     if (mode === "confirm") {
       setMode("normal");
-      if (key.name === "y" && current) void close(current);
+      const pending = getPendingSession();
+      setPendingSession(undefined);
+      if (key.name === "y" && pending) void close(pending);
       return;
     }
 
@@ -412,7 +424,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     if (key.name === "r") return void refresh();
     if (key.name === "return" && current) return void open(current);
     if (key.name === "x" && current) {
-      if (current.place.kind === "cloud") return setNotice("cloud tasks are read-only and cannot be closed here");
+      const action = sessionAction(current);
+      if ("reason" in action) return setNotice(action.reason);
+      setPendingSession(current);
       return setMode("confirm");
     }
     if (key.name === "s") return void editSettings();
@@ -511,46 +525,27 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
         <text fg={color.comment}>cannot open · {current.place.source ?? `pid ${current.pid}`}</text>
       ) : null}
       <text fg={notice ? color.peach : color.comment}>
-        {notice || (settings.cloud ? cloudSnapshot(false).problem : "") || hints(mode, current)}
+        {mode === "confirm"
+          ? hints(mode, pendingSession)
+          : notice || (settings.cloud ? cloudSnapshot(false).problem : "") || hints(mode, current)}
       </text>
     </box>
   );
 }
 
-/** Close a session its own way; anything but `true` is the reason it is still running. */
-function stop(session: Session): true | string {
-  const place = session.place;
-  switch (place.kind) {
-    case "kiln":
-      return kill(place.name) || `could not close kiln session ${place.name}`;
-    case "background":
-      if (!place.stop) return `${session.agent} cannot stop this session from outside; open it and quit there`;
-      return (
-        Bun.spawnSync(place.stop, { stdout: "ignore", stderr: "ignore" }).exitCode === 0 ||
-        `${place.stop.join(" ")} failed`
-      );
-    case "cloud":
-      return "cloud tasks are read-only and cannot be closed here";
-    case "kitty":
-    case "elsewhere":
-      if (session.pid === undefined) return `${session.agent} in ${tilde(session.cwd)} has no process to close`;
-      try {
-        return process.kill(session.pid, "SIGTERM");
-      } catch (error) {
-        return `could not close pid ${session.pid}: ${error instanceof Error ? error.message : String(error)}`;
-      }
-  }
-}
-
 function hints(mode: Mode, current: Session | undefined): string {
+  const action = current ? sessionAction(current) : undefined;
   switch (mode) {
     case "normal":
-      return "j/k move · enter open · n new · x close · / filter · o sort · s settings · q quit";
+      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · o sort · s settings · q quit`;
     case "filter":
       return "type to filter · enter keep · esc clear";
     case "agent":
       return "h/l or j/k pick agent · enter to pick a directory in fzf · esc cancel";
-    case "confirm":
-      return current ? `close ${current.agent} in ${tilde(current.cwd)}? y to confirm, anything else cancels` : "";
+    case "confirm": {
+      if (!current || !action) return "";
+      if ("reason" in action) return action.reason;
+      return `${action.verb} ${current.agent} in ${tilde(current.cwd)}? ${action.verb === "archive" ? "history kept; may archive children · " : ""}y to confirm, anything else cancels`;
+    }
   }
 }
