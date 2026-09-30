@@ -492,7 +492,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>
+                  <span fg={unavailable ? color.comment : active ? color.peach : color.orange}>
                     {fit(title, titleWidth, "end").padEnd(titleWidth)}
                     {"  "}
                   </span>
@@ -525,7 +525,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${sessionTitle(current)} · ${label(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · cannot open this child" : ""}`,
+            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · cannot open this child" : ""}`,
             Math.max(1, width - 2),
             "end",
           )}
