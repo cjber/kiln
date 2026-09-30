@@ -104,6 +104,9 @@ Codex only uses its shared daemon when the command has no `-c`, `--enable`, `--d
 flag. Put those in `~/.codex/config.toml` instead (`web_search = "live"` for search), or the session
 gets neither remote control nor a real status.
 
+An opt-in [Pi remote control prototype](prototypes/README.md) exposes an existing interactive
+session through a private local socket. It is not installed or enabled by kiln.
+
 ## Development
 
 ```sh

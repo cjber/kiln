@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Try a local Pi remote control bridge.** An opt-in extension exposes state, transcript events,
+  prompts and abort through an owner-only Unix socket. It needs no fork of Pi and is not enabled
+  automatically. Remote dialog replies are not supported.
+
 ## [0.1.0] - 2026-09-30
 
 - **First release.** One list of every interactive Claude, Codex and Pi session on the machine, with

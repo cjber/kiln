@@ -27,6 +27,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/app.tsx` - the whole UI and its keys.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
+- `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots.
 
 ## Rules
