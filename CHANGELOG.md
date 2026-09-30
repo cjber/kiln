@@ -9,7 +9,11 @@ verbatim.
 
 ## [Unreleased]
 
-- **Open the selected local Codex thread from Android.** Connected daemon relay metadata supplies the host identity for ChatGPT's thread route. The client validates the thread and host query; unavailable metadata keeps the manual handoff and reports read failures without exposing provider responses.
+- **Open the selected local Codex thread from Android.** Connected daemon relay metadata supplies the host identity for ChatGPT’s thread route. The client validates the thread and host query; unavailable metadata keeps the manual handoff and reports read failures without exposing provider responses.
+
+- **Match the Android list to the compact desktop view.** Task titles use the orange accent, with status and elapsed update times beneath them. Harness and branch stay together in details on both surfaces. Android keeps Pi tasks visible without a handoff button and uses the shared kiln launcher mark.
+
+- **Count Codex threads rather than terminal clients.** Confirmed thread IDs deduplicate attached terminals; unidentified clients no longer become duplicate PID tasks. Provider child threads nest beneath their parents on desktop and phone. README screenshots now come from seeded terminal and Android UI fixtures.
 
 ## [0.3.1] - 2026-09-30
 
