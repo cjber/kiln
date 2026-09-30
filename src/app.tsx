@@ -211,9 +211,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     if (refreshing.current) return;
     refreshing.current = true;
     try {
+      const loaded = await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud }));
       const before = matching(sortSessions(getSessions(), getOrder()), getFilter());
       const current = before[Math.min(getSelected(), before.length - 1)];
-      const loaded = await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud }));
       setSessions(loaded);
       const after = matching(sortSessions(loaded, getOrder()), getFilter());
       const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
