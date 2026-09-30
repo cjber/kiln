@@ -17,6 +17,8 @@ python3 .sift/agents.py check
 ```
 
 CI runs the same, plus actionlint, zizmor and gitleaks over the workflows and history.
+Native x64 and arm64 CI jobs build and exercise the standalone executable and install the rendered
+binary AUR package in Arch without Bun. Release publication waits for both jobs.
 `bun scripts/screenshots.tsx 2>/dev/null` re-renders `assets/*.png` from the real UI; run it after a
 visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its tag.
 
@@ -32,6 +34,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/skills.ts`, `src/skills-view.tsx` - shared user/project stores, compatibility links and the `S` view.
 - `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
+- `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
 - `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
   The binaries embed OpenTUI assets and `tmux.conf`; AUR `kiln-agents-bin` needs no Bun.
 

@@ -155,6 +155,11 @@ by their harness. Reload skills or restart existing sessions after changing the 
 
 ## Development
 
+CI builds and runs the standalone binary on native Linux x64 and arm64 runners. It checks the
+TUI, embedded tmux configuration, attach/detach and the status bar's executable path. An Arch
+container builds and installs the rendered binary PKGBUILD without Bun and checks its metadata,
+checksums and TUI. The release job runs the same checks before publishing either executable.
+
 ```sh
 bun install --frozen-lockfile
 bunx biome ci .                           # format and lint; `bunx biome check --write .` fixes

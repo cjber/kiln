@@ -13,6 +13,10 @@ verbatim.
   Create, edit or copy a skill, then share it through Claude and Pi compatibility links. Codex reads
   the shared directory directly. Name clashes are reported before linking; unlinking keeps the files.
 
+- **Release binaries run on both target architectures before publication.** CI exercises Linux x64
+  and arm64 executables, including tmux and native UI loading, then builds and installs the binary
+  AUR package in Arch without Bun. Releases wait for these checks.
+
 ## [0.1.2] - 2026-09-30
 
 - **Archive Codex background threads with x.** The confirmation names the archive action; history
