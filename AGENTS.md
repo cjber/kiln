@@ -28,7 +28,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
-- `bun scripts/build.ts` builds Linux x64/arm64 into `dist/`; install with `--os linux --cpu "*"` first.
+- `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
   The binaries embed OpenTUI assets and `tmux.conf`; AUR `kiln-agents-bin` needs no Bun.
 
 ## Rules
