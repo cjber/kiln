@@ -27,6 +27,8 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/claude-cloud.ts` - opt-in internal Claude cloud API, existing login, cached reads and safe errors.
+
+- `src/actions.ts` - close/archive capabilities and execution for each session type.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.

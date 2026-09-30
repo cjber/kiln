@@ -19,7 +19,7 @@ import { nestSessions, type Session } from "../src/sessions";
 import { defaults } from "../src/settings";
 
 const cols = 92;
-const rows = 12;
+const rows = 13;
 const cell = { width: 9, height: 20 };
 const pad = 20;
 const background = "#121113";
@@ -163,5 +163,6 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 
 await shoot("list", ["j"]);
 await shoot("unavailable", ["j", "j"]);
+await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 process.exit(0);
