@@ -15,8 +15,46 @@ jobs:
       contents: read
     uses: ./.github/workflows/binaries.yml # zizmor: ignore[self-repository] actionlint 1.7.12 does not support $/ calls
 
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK platform
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Check and build Android release
+        run: android/gradlew -p android checkKotlinFormat testReleaseUnitTest lintRelease assembleRelease --console plain
+      - name: Sign Android release
+        env:
+          ANDROID_RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          ANDROID_RELEASE_PASSWORD: ${{ secrets.ANDROID_RELEASE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_RELEASE_KEYSTORE"
+          test -n "$ANDROID_RELEASE_PASSWORD"
+          umask 077
+          keyfile="$RUNNER_TEMP/kiln-release.p12"
+          trap 'command rm -f "$keyfile"' EXIT
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE" | base64 --decode > "$keyfile"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -P 16 -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$keyfile" --ks-key-alias kiln --ks-pass env:ANDROID_RELEASE_PASSWORD --key-pass env:ANDROID_RELEASE_PASSWORD --out kiln-android.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --verbose kiln-android.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kiln-android-release
+          path: kiln-android.apk
+          if-no-files-found: error
+
   release:
-    needs: binaries
+    needs: [binaries, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -46,13 +84,18 @@ jobs:
       - name: Build standalone binaries
         run: bun scripts/build.ts
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: kiln-android-release
+          path: dist
+
       - name: GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           bun scripts/changelog.ts "$VERSION" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
 
       - name: Render AUR package
         run: |

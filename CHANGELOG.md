@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Releases include a signed Android app.** Each tag builds, checks and attaches kiln-android.apk using a persistent signing key, so release installations can update without losing their paired machines.
+
 ## [0.3.1] - 2026-09-30
 
 - **Show compact task rows with live elapsed updates.** Directory headings group task titles, status and time since their last update. The clock advances even while discovery is slow. Unassigned Codex launch screens and exited Claude processes are omitted.

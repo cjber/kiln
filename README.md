@@ -183,7 +183,11 @@ stop sessions. Pi has no phone handoff yet. Local Codex sessions open ChatGPT's 
 the displayed thread on the named machine. Cloud tasks and Claude Remote Control sessions have
 exact links when their provider reports one.
 
-Install the `kiln-android` APK artifact from a green CI run, or build it with JDK 21 and Android
+Install `kiln-android.apk` from a GitHub release for a consistently signed build. Debug APKs
+from CI have temporary signing keys. Moving from a debug installation to a release build requires
+a one-time reinstall and pairing again; later release updates preserve pairing data.
+
+For development, build with JDK 21 and Android
 SDK 36: `android/gradlew -p android assembleDebug`. The APK is at
 `android/app/build/outputs/apk/debug/app-debug.apk`.
 
