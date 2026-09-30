@@ -100,6 +100,7 @@ servers run by a systemd service and Codex daemon sub-threads are left out.
 option at its default. An unknown key is an error, never silently ignored.
 
 ```toml
+sort = "last_active"
 detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
@@ -162,3 +163,5 @@ Goplani and has since been rewritten down to this list; the original copyright n
 [LICENSE](LICENSE).
 
 Made by Cillian Berragan · [GitHub](https://github.com/cjber)
+
+The `active` column shows time since the last transcript update or terminal output. Unavailable timestamps show `unknown` and sort last. The list defaults to most recently active first. Set `sort` to `last_active`, `age` (oldest first), `harness`, `directory` (full path) or `project` (directory basename). Press `o` to cycle the order for this run, keeping the selected session and children beneath their parent. Codex Cloud uses its last update for both age and activity because its listing provides no creation time.

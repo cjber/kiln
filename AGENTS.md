@@ -25,6 +25,7 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/sessions.ts` - discovery: `claude agents --json`, the Codex daemon (`src/codex.ts`), `pgrep`
   for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
+- `src/session-sort.ts` - list ordering, preserving parent/child groups.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.

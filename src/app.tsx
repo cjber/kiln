@@ -4,9 +4,9 @@ import { basename, resolve } from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
+import { sessionSorts, sortSessions } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { attach, exists, kill, start } from "./tmux";
@@ -160,6 +160,21 @@ function useLatest<T>(initial: T): [T, () => T, (next: T | ((current: T) => T)) 
   return [value, get, set];
 }
 
+function sessionKey(session: Session): string {
+  if (session.pid !== undefined) return `pid:${session.pid}`;
+  switch (session.place.kind) {
+    case "cloud":
+    case "background":
+      return `${session.agent}:${session.place.kind}:${session.place.id}`;
+    case "kiln":
+      return `kiln:${session.place.name}`;
+    case "kitty":
+      return `kitty:${session.place.socket}:${session.place.windowId}`;
+    case "elsewhere":
+      return `${session.agent}:${session.cwd}`;
+  }
+}
+
 function matching(sessions: readonly Session[], filter: string): Session[] {
   const needle = filter.toLowerCase();
   return sessions.filter(
@@ -180,12 +195,13 @@ type AppProps = {
 
 export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const renderer = useRenderer();
-  const { width } = useTerminalDimensions();
+  const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
   const [selected, getSelected, setSelected] = useLatest(0);
   const [mode, getMode, setMode] = useLatest<Mode>("normal");
   const [filter, getFilter, setFilter] = useLatest("");
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
+  const [order, getOrder, setOrder] = useLatest(initialSettings.sort);
   const [notice, setNotice] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
   const offered = agents.filter((agent) => settings.agents[agent].length);
@@ -195,11 +211,17 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      setSessions(await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud })));
+      const before = matching(sortSessions(getSessions(), getOrder()), getFilter());
+      const current = before[Math.min(getSelected(), before.length - 1)];
+      const loaded = await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud }));
+      setSessions(loaded);
+      const after = matching(sortSessions(loaded, getOrder()), getFilter());
+      const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
+      setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
     } finally {
       refreshing.current = false;
     }
-  }, [getSettings, loadSessions, setSessions]);
+  }, [getSettings, getSessions, getOrder, getFilter, getSelected, loadSessions, setSessions, setSelected]);
 
   useEffect(() => {
     void refresh();
@@ -207,9 +229,12 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     return () => clearInterval(interval);
   }, [refresh]);
 
-  const visible = useMemo(() => matching(sessions, filter), [filter, sessions]);
+  const visible = useMemo(() => matching(sortSessions(sessions, order), filter), [filter, sessions, order]);
 
   const current = visible[Math.min(selected, visible.length - 1)];
+
+  const pageSize = Math.max(1, height - (mode === "agent" || current?.place.kind === "elsewhere" ? 6 : 5));
+  const firstRow = Math.max(0, Math.min(selected, visible.length - 1) - pageSize + 1);
 
   const withTerminal = useCallback(
     async <T,>(action: () => T): Promise<T> => {
@@ -300,13 +325,15 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       }),
     );
     try {
-      setSettings(loadSettings());
+      const loaded = loadSettings();
+      setSettings(loaded);
+      setOrder(loaded.sort);
       await refresh();
       setNotice("settings reloaded");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [refresh, setSettings, withTerminal]);
+  }, [refresh, setSettings, setOrder, withTerminal]);
 
   const close = useCallback(
     async (session: Session) => {
@@ -322,7 +349,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     const mode = getMode();
     const agentIndex = getAgentIndex();
     const choices = agents.filter((agent) => getSettings().agents[agent].length);
-    const visible = matching(getSessions(), getFilter());
+    const visible = matching(sortSessions(getSessions(), getOrder()), getFilter());
     const current = visible[Math.min(getSelected(), visible.length - 1)];
     const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible.length - 1, index + delta)));
 
@@ -373,6 +400,15 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     if (key.ctrl && key.name === "d") return move(10);
     if (key.ctrl && key.name === "u") return move(-10);
     if (key.name === "/") return setMode("filter");
+    if (key.name === "o") {
+      const next = sessionSorts[(sessionSorts.indexOf(getOrder()) + 1) % sessionSorts.length];
+      if (next) {
+        setOrder(next);
+        const reordered = matching(sortSessions(getSessions(), next), getFilter());
+        setSelected(Math.max(0, current ? reordered.indexOf(current) : 0));
+      }
+      return;
+    }
     if (key.name === "r") return void refresh();
     if (key.name === "return" && current) return void open(current);
     if (key.name === "x" && current) {
@@ -388,7 +424,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   });
 
   // Columns before the path: marker, agent, status, where, age.
-  const fixedWidth = 2 + 9 + 9 + 6 + 6;
+  const fixedWidth = 2 + 9 + 9 + 6 + 6 + 9;
   const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
   const pathWidth = Math.max(
     15,
@@ -401,17 +437,20 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
         <span fg={color.fgBright} attributes={1}>
           kiln
         </span>
-        <span fg={color.comment}> {sessions.length} sessions</span>
+        <span fg={color.comment}>
+          {" "}
+          {sessions.length} sessions · {order.replaceAll("_", " ")}
+        </span>
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
       </text>
       <box flexDirection="column" marginTop={1} flexGrow={1}>
         {visible.length ? (
           <text fg={color.comment}>
-            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
+            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"active".padStart(7)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
           </text>
         ) : null}
         {visible.length ? (
-          visible.map((session) => {
+          visible.slice(firstRow, firstRow + pageSize).map((session) => {
             const active = session === current;
             const unavailable = session.place.kind === "elsewhere";
             const nested =
@@ -437,6 +476,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
                   </span>
                   <span fg={unavailable ? color.comment : color.fgDim}>{where(session).padEnd(6)}</span>
                   <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
+                  <span fg={color.comment}>
+                    {(session.lastActiveAt === undefined ? "unknown" : age(session.lastActiveAt)).padStart(7)}{" "}
+                  </span>
                   <span fg={unavailable ? color.comment : active ? color.fgBright : color.fg}>
                     {fit(label(session), pathWidth, "start").padEnd(pathWidth)}{" "}
                   </span>
@@ -503,7 +545,7 @@ function stop(session: Session): true | string {
 function hints(mode: Mode, current: Session | undefined): string {
   switch (mode) {
     case "normal":
-      return "j/k move · enter open · n new · x close · / filter · s settings · q quit";
+      return "j/k move · enter open · n new · x close · / filter · o sort · s settings · q quit";
     case "filter":
       return "type to filter · enter keep · esc clear";
     case "agent":
