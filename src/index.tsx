@@ -1,5 +1,6 @@
 import { syncBundledSkills } from "./bundled-skills";
 import { runCli } from "./cli";
+import { installPiExtension } from "./pi-install";
 import { loadSettings, type Settings } from "./settings";
 
 const cliExitCode = await runCli(process.argv.slice(2));
@@ -15,6 +16,11 @@ try {
 }
 
 const skillProblems = syncBundledSkills();
+try {
+  installPiExtension(undefined, true);
+} catch (error) {
+  skillProblems.push(error instanceof Error ? error.message : "Cannot update the Pi extension");
+}
 const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
   import("@opentui/core"),
   import("@opentui/react"),
