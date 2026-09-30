@@ -1,7 +1,3 @@
-import { createCliRenderer } from "@opentui/core";
-import { createRoot } from "@opentui/react";
-
-import { App } from "./app";
 import { runCli } from "./cli";
 import { loadSettings, type Settings } from "./settings";
 
@@ -17,6 +13,11 @@ try {
   process.exit(1);
 }
 
+const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
+  import("@opentui/core"),
+  import("@opentui/react"),
+  import("./app"),
+]);
 const renderer = await createCliRenderer({ exitOnCtrlC: false });
 
 const quit = () => {

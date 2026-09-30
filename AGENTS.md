@@ -36,6 +36,8 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 
 - `src/actions.ts` - close/archive capabilities and execution for each session type.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
+- `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
+- `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx` - shared user/project stores, compatibility links and the `S` view.
 - `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
@@ -54,3 +56,5 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.
 - Quality: load `.agents/skills/sift-project/SKILL.md` before cleanup, dead-code or refactoring
   work.
+
+Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links.

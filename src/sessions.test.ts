@@ -5,6 +5,7 @@ import {
   isInteractivePi,
   nestSessions,
   type Place,
+  resumedCodexThread,
   type Session,
   sessionLocation,
   withCodexThreads,
@@ -148,4 +149,12 @@ describe("session placement", () => {
   test("a shell between a top-level agent and its pane still resolves", () => {
     expect(sessionLocation([2, 3, 4], new Map([[4, parentPlace]]), new Set([2]))).toEqual({ found: parentPlace });
   });
+});
+
+test("resumed daemon terminals retain their explicit thread ID", () => {
+  const id = "01a0f263-aa24-75d3-ae9a-4d2440758175";
+  expect(resumedCodexThread(["codex", "resume", id, "--remote", "unix://"])).toBe(id);
+  expect(resumedCodexThread(["codex", "--config", "resume", id])).toBeUndefined();
+  expect(resumedCodexThread(["codex", "resume", "--last"])).toBeUndefined();
+  expect(resumedCodexThread(["codex", "--config", "prompt=resume", id])).toBeUndefined();
 });
