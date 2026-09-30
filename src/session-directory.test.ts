@@ -29,12 +29,18 @@ test("Claude follows a live cwd change and rereads the branch without restarting
     },
   );
   const output = child.stdout.getReader();
+  // CI runs under a service; the fixture represents an interactive terminal scope.
   const discover = async (): Promise<Session[]> => {
     const discovery = Bun.spawn(
       [
         process.execPath,
         "-e",
-        `import { listSessions } from ${JSON.stringify(new URL("./sessions.ts", import.meta.url).href)}; console.log(JSON.stringify(await listSessions({ kitty: false })));`,
+        `import { mock } from "bun:test";
+import * as fs from "node:fs";
+const read = fs.readFileSync;
+mock.module("node:fs", () => ({ ...fs, readFileSync: (path, ...args) => path === "/proc/${child.pid}/cgroup" ? "0::/kiln-fixture.scope" : read(path, ...args) }));
+const { listSessions } = await import(${JSON.stringify(new URL("./sessions.ts", import.meta.url).href)});
+console.log(JSON.stringify(await listSessions({ kitty: false })));`,
       ],
       {
         env: { ...process.env, PATH: `${tools}:${process.env.PATH}`, CODEX_HOME: root },
