@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script=$(realpath "$0")
+root=$(cd "$(dirname "$script")/.." && pwd)
+
+# Some GUI launchers and agent hosts preserve Kitty's window identity while
+# replacing TERM with "dumb". Restore the real terminal type so OpenTUI can
+# negotiate keyboard capabilities.
+if [[ "${TERM:-}" == "dumb" && -n "${KITTY_WINDOW_ID:-}" ]]; then
+  export TERM=xterm-kitty
+fi
+
+exec bun "$root/src/index.tsx" "$@"
