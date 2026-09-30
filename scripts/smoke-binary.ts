@@ -88,7 +88,8 @@ try {
   if (run([tmux, "-L", inner, "show-option", "-gv", "prefix"]).trim() !== "None")
     throw new Error("embedded tmux configuration was not applied");
   await waitFor(() => run([tmux, "-L", inner, "list-keys", "-T", "root"]), "detach-client");
-  run([tmux, "-L", inner, "detach-client"]);
+  const client = (await waitFor(() => run([tmux, "-L", inner, "list-clients", "-F", "#{client_tty}"]), "/")).trim();
+  run([tmux, "-L", inner, "detach-client", "-t", client]);
   await waitFor(capture, "q quit");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
   console.log("binary version, status, native TUI, embedded tmux configuration, status executable and detach passed");
