@@ -85,16 +85,16 @@ function applySettings(settings: Settings): void {
   );
 }
 
-export function attach(name: string, settings: Settings): void {
+export async function attach(name: string, settings: Settings): Promise<void> {
   applySettings(settings);
   // Kiln's server is separate from any tmux kiln itself runs in, so the nesting guard does not apply.
   const { TMUX: _outer, ...env } = Bun.env;
-  Bun.spawnSync([...tmux, "attach-session", "-t", name], {
+  await Bun.spawn([...tmux, "attach-session", "-t", name], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
     env,
-  });
+  }).exited;
 }
 
 export function kill(name: string): boolean {

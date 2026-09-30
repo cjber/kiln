@@ -14,6 +14,9 @@ verbatim.
 - **Repair shared skills without losing clashing files.** The skills view colours shared, missing and conflicting links. `f` backs up conflicts before linking the shared skill. Bundled `kiln-skills` and `kiln-config` helpers stay in sync with the installed version; edited instructions are backed up and same-name user skills are preserved.
 
 - **Show provider session titles.** Codex terminals retain their assigned title even when absent from the daemon's loaded list. Claude transcript titles and explicitly selected Pi session names follow renames without inventing activity.
+- **Desktop notifications when agent turns finish.** kiln uses notify-send when an observed
+  working turn reaches idle, including while attached to tmux. Approval pauses and quiet output
+  do not trigger alerts. Set `notifications = false` to disable them.
 
 ## [0.3.0] - 2026-09-30
 

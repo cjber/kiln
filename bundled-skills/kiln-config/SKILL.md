@@ -14,7 +14,9 @@ Supported top-level settings:
 - `sort`: `project` (default, groups by directory/task name with recent rows first),
   `directory` (full paths), `last_active`, `age` (oldest first), or `harness`.
 - `detach_key`: tmux key syntax, default `C-q`.
-- `status_bar`, `zoxide`, `remote_control`, `cloud`: booleans, default `true`.
+- `status_bar`, `zoxide`, `remote_control`, `cloud`, `notifications`: booleans, default `true`.
+- `notifications` uses `notify-send` when an observed working turn reaches idle.
+  It requires a desktop notification service; approval pauses are not completion.
 - `claude_cloud`: boolean, default `false`; uses Claude's internal cloud API and
   existing login. Enable alongside `cloud` for Claude cloud rows.
 - `[agents]`: `claude`, `codex` and `pi` are arrays of command arguments. An empty
