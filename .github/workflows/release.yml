@@ -30,7 +30,7 @@ jobs:
       - name: Install Android SDK platform
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
       - name: Check and build Android release
-        run: android/gradlew -p android checkKotlinFormat testReleaseUnitTest lintRelease assembleRelease --console plain
+        run: android/gradlew -p android checkKotlinFormat testDebugUnitTest lintRelease assembleRelease --console plain
       - name: Sign Android release
         env:
           ANDROID_RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
