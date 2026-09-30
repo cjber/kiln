@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-
+import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
@@ -50,6 +50,8 @@ export type Session = {
   agent: Agent;
   cwd: string;
   startedAt: number;
+  /** Last transcript update or terminal output, when available. */
+  lastActiveAt?: number;
   /** Agent-reported status, or recent pane output when no status is available. */
   activity?: Activity;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
@@ -295,7 +297,7 @@ export function withCodexThreads(
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
-export async function listSessions({ kitty = true, cloud = false } = {}): Promise<Session[]> {
+export async function listSessions({ kitty = true, cloud = false, claudeCloud = false } = {}): Promise<Session[]> {
   const [claude, owned, windows, threads] = await Promise.all([
     claudeProcesses(),
     panes(),
@@ -343,9 +345,12 @@ export async function listSessions({ kitty = true, cloud = false } = {}): Promis
         : undefined,
   }));
   return nestSessions(
-    [...sessions, ...codex.headless, ...(cloud ? cloudSnapshot().sessions : [])].sort(
-      (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
-    ),
+    [
+      ...sessions,
+      ...codex.headless,
+      ...(cloud ? cloudSnapshot().sessions : []),
+      ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
+    ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),
   );
 }
 

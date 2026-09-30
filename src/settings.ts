@@ -15,6 +15,8 @@ export type Settings = {
   remoteControl: boolean;
   /** Include read-only Codex Cloud tasks. */
   cloud: boolean;
+  /** Opt into Claude Code's internal cloud-listing API using its existing login. */
+  claudeCloud: boolean;
   /** The command each agent starts with; an empty list hides it from the new-session picker. */
   agents: Record<Agent, string[]>;
 };
@@ -25,6 +27,7 @@ export const defaults: Settings = {
   zoxide: true,
   remoteControl: true,
   cloud: true,
+  claudeCloud: false,
   agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
 };
 
@@ -45,6 +48,10 @@ remote_control = true
 
 # Include read-only Codex Cloud tasks, refreshed at most once a minute.
 cloud = true
+
+# Opt into Claude cloud listing through its internal API using the existing login.
+# Enter opens the session on claude.ai. This API can change between CLI versions.
+claude_cloud = false
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
@@ -97,6 +104,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "cloud":
         if (typeof value !== "boolean") fail(path, "cloud must be true or false");
         settings.cloud = value;
+        break;
+      case "claude_cloud":
+        if (typeof value !== "boolean") fail(path, "claude_cloud must be true or false");
+        settings.claudeCloud = value;
         break;
       case "agents":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[agents] must be a table");
