@@ -263,7 +263,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
         }
         case "elsewhere":
           return setNotice(
-            `this ${session.agent} runs outside kiln and kitty (pid ${session.pid}), so there is nothing to open`,
+            `cannot open · ${session.place.source ?? `pid ${session.pid ?? "unknown"}`} · outside kiln and kitty`,
           );
       }
     },
@@ -388,7 +388,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   });
 
   // Columns before the path: marker, agent, status, where, age.
-  const fixedWidth = 2 + 7 + 9 + 6 + 6;
+  const fixedWidth = 2 + 9 + 9 + 6 + 6;
   const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
   const pathWidth = Math.max(
     15,
@@ -407,12 +407,16 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       <box flexDirection="column" marginTop={1} flexGrow={1}>
         {visible.length ? (
           <text fg={color.comment}>
-            {`  ${"agent".padEnd(7)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
+            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
           </text>
         ) : null}
         {visible.length ? (
           visible.map((session) => {
             const active = session === current;
+            const unavailable = session.place.kind === "elsewhere";
+            const nested =
+              session.parentSessionPid !== undefined &&
+              visible.some((parent) => parent.pid === session.parentSessionPid);
             return (
               <box
                 key={
@@ -425,14 +429,20 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
               >
                 <text>
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(7)}</span>
-                  <span fg={activityColor(session.activity)}>{(session.activity ?? "·").padEnd(9)}</span>
-                  <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
+                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>
+                    {(nested ? `↳ ${session.agent}` : session.agent).padEnd(9)}
+                  </span>
+                  <span fg={unavailable ? color.comment : activityColor(session.activity)}>
+                    {(session.activity ?? "·").padEnd(9)}
+                  </span>
+                  <span fg={unavailable ? color.comment : color.fgDim}>{where(session).padEnd(6)}</span>
                   <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
-                  <span fg={active ? color.fgBright : color.fg}>
+                  <span fg={unavailable ? color.comment : active ? color.fgBright : color.fg}>
                     {fit(label(session), pathWidth, "start").padEnd(pathWidth)}{" "}
                   </span>
-                  <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
+                  <span fg={unavailable ? color.comment : color.teal}>
+                    {fit(session.branch ?? "", branchWidth, "end")}
+                  </span>
                 </text>
               </box>
             );
@@ -454,6 +464,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
             </span>
           ))}
         </text>
+      ) : null}
+      {mode === "normal" && !notice && current?.place.kind === "elsewhere" ? (
+        <text fg={color.comment}>cannot open · {current.place.source ?? `pid ${current.pid}`}</text>
       ) : null}
       <text fg={notice ? color.peach : color.comment}>
         {notice || (settings.cloud ? cloudSnapshot(false).problem : "") || hints(mode, current)}

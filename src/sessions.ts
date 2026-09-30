@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { cloudSnapshot } from "./cloud";
@@ -40,15 +40,17 @@ export type Place =
   | { kind: "kitty"; socket: string; windowId: number }
   | { kind: "background"; id: string; attach: string[]; stop?: string[] }
   | { kind: "cloud"; id: string; title: string }
-  | { kind: "elsewhere" };
+  | { kind: "elsewhere"; source?: string };
 
 export type Session = {
   /** The agent's process; a Codex daemon thread has none of its own. */
   pid?: number;
+  /** The live kiln session whose agent spawned this process. */
+  parentSessionPid?: number;
   agent: Agent;
   cwd: string;
   startedAt: number;
-  /** Claude reports its own; kiln-owned sessions of other agents derive it from pane output. */
+  /** Agent-reported status, or recent pane output when no status is available. */
   activity?: Activity;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
   branch?: string;
@@ -59,7 +61,7 @@ type AgentProcess = Omit<Session, "place" | "branch"> & { pid: number; backgroun
 
 type ClaudeAgent = { pid: number; cwd: string; startedAt?: number; status?: string; kind?: string; id?: string };
 
-/** A pane that produced output this recently is mid-turn: every agent animates a spinner while working. */
+/** Recent output suggests work; silence alone cannot establish that a turn has finished. */
 const workingWindowMs = 3_000;
 
 function startedAt(pid: number): number {
@@ -80,6 +82,32 @@ function parentPid(pid: number): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Process names and terminal paths explain provenance without exposing command arguments. */
+function processSource(pid: number): string {
+  const details = [`pid ${pid}`];
+  try {
+    const terminal = readlinkSync(`/proc/${pid}/fd/0`);
+    if (terminal.startsWith("/dev/")) details.push(terminal);
+  } catch {
+    // A process can exit while the list refreshes.
+  }
+  let immediateParent: string | undefined;
+  for (let parent = parentPid(pid); parent; parent = parentPid(parent)) {
+    try {
+      const name = readFileSync(`/proc/${parent}/comm`, "utf8").trim();
+      immediateParent ??= `parent ${name} (${parent})`;
+      if (agents.some((agent) => agent === name)) {
+        details.push(`spawned by ${name} (${parent})`);
+        return details.join(" · ");
+      }
+    } catch {
+      break;
+    }
+  }
+  if (immediateParent) details.push(immediateParent);
+  return details.join(" · ");
 }
 
 function processCwd(pid: number): string | undefined {
@@ -211,24 +239,46 @@ function processesNamed(agent: Agent, isInteractive: (command: string) => boolea
     });
 }
 
-/**
- * Every live `codex` TUI keeps a thread on the daemon, which does not say which
- * TUI holds it, so they pair up by directory in start order. A paired TUI takes
- * its thread's status; a thread left over runs with no terminal (`codex agents`).
- */
-function withCodexThreads(
-  processes: AgentProcess[],
+/** Older Codex TUIs hold a local thread lock; they must not borrow a daemon thread's status. */
+function codexThreadId(pid: number): string | undefined {
+  try {
+    for (const fd of readdirSync(`/proc/${pid}/fd`)) {
+      try {
+        const path = readlinkSync(`/proc/${pid}/fd/${fd}`);
+        const match = path.match(/\/thread-writer-locks\/([0-9a-f-]+)\.lock$/);
+        if (match) return match[1];
+      } catch {
+        // File descriptors can close during discovery.
+      }
+    }
+  } catch {
+    // The process may have exited.
+  }
+  return undefined;
+}
+
+/** Match known thread IDs first; directory matches are usable only when unambiguous. */
+export function withCodexThreads(
+  processes: (AgentProcess & { threadId?: string })[],
   threads: CodexThread[],
 ): { processes: AgentProcess[]; headless: Session[] } {
-  const unpaired = [...threads].sort((left, right) => left.createdAt - right.createdAt);
-  const paired = [...processes]
-    .sort((left, right) => left.startedAt - right.startedAt)
-    .map((process) => {
-      const index = unpaired.findIndex((thread) => thread.cwd === process.cwd);
-      if (index < 0) return process;
-      const [thread] = unpaired.splice(index, 1);
-      return { ...process, activity: thread?.activity };
-    });
+  const unpaired = [...threads];
+  const identified = processes.map(({ threadId, ...process }) => {
+    const thread = threadId ? unpaired.find((thread) => thread.id === threadId) : undefined;
+    if (thread) unpaired.splice(unpaired.indexOf(thread), 1);
+    return { process: { ...process, activity: thread?.activity }, threadId };
+  });
+  const paired = identified.map(({ process, threadId }) => {
+    if (threadId) return process;
+    const candidates = unpaired.filter((thread) => thread.cwd === process.cwd);
+    const peers = processes.filter((peer) => !peer.threadId && peer.cwd === process.cwd);
+    if (candidates.length !== 1 || peers.length !== 1) return process;
+    const thread = candidates[0];
+    if (!thread) return process;
+    unpaired.splice(unpaired.indexOf(thread), 1);
+    return { ...process, activity: thread.activity };
+  });
+  // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired.map((thread) => ({
     agent: "codex" as const,
     cwd: thread.cwd,
@@ -252,7 +302,13 @@ export async function listSessions({ kitty = true, cloud = false } = {}): Promis
     kitty ? kittyWindows() : [],
     codexThreads(),
   ]);
-  const codex = withCodexThreads(processesNamed("codex", isInteractiveCodex), threads);
+  const codex = withCodexThreads(
+    processesNamed("codex", isInteractiveCodex).map((process) => ({
+      ...process,
+      threadId: codexThreadId(process.pid),
+    })),
+    threads,
+  );
   const running = [...claude, ...codex.processes, ...processesNamed("pi", isInteractivePi)];
 
   const places = new Map<number, { place: Place; activityAt?: number }>();
@@ -264,22 +320,64 @@ export async function listSessions({ kitty = true, cloud = false } = {}): Promis
   for (const pane of owned)
     places.set(pane.pid, { place: { kind: "kiln", name: pane.name }, activityAt: pane.activityAt });
 
+  const runningPids = new Set(running.map((process) => process.pid));
   const located = running.map(({ background, ...process }) => {
-    let found: { place: Place; activityAt?: number } | undefined;
-    for (let pid: number | undefined = process.pid; pid && !found; pid = parentPid(pid)) found = places.get(pid);
-    const place = background ?? found?.place ?? { kind: "elsewhere" as const };
+    const lineage: number[] = [];
+    for (let pid: number | undefined = process.pid; pid; pid = parentPid(pid)) lineage.push(pid);
+    const { ancestorSessionPid, found } = sessionLocation(lineage, places, runningPids);
+    const place = background ??
+      found?.place ?? {
+        kind: "elsewhere" as const,
+        source: processSource(process.pid),
+      };
     const activity =
       process.activity ??
-      (found?.activityAt === undefined
-        ? undefined
-        : Date.now() - found.activityAt < workingWindowMs
-          ? "working"
-          : "idle");
-    return { ...process, activity, branch: gitBranch(process.cwd), place };
+      (found?.activityAt !== undefined && Date.now() - found.activityAt < workingWindowMs ? "working" : undefined);
+    return { ...process, ancestorSessionPid, activity, branch: gitBranch(process.cwd), place };
   });
-  return [...located, ...codex.headless, ...(cloud ? cloudSnapshot().sessions : [])].sort(
-    (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
+  const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
+    ...session,
+    parentSessionPid:
+      located.find((parent) => parent.pid === ancestorSessionPid)?.place.kind === "kiln"
+        ? ancestorSessionPid
+        : undefined,
+  }));
+  return nestSessions(
+    [...sessions, ...codex.headless, ...(cloud ? cloudSnapshot().sessions : [])].sort(
+      (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
+    ),
   );
+}
+
+/** A child can own a terminal, but cannot inherit one through another live agent. */
+export function sessionLocation(
+  lineage: readonly number[],
+  places: ReadonlyMap<number, { place: Place; activityAt?: number }>,
+  runningPids: ReadonlySet<number>,
+): { ancestorSessionPid?: number; found?: { place: Place; activityAt?: number } } {
+  let found: { place: Place; activityAt?: number } | undefined;
+  for (const [index, pid] of lineage.entries()) {
+    if (index > 0 && runningPids.has(pid)) return { ancestorSessionPid: pid, found };
+    found ??= places.get(pid);
+  }
+  return { found };
+}
+
+/** Keep children directly beneath their parent, preserving the order within each group. */
+export function nestSessions(sessions: readonly Session[]): Session[] {
+  const result: Session[] = [];
+  const seen = new Set<Session>();
+  const append = (session: Session) => {
+    if (seen.has(session)) return;
+    seen.add(session);
+    result.push(session);
+    if (session.pid !== undefined)
+      for (const child of sessions) if (child.parentSessionPid === session.pid) append(child);
+  };
+  for (const session of sessions)
+    if (!sessions.some((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid))
+      append(session);
+  return result;
 }
 
 /** The status bar's right side: only the counts that are non-zero, working first. */
