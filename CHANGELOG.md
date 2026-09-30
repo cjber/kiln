@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Skill backups retain relative link targets.** Repair keeps links to external instructions and supporting files readable after moving a conflicting directory, while internal links remain relative.
+
 ## [0.3.1] - 2026-09-30
 
 - **Show compact task rows with live elapsed updates.** Directory headings group task titles, status and time since their last update. The clock advances even while discovery is slow. Unassigned Codex launch screens and exited Claude processes are omitted.

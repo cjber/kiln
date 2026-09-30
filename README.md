@@ -241,7 +241,7 @@ names are preserved and reported. Run `kiln skills sync` to update them without 
 
 Agents can inspect `kiln skills list [--project DIR]`, create missing links with
 `kiln skills share NAME [--project DIR]`, or repair conflicts explicitly with
-`kiln skills share NAME [--project DIR] --backup-conflicts`. Repair prints the backup paths.
+`kiln skills share NAME [--project DIR] --backup-conflicts`. Repair prints the backup paths and keeps links to external supporting files readable.
 
 <img src="assets/skills.png" alt="Shared project skills and their Claude and Pi compatibility links" />
 
