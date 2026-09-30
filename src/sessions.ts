@@ -40,7 +40,7 @@ export type Place =
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
   | { kind: "background"; id: string; attach: string[]; stop?: string[] }
-  | { kind: "cloud"; id: string; title: string }
+  | { kind: "cloud"; id: string; title: string; url?: string }
   | { kind: "elsewhere"; source?: string };
 
 export type Session = {

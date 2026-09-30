@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { cloudLink } from "./cloud-links";
 import type { Activity, Session } from "./sessions";
 
 const statuses = ["pending", "ready", "applied", "error"] as const;
@@ -23,7 +24,12 @@ function activity(status: CloudStatus | undefined): Activity | undefined {
 
 /** Matches codex cloud list --json; its timestamp is the last update, not creation. */
 export function parseCloudPage(source: string): { sessions: Session[]; cursor: string | null } {
-  const page = JSON.parse(source);
+  let page: { tasks?: unknown; cursor?: unknown } | null;
+  try {
+    page = JSON.parse(source);
+  } catch {
+    throw new Error("codex cloud returned an invalid task page");
+  }
   if (!page || !Array.isArray(page.tasks) || !(page.cursor === null || typeof page.cursor === "string"))
     throw new Error("codex cloud returned an invalid task page");
   const sessions = page.tasks.map((task: Record<string, unknown>): Session => {
@@ -38,19 +44,20 @@ export function parseCloudPage(source: string): { sessions: Session[]; cursor: s
     )
       throw new Error("codex cloud returned an invalid task");
     const status = statuses.includes(task.status as CloudStatus) ? (task.status as CloudStatus) : undefined;
+    const url = cloudLink("codex", task.id, task.url);
     return {
       agent: "codex",
       cwd: homedir(),
       startedAt: Date.parse(task.updated_at),
       lastActiveAt: Date.parse(task.updated_at),
       activity: activity(status),
-      place: { kind: "cloud", id: task.id, title: task.title },
+      place: { kind: "cloud", id: task.id, title: task.title, ...(url ? { url } : {}) },
     };
   });
   return { sessions, cursor: page.cursor };
 }
 
-async function loadCloud(): Promise<Session[]> {
+export async function loadCloud(): Promise<Session[]> {
   if (!Bun.which("codex")) return [];
   const directory = mkdtempSync(join(tmpdir(), "kiln-cloud-"));
   let process: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
@@ -60,7 +67,7 @@ async function loadCloud(): Promise<Session[]> {
     process?.kill();
   }, 10_000);
   try {
-    const sessions: Session[] = [];
+    const sessions = new Map<string, Session>();
     const cursors = new Set<string>();
     let cursor: string | null = null;
     do {
@@ -71,22 +78,25 @@ async function loadCloud(): Promise<Session[]> {
         stdout: "pipe",
         stderr: "pipe",
       });
-      const [stdout, stderr, code] = await Promise.all([
+      const [stdout, , code] = await Promise.all([
         new Response(process.stdout).text(),
         new Response(process.stderr).text(),
         process.exited,
       ]);
       if (expired) throw new Error("codex cloud list timed out");
-      if (code !== 0) throw new Error(`codex cloud list failed: ${stderr.trim() || `exit ${code}`}`);
+      if (code !== 0)
+        throw new Error(`codex cloud list failed (exit ${code}); run codex cloud list to check the login`);
       const page = parseCloudPage(stdout);
-      sessions.push(...page.sessions);
+      for (const session of page.sessions) {
+        if (session.place.kind === "cloud") sessions.set(session.place.id, session);
+      }
       cursor = page.cursor;
       if (cursor) {
         if (cursors.has(cursor)) throw new Error("codex cloud repeated a pagination cursor");
         cursors.add(cursor);
       }
     } while (cursor);
-    return sessions;
+    return [...sessions.values()];
   } finally {
     clearTimeout(timeout);
     rmSync(directory, { recursive: true, force: true });

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cloudCache } from "./cloud";
+import { cloudLink } from "./cloud-links";
 import type { Activity, Session } from "./sessions";
 
 const statuses = ["idle", "working", "waiting", "completed", "archived", "cancelled", "rejected"] as const;
@@ -66,7 +67,7 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
       startedAt: Date.parse(row.created_at),
       lastActiveAt: lastActivity(row.last_event_at, row.updated_at),
       activity: activity(status),
-      place: { kind: "cloud", id: row.id, title: row.title },
+      place: { kind: "cloud", id: row.id, title: row.title, url: cloudLink("claude", row.id) },
     });
   }
   return { sessions, cursor: page.next_cursor ?? null };
