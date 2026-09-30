@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-30
+
 - **First release.** One list of every interactive Claude, Codex and Pi session on the machine, with
   vim keys and no tmux prefix. Enter attaches to sessions kiln started, or focuses the kitty window an
   agent runs in. `n` starts a new session in a directory picked with fzf and ranked by zoxide, and
