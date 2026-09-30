@@ -17,7 +17,7 @@ test("private Pi bridge validates JSONL, rejects busy prompts, forwards events a
     abort: () => {
       aborted = true;
     },
-    sessionManager: { getSessionId: () => "fixture", getBranch: () => [] },
+    sessionManager: { getSessionId: () => "fixture", getBranch: () => [], getSessionName: () => "Fixture title" },
     ui: { setStatus: () => {}, notify: () => {} },
   };
   remote({ on: (event, handler) => handlers.set(event, handler), sendUserMessage: (message) => prompts.push(message) });
@@ -60,18 +60,33 @@ test("private Pi bridge validates JSONL, rejects busy prompts, forwards events a
     expect(records[1].success).toBe(false);
     expect(records[2].success).toBe(false);
     idle = false;
-    client.write('{"id":"c","type":"prompt","message":"hi"}\n');
+    client.write('{"id":"c","type":"prompt","writer":"000000000000000000000001","message":"hi"}\n');
     await wait(4);
     expect(records[3].error).toContain("busy");
     expect(prompts).toEqual([]);
     idle = true;
-    client.write('{"id":"d","type":"prompt","message":"hello"}\n{"type":"abort"}\n');
+    client.write(
+      '{"id":"d","type":"prompt","writer":"000000000000000000000001","message":"hello"}\n{"type":"abort","writer":"000000000000000000000001"}\n',
+    );
     await wait(6);
     expect(prompts).toEqual(["hello"]);
     expect(aborted).toBe(true);
     handlers.get("message_update")({ type: "message_update", text: "result" }, ctx);
     await wait(7);
     expect(records[6].type).toBe("event");
+    client.write('{"id":"d","type":"prompt","writer":"000000000000000000000001","message":"hello"}\n');
+    await wait(8);
+    expect(prompts).toEqual(["hello"]);
+    client.write('{"id":"e","type":"abort","writer":"000000000000000000000002"}\n');
+    await wait(9);
+    expect(records[8].success).toBe(false);
+    expect(records[8].error).toContain("another phone");
+    client.write(
+      '{"id":"f","type":"prompt","writer":"000000000000000000000001","sessionId":"stale","message":"wrong thread"}\n',
+    );
+    await wait(10);
+    expect(records[9].error).toContain("switched sessions");
+    expect(prompts).toEqual(["hello"]);
   } finally {
     client?.destroy();
     handlers.get("session_shutdown")();

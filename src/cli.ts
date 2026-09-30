@@ -9,12 +9,24 @@ const usage = `usage: kiln            open the session list
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
        kiln skills list|share|sync    manage shared skills
+       kiln pi install            enable remote control for future Pi sessions
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */
 export async function runCli(args: string[]): Promise<number | undefined> {
   const [command] = args;
   if (command === undefined) return undefined;
+  if (command === "pi") {
+    try {
+      if (args.length !== 2 || args[1] !== "install") throw new Error("usage: kiln pi install");
+      const { installPiExtension } = await import("./pi-install");
+      console.log(`Installed ${installPiExtension()}; restart Pi sessions to enable remote control`);
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "Pi extension installation failed"}`);
+      return 2;
+    }
+  }
   if (command === "skills") {
     try {
       const { runSkillsCli } = await import("./skills-cli");

@@ -52,7 +52,7 @@ build() {
 package() {
   cd "kiln-\${pkgver}"
   install -d "\${pkgdir}/usr/lib/kiln" "\${pkgdir}/usr/bin"
-  cp -a bin src bundled-skills node_modules package.json tmux.conf "\${pkgdir}/usr/lib/kiln/"
+  cp -a bin src extensions bundled-skills node_modules package.json tmux.conf "\${pkgdir}/usr/lib/kiln/"
   ln -s /usr/lib/kiln/bin/kiln "\${pkgdir}/usr/bin/kiln"
   install -Dm644 LICENSE "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
   install -Dm644 README.md "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"

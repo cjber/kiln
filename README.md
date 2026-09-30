@@ -41,8 +41,8 @@ ln -sf "$PWD/bin/kiln" ~/.local/bin/kiln
 new session. kiln runs on Linux: it reads `/proc` to find agents and their working directories.
 
 Assigned titles come from Codex thread metadata and Claude transcript title records. Pi titles
-come from `--name` or an explicitly selected JSONL session; automatic Pi session files cannot yet
-be matched reliably to a live process. Missing titles show the session ID or process ID.
+come from the opt-in remote extension, `--name` or an explicitly selected JSONL session.
+The extension identifies automatic sessions and follows their live names. Missing titles show the session ID or process ID.
 
 ## Keys
 
@@ -110,7 +110,8 @@ does not change the session directory. Cloud rows show task titles rather than a
 
 `working` is mid-turn, `waiting` has stopped to ask you something, and `idle` is ready for your next
 message. Claude reports its own status through `claude agents --json`, and Codex through its daemon.
-Unknown status, including Pi without a status source, shows `unknown`. Codex threads match by confirmed
+Pi reports working or idle through its opt-in extension. Without it, Pi status remains `unknown`.
+Other unavailable statuses also show `unknown`. Codex threads match by confirmed
 thread ID, which deduplicates attached terminals. Unidentified clients defer to known daemon tasks;
 when daemon inventory is unavailable they remain visible with `unknown` status. Unmatched daemon
 threads stay available as background tasks. Shared directories never establish thread ownership.
@@ -146,15 +147,24 @@ pi = ["pi"]
 ```
 
 With `remote_control` on, kiln starts Claude with `--remote-control` and makes sure Codex's daemon
-is running with remote control (`codex remote-control start`) before starting Codex on it. Pi has no
-remote control, so it is unaffected.
+is running with remote control (`codex remote-control start`) before starting Codex on it.
+Pi remote control is enabled separately with `kiln pi install`.
 
 Codex only uses its shared daemon when the command has no `-c`, `--enable`, `--disable` or `--search`
 flag. Put those in `~/.codex/config.toml` instead (`web_search = "live"` for search), or the session
 gets neither remote control nor a real status.
 
-An opt-in [Pi remote control prototype](prototypes/README.md) exposes an existing interactive
-session through a private local socket. It is not installed or enabled by kiln.
+Run `kiln pi install` to enable the bundled extension for future interactive Pi sessions, then
+restart Pi. Existing sessions cannot load it remotely. Kiln refreshes an installed extension when
+its TUI opens; edited managed copies are backed up. It leaves unrelated extensions intact.
+
+The [Pi bridge](extensions/README.md) exposes a private owner-only socket, never a network port.
+Paired phones can read the last 40 text messages, send a prompt while idle and stop a turn. One phone
+holds a writer lease, which expires 30 seconds after it stops reading. Reconnect reads a fresh
+snapshot with an instance ID and sequence rather than replaying commands. Dialogs still require
+the local terminal. Image payloads and older transcript messages are omitted.
+
+<img src="assets/android-pi.png" width="270" alt="Reading a Pi session and sending a prompt from kiln on Android" />
 
 ## Claude cloud listing
 
@@ -177,10 +187,11 @@ diagnostics do not include raw CLI output; run `codex cloud list` directly to in
 
 The native Android client lists sessions from one or more machines. It shows the same directory
 groups, highlighted task titles, status and elapsed update times on a black OLED theme with muted
-oxide accents. Harness and branch remain in task details. Pi tasks stay visible without an Open button.
+oxide accents. Harness and branch remain in task details. Pi tasks stay visible; those with the remote extension have an Open button.
 It supports filtering and the same sort choices as the terminal list, and
-hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
-stop sessions. Pi has no phone handoff yet. Local Codex sessions open the selected thread directly when the daemon reports a connected
+hands Claude and Codex sessions to their apps (or a browser). It cannot
+stop Claude or Codex sessions. Pi opens a kiln transcript with prompt and stop controls when its
+remote extension is enabled. Local Codex sessions open the selected thread directly when the daemon reports a connected
 Remote Control host. Older or disconnected daemons keep the manual ChatGPT handoff. Cloud tasks and Claude Remote Control sessions have
 exact links when their provider reports one.
 

@@ -18,6 +18,7 @@ const env = {
   XDG_CONFIG_HOME: join(scratch, ".config"),
   CLAUDE_CONFIG_DIR: join(scratch, ".claude"),
   CODEX_HOME: join(scratch, ".codex"),
+  PI_CODING_AGENT_DIR: join(scratch, ".pi", "agent"),
   PATH: `${join(scratch, "bin")}:${Bun.env.PATH}`,
 };
 
@@ -62,6 +63,13 @@ try {
   if (!run([executable, "--version"]).startsWith("kiln ")) throw new Error("binary version failed");
   run([executable, "status"]);
   run([executable, "skills", "sync"]);
+  run([executable, "pi", "install"]);
+  if (
+    !readFileSync(join(scratch, ".pi", "agent", "extensions", "kiln-remote.js"), "utf8").includes(
+      "kiln-managed Pi remote extension",
+    )
+  )
+    throw new Error("bundled Pi extension is missing");
   const installedSkills = JSON.parse(run([executable, "skills", "list"])).skills;
   for (const name of ["kiln-config", "kiln-skills"]) {
     const skill = installedSkills.find((entry: { name: string }) => entry.name === name);
@@ -102,7 +110,7 @@ try {
   await waitFor(capture, "q quit");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
   console.log(
-    "binary version, status, bundled skills, native TUI, embedded tmux configuration, status executable and detach passed",
+    "binary version, status, bundled skills and Pi extension, native TUI, embedded tmux configuration, status executable and detach passed",
   );
 } finally {
   for (const server of [outer, inner])
