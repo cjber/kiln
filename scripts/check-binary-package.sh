@@ -43,7 +43,8 @@ sed -i \
   -e 's|https://github.com/cjber/kiln/releases/download/v${pkgver}/kiln-linux-arm64|file:///work/kiln-linux-arm64|' \
   /work/aur/bin/PKGBUILD
 su builder -c 'cd /work/aur/bin && makepkg --nodeps --force --noconfirm'
-pacman -U --noconfirm /work/aur/bin/*.pkg.tar.zst
+mapfile -t package_files < <(su builder -c 'cd /work/aur/bin && makepkg --packagelist')
+pacman -U --noconfirm "${package_files[@]}"
 if command -v bun; then printf '%s\n' 'binary package test must run without Bun' >&2; exit 1; fi
 kiln --version
 kiln status
