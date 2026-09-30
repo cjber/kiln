@@ -8,6 +8,8 @@ test("a partial file overrides only what it names", () => {
     "config.toml",
   );
   expect(settings.cloud).toBe(false);
+  expect(settings.claudeCloud).toBe(false);
+  expect(parseSettings("claude_cloud = true").claudeCloud).toBe(true);
   expect(settings.statusBar).toBe(false);
   expect(settings.remoteControl).toBe(true);
   expect(settings.detachKey).toBe(defaults.detachKey);
@@ -19,6 +21,7 @@ test("a partial file overrides only what it names", () => {
 test("a typo is an error naming the file and key, not a silent default", () => {
   expect(() => parseSettings(`statusbar = false\n`, "config.toml")).toThrow('config.toml: unknown setting "statusbar"');
   expect(() => parseSettings(`cloud = "yes"\n`, "config.toml")).toThrow("cloud must be true or false");
+  expect(() => parseSettings(`claude_cloud = "yes"\n`, "config.toml")).toThrow("claude_cloud must be true or false");
   expect(() => parseSettings(`zoxide = "yes"\n`, "config.toml")).toThrow("zoxide must be true or false");
   expect(() => parseSettings(`[agents]\ngemini = ["gemini"]\n`, "config.toml")).toThrow('unknown agent "gemini"');
 });

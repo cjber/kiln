@@ -13,6 +13,11 @@ verbatim.
   Set `sort` or press `o` to cycle age, harness, directory and project order while keeping children
   beneath their parent. Unknown activity timestamps are labelled and sort last.
 
+- **List Claude cloud sessions through its existing login.** `claude_cloud = true` opts into the
+  internal API used by Claude Code's cloud picker. Enter opens the session on claude.ai; archived
+  and local bridge sessions are left out. Refreshes run in the background, and long lists scroll
+  with the selection. The API may change between Claude Code versions.
+
 - **Manage skills in shared directories.** `S` opens user and project skills in `.agents/skills`.
   Create, edit or copy a skill, then share it through Claude and Pi compatibility links. Codex reads
   the shared directory directly. Name clashes are reported before linking; unlinking keeps the files.

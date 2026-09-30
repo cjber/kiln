@@ -118,6 +118,7 @@ detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
 cloud = true        # list read-only Codex Cloud tasks
+claude_cloud = false # opt into Claude's internal cloud-listing API; requires cloud = true
 remote_control = true  # new Claude and Codex sessions can be driven from their phone apps
 
 [agents]             # the command each agent starts with; [] hides it from `n`
@@ -136,6 +137,20 @@ gets neither remote control nor a real status.
 
 An opt-in [Pi remote control prototype](prototypes/README.md) exposes an existing interactive
 session through a private local socket. It is not installed or enabled by kiln.
+
+## Claude cloud listing
+
+Set `claude_cloud = true` to include Claude cloud sessions alongside Codex tasks. This uses the
+internal listing API used by Claude Code 2.1.285's cloud picker, not a public Claude Code API.
+It reads the existing Claude login from `~/.claude/.credentials.json`, or `$CLAUDE_CONFIG_DIR`,
+and sends it only to `api.anthropic.com`. API-key logins do not provide these sessions. Expired
+credentials need a running Claude CLI to refresh them, or `claude auth login`.
+
+Bridge sessions already running locally and archived sessions are excluded. Listing runs in the
+background at most once a minute with a ten-second deadline. Failures retain the last rows and
+show a notice. Unknown worker states display `·`. Enter opens the selected session on claude.ai
+using `xdg-open`; it does not teleport or change a local branch. `x` cannot close cloud sessions.
+`cloud = false` hides both providers. Long lists scroll with the selected row.
 
 ## Shared skills
 

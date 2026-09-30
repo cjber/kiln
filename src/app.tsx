@@ -4,8 +4,8 @@ import { basename, resolve } from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import { runSessionAction, sessionAction } from "./actions";
+import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
 import { sessionSorts, sortSessions } from "./session-sort";
@@ -201,7 +201,9 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      const loaded = await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud }));
+      const loaded = await (loadSessions
+        ? loadSessions()
+        : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
       const before = matching(sortSessions(getSessions(), getOrder()), getFilter());
       const current = before[Math.min(getSelected(), before.length - 1)];
       setSessions(loaded);
@@ -222,7 +224,6 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const visible = useMemo(() => matching(sortSessions(sessions, order), filter), [filter, sessions, order]);
 
   const current = visible[Math.min(selected, visible.length - 1)];
-
   const pageSize = Math.max(1, height - (mode === "agent" || current?.place.kind === "elsewhere" ? 6 : 5));
   const firstRow = Math.max(0, Math.min(selected, visible.length - 1) - pageSize + 1);
 
@@ -264,6 +265,16 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
           return handOver(name);
         }
         case "cloud": {
+          if (session.agent === "claude") {
+            if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
+            const child = Bun.spawn(["xdg-open", `https://claude.ai/code/${encodeURIComponent(session.place.id)}`], {
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "ignore",
+            });
+            if ((await child.exited) !== 0) setNotice("could not open this Claude cloud session in the browser");
+            return;
+          }
           const name = `codex-cloud-${new Bun.CryptoHasher("sha256").update(session.place.id).digest("hex").slice(0, 16)}`;
           const command = [
             "sh",
@@ -539,7 +550,13 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
       <text fg={notice ? color.peach : color.comment}>
         {mode === "confirm"
           ? hints(mode, pendingSession)
-          : notice || (settings.cloud ? cloudSnapshot(false).problem : "") || hints(mode, current)}
+          : notice ||
+            (settings.cloud
+              ? [cloudSnapshot(false).problem, settings.claudeCloud ? claudeCloudSnapshot(false).problem : ""]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "") ||
+            hints(mode, current)}
       </text>
     </box>
   );
