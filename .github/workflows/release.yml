@@ -10,7 +10,13 @@ on:
 permissions: {}
 
 jobs:
+  binaries:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/binaries.yml # zizmor: ignore[self-repository] actionlint 1.7.12 does not support $/ calls
+
   release:
+    needs: binaries
     runs-on: ubuntu-latest
     permissions:
       contents: write
