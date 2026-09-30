@@ -12,6 +12,7 @@ export type CodexThread = {
   updatedAt?: number;
   activity?: Activity;
   title?: string;
+  parentThreadId?: string;
 };
 
 type ThreadStatus =
@@ -145,11 +146,11 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
   }
   return threads.flatMap((thread) => {
     const state = activity(thread.status);
-    // Sub-agent threads belong to their parent's session.
-    if (thread.parentThreadId || (!state && !localIds.includes(thread.id))) return [];
+    if (!state && !localIds.includes(thread.id)) return [];
     return [
       {
         id: thread.id,
+        parentThreadId: thread.parentThreadId ?? undefined,
         cwd: thread.cwd,
         createdAt: thread.createdAt * 1000,
         updatedAt: thread.updatedAt * 1000,

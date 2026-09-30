@@ -2,14 +2,14 @@
   <img src="assets/icon.png" alt="" width="96" />
   <h1>kiln</h1>
 
-  **Every coding agent on this machine, in one list.**
+  **Coding-agent tasks, in one compact list.**
 
   [![CI](https://img.shields.io/github/actions/workflow/status/cjber/kiln/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/cjber/kiln/actions/workflows/ci.yml)
   [![AUR](https://img.shields.io/aur/version/kiln-agents?style=flat-square&color=6366F1)](https://aur.archlinux.org/packages/kiln-agents)
   [![License](https://img.shields.io/badge/license-MIT-475569?style=flat-square)](LICENSE)
 </div>
 
-<img src="assets/list.png" alt="kiln listing Claude, Codex and Pi sessions with their status, last activity, directory and branch" />
+<img src="assets/list.png" alt="Task titles grouped by directory, with status and elapsed update time" />
 
 kiln lists every interactive Claude Code, Codex and Pi session on the machine, wherever you started
 it, and takes you to the one you pick. The keys are vim's, there is no tmux prefix to learn, and one
@@ -80,18 +80,17 @@ opens it anyway.
   `claude attach` or `codex resume --remote` inside its own tmux, so `Ctrl+Q` works the same.
 - **Codex Cloud** (`cloud`): read-only task rows. Enter shows `codex cloud status` and
   `codex cloud diff` in tmux. Press Enter to return, or `Ctrl+Q` to detach. Tasks cannot be
-  closed here. The age is time since the last update, and the directory column shows the task
-  title. Pending tasks are working, ready or failed tasks are waiting, and applied tasks are idle.
+  closed here. Task titles identify the rows and elapsed time follows the last update.
+  Pending tasks are working, ready or failed tasks are waiting, and applied tasks are idle.
   Tasks refresh at most once a minute; a failed refresh keeps the last rows and shows a notice.
   Provider task URLs are validated before they can be handed to a phone.
   Claude cloud discovery is unavailable in the CLI.
-- **Anywhere else** (another multiplexer, an SSH session): listed, but there is nothing to attach to.
+- **Anywhere else** (another multiplexer, an SSH session): hidden unless the session has a visible parent.
 
-Sessions outside kiln and kitty appear grey because kiln cannot open them. Select one to see its
-PID, terminal and originating agent or parent process when available. When that agent is a known
-kiln session, the child appears beneath it with a small arrow.
+Unopenable children appear grey beneath their parent. Press `Tab` to reveal them. Provider child
+threads use the reported parent-thread relationship, even when they have no terminal process.
 
-<img src="assets/unavailable.png" alt="A grey child session nested beneath its Codex parent, with its source shown below" />
+<img src="assets/unavailable.png" alt="A grey child session nested beneath its Codex parent" />
 
 `x` archives Codex background threads through their daemon, keeping history and hiding archived
 threads from the list, including threads archived elsewhere. Codex may also archive descendant
@@ -111,10 +110,11 @@ does not change the session directory. Cloud rows show task titles rather than a
 
 `working` is mid-turn, `waiting` has stopped to ask you something, and `idle` is ready for your next
 message. Claude reports its own status through `claude agents --json`, and Codex through its daemon.
-Unknown status, including Pi without a status source, shows `unknown`. Codex threads are matched by their local thread ID when available;
-ambiguous directory matches show `unknown` rather than borrowing another session's status. Unmatched daemon
-threads stay available as `bg` rows. Remote Control
-servers run by a systemd service and Codex daemon sub-threads are left out.
+Unknown status, including Pi without a status source, shows `unknown`. Codex threads match by confirmed
+thread ID, which deduplicates attached terminals. Unidentified clients defer to known daemon tasks;
+when daemon inventory is unavailable they remain visible with `unknown` status. Unmatched daemon
+threads stay available as background tasks. Shared directories never establish thread ownership.
+Remote Control servers run by a systemd service are left out.
 
 While kiln is running, it sends a native desktop notification when an observed working turn
 reaches `idle`, including while you are attached to a session. Approval pauses, quiet output and
@@ -175,8 +175,9 @@ diagnostics do not include raw CLI output; run `codex cloud list` directly to in
 
 ## Android
 
-The native Android client lists sessions from one or more machines. It shows live directories,
-branches, titles and update times in compact rows on a black OLED theme with muted oxide accents.
+The native Android client lists sessions from one or more machines. It shows the same directory
+groups, highlighted task titles, status and elapsed update times on a black OLED theme with muted
+oxide accents. Harness and branch remain in task details. Pi tasks stay visible without an Open button.
 It supports filtering and the same sort choices as the terminal list, and
 hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
 stop sessions. Pi has no phone handoff yet. Local Codex sessions open the selected thread directly when the daemon reports a connected
@@ -207,7 +208,8 @@ local sessions every two seconds. Cloud discovery remains asynchronous and runs 
 minute. A failed refresh keeps the last list with an error and its last successful update time.
 The app reconnects after a dropped connection and closes the stream while it is in the background.
 
-<img src="assets/android-pairing.png" width="270" alt="Pairing a machine in the kiln Android app" />
+<img src="assets/android-list.png" width="270" alt="Seeded task list rendered by the Android app on an emulator" />
+<img src="assets/android-pairing.png" width="270" alt="Seeded pairing screen rendered by the Android app on an emulator" />
 
 `kiln devices` lists paired phones; `kiln revoke DEVICE-ID` disconnects one and rejects its future
 requests. Forget in the app removes its saved credential locally; revoke it on the machine too.
@@ -264,8 +266,15 @@ bun test
 bun scripts/changelog.ts --check
 python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/sift-project)
 python3 .sift/agents.py check
-bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI
+bun scripts/screenshots.tsx 2>/dev/null   # seeded terminal screenshots
+python3 scripts/icons.py                 # shared SVG to README and launcher icon
+ANDROID_HOME=/path/to/sdk JAVA_HOME=/path/to/jdk21 python3 scripts/android-screenshots.py
 ```
+
+Screenshots use seeded data and production UI. The Android script uses its own `kiln-screenshots`
+AVD on port 5560, refuses another emulator on that port, and never selects a physical phone.
+Install the API 35 Google APIs x86_64 system image and `rsvg-convert` to regenerate the assets.
+Update both terminal and mobile screenshots after visible changes.
 
 Build standalone Linux x64 and arm64 executables with:
 

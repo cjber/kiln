@@ -5,6 +5,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -18,9 +20,23 @@ fun updateTime(time: Long): String =
             .format(Instant.ofEpochMilli(time))
     else "unknown"
 
+fun elapsed(time: Long, now: Long): String {
+    if (time <= 0) return "unknown"
+    val seconds = ((now - time) / 1000).coerceAtLeast(0)
+    return when {
+        seconds < 60 -> "${seconds}s"
+        seconds < 3600 -> "${seconds / 60}m"
+        seconds < 86400 -> "${seconds / 3600}h"
+        else -> "${seconds / 86400}d"
+    }
+}
+
+fun tildePath(path: String): String = path.replace(Regex("^/(home|Users)/[^/]+(?=/|$)"), "~")
+
 @Composable
 fun SessionCard(
     item: SessionItem.Entry,
+    now: Long,
     expanded: Boolean,
     open: () -> Unit,
     details: () -> Unit,
@@ -45,30 +61,29 @@ fun SessionCard(
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color =
-                    if (row.url == null) Color(0xff8c8f92) else MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.primary,
             )
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${row.agent} · ${row.activity}${if (row.branch.isNotBlank()) " · ${row.branch}" else ""}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = statusColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "Updated ${updateTime(row.active)} · ${row.where}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    "${row.activity} · ${elapsed(row.active, now)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
                 if (item.children > 0)
                     TextButton(
                         onClick = toggle,
                         contentPadding = PaddingValues(horizontal = 6.dp),
                     ) {
-                        Text("${if (expanded) "−" else "+"}${item.children}")
+                        Text(
+                            "${if (expanded) "−" else "+"}${item.children}",
+                            modifier =
+                                Modifier.semantics {
+                                    contentDescription =
+                                        "${if (expanded) "Collapse" else "Expand"} ${item.children} child sessions"
+                                },
+                        )
                     }
                 if (row.url != null)
                     TextButton(onClick = open, contentPadding = PaddingValues(horizontal = 6.dp)) {

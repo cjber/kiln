@@ -63,7 +63,7 @@ beforeEach(() => {
                 preview: "First prompt",
                 cwd: "/repo",
                 createdAt: 1,
-                parentThreadId: null,
+                parentThreadId: request.params.threadId === "active" ? "parent" : null,
                 status: { type: request.params.threadId === "local" ? "notLoaded" : "idle" },
               },
             };
@@ -98,7 +98,9 @@ describe("Codex archive", () => {
   });
 
   test("externally archived loaded threads stay hidden across paginated discovery", async () => {
-    expect((await codexThreads()).map((thread) => thread.id)).toEqual(["active"]);
+    const threads = await codexThreads();
+    expect(threads.map((thread) => thread.id)).toEqual(["active"]);
+    expect(threads[0]?.parentThreadId).toBe("parent");
     expect(
       requests.filter((request) => request.method === "thread/read").map((request) => request.params?.threadId),
     ).toEqual(["active"]);
@@ -122,7 +124,9 @@ describe("Codex archive", () => {
       place: { kind: "background", id: "active", attach: [] },
     });
     expect(result).toContain("archive refused");
-    expect((await codexThreads()).map((thread) => thread.id)).toEqual(["active"]);
+    const threads = await codexThreads();
+    expect(threads.map((thread) => thread.id)).toEqual(["active"]);
+    expect(threads[0]?.parentThreadId).toBe("parent");
   });
 });
 
