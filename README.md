@@ -40,6 +40,10 @@ ln -sf "$PWD/bin/kiln" ~/.local/bin/kiln
 [zoxide](https://github.com/ajeetdsouza/zoxide) is optional and ranks the directories offered for a
 new session. kiln runs on Linux: it reads `/proc` to find agents and their working directories.
 
+Assigned titles come from Codex thread metadata and Claude transcript title records. Pi titles
+come from `--name` or an explicitly selected JSONL session; automatic Pi session files cannot yet
+be matched reliably to a live process. Missing titles show the session ID or process ID.
+
 ## Keys
 
 The list is normal mode. Filtering is the only mode that takes text, and Esc leaves it.
@@ -219,13 +223,25 @@ working directory when it is outside git. These are the canonical directories fo
 an existing skill directory, including supporting files, into the selected scope. `l` shares it:
 Codex reads the shared directory directly; Claude and Pi use relative compatibility links in their
 own discovery directories. Existing entries that point somewhere else are marked `conflict` and
-are never replaced. `x`, then `y`, removes only those Claude and Pi links. It keeps the shared
+stay untouched when sharing. Green means shared, purple means missing and amber means conflict.
+`f`, then `y`, repairs the selected skill: it backs up conflicting entries under
+`.agents/skills/.kiln-backups` before linking the shared version. `x`, then `y`, removes only those
+Claude and Pi links. It keeps the shared
 files and Codex access. `q` returns to sessions.
 
 Project skills stay in their project; importing them into the user scope is an explicit action.
 kiln does not migrate existing harness folders automatically. A `link` in the source column means
 the shared entry still points to files elsewhere. Plugin, synced and built-in skills remain managed
 by their harness. Reload skills or restart existing sessions after changing the links.
+
+kiln bundles `kiln-skills` for agents repairing shared skills and `kiln-config` for configuring kiln.
+Opening the TUI keeps these user skills and their compatibility links in sync with the installed
+version. Edited bundled instructions are backed up before updating; unrelated skills with the same
+names are preserved and reported. Run `kiln skills sync` to update them without opening the TUI.
+
+Agents can inspect `kiln skills list [--project DIR]`, create missing links with
+`kiln skills share NAME [--project DIR]`, or repair conflicts explicitly with
+`kiln skills share NAME [--project DIR] --backup-conflicts`. Repair prints the backup paths.
 
 <img src="assets/skills.png" alt="Shared project skills and their Claude and Pi compatibility links" />
 

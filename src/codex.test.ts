@@ -47,13 +47,19 @@ beforeEach(() => {
               : { data: [], nextCursor: "second-page" };
             break;
           case "thread/read":
+            if (request.params.threadId === "missing-local") {
+              ws.send(JSON.stringify({ id: request.id, error: { message: "thread not found" } }));
+              return;
+            }
             result = {
               thread: {
                 id: request.params.threadId,
+                name: request.params.threadId === "local" ? "Compare parallax flash loop" : null,
+                preview: "First prompt",
                 cwd: "/repo",
                 createdAt: 1,
                 parentThreadId: null,
-                status: { type: "idle" },
+                status: { type: request.params.threadId === "local" ? "notLoaded" : "idle" },
               },
             };
             break;
@@ -113,4 +119,17 @@ describe("Codex archive", () => {
     expect(result).toContain("archive refused");
     expect((await codexThreads()).map((thread) => thread.id)).toEqual(["active"]);
   });
+});
+
+test("local terminal titles are read without treating unloaded threads as active or losing loaded rows", async () => {
+  const rows = await codexThreads(["local", "local", "missing-local"]);
+  expect(rows.map((row) => row.id)).toEqual(["active", "local"]);
+  expect(rows.find((row) => row.id === "local")).toMatchObject({
+    title: "Compare parallax flash loop",
+    activity: undefined,
+  });
+  expect(rows.find((row) => row.id === "active")?.title).toBe("First prompt");
+  expect(
+    requests.filter((request) => request.method === "thread/read" && request.params?.threadId === "local"),
+  ).toHaveLength(1);
 });

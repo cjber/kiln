@@ -8,12 +8,23 @@ const usage = `usage: kiln            open the session list
        kiln pair <https-origin> [--qr]   print a five-minute phone invitation
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
+       kiln skills list|share|sync    manage shared skills
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */
 export async function runCli(args: string[]): Promise<number | undefined> {
   const [command] = args;
   if (command === undefined) return undefined;
+  if (command === "skills") {
+    try {
+      const { runSkillsCli } = await import("./skills-cli");
+      runSkillsCli(args.slice(1));
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "skills command failed"}`);
+      return 2;
+    }
+  }
   if (["serve", "pair", "devices", "revoke"].includes(command)) {
     try {
       const { Pairing, serverOrigin } = await import("./pairing");
