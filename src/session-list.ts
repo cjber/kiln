@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { type SessionSort, sortSessions } from "./session-sort";
-import type { Session } from "./sessions";
+import { type Session, sessionParent } from "./sessions";
 
 export function sessionKey(session: Session): string {
   if (session.pid !== undefined) return `pid:${session.pid}`;
@@ -36,23 +36,15 @@ export function sessionRows(
   expanded: ReadonlySet<string>,
 ): ListRow[] {
   const ordered = sortSessions(sessions, order);
-  const byPid = new Map(
-    ordered.filter((session) => session.pid !== undefined).map((session) => [session.pid, session]),
-  );
   const canShow = (session: Session, seen = new Set<Session>()): boolean => {
     if (session.place.kind !== "elsewhere") return true;
     if (seen.has(session)) return false;
     seen.add(session);
-    const parent = byPid.get(session.parentSessionPid);
+    const parent = sessionParent(session, ordered);
     return parent !== undefined && canShow(parent, seen);
   };
   const eligible = ordered.filter((session) => canShow(session));
-  const parents = new Map(
-    eligible.map((session) => [
-      session,
-      eligible.find((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid),
-    ]),
-  );
+  const parents = new Map(eligible.map((session) => [session, sessionParent(session, eligible)]));
   const children = (session: Session) => eligible.filter((child) => parents.get(child) === session);
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>

@@ -5,7 +5,7 @@ import { cloudSnapshot } from "./cloud";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
-import { listSessions, type Session } from "./sessions";
+import { listSessions, type Session, sessionParent } from "./sessions";
 import { loadSettings } from "./settings";
 
 function phoneId(session: Session): string {
@@ -129,10 +129,7 @@ export function startServer({
         sessions: [
           ...new Map(
             sessions.map((session) => {
-              const row = phoneSession(
-                session,
-                sessions.find((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid),
-              );
+              const row = phoneSession(session, sessionParent(session, sessions));
               return [row.id, row] as const;
             }),
           ).values(),

@@ -52,12 +52,13 @@ export type Session = {
   pid?: number;
   /** The live kiln session whose agent spawned this process. */
   parentSessionPid?: number;
+  parentSessionId?: string;
   agent: Agent;
   cwd: string;
   startedAt: number;
-  /** Last transcript update or terminal output, when available. */
+  /** Last provider or transcript update, when available. */
   lastActiveAt?: number;
-  /** Agent-reported status, or recent pane output when no status is available. */
+  /** Agent-reported status; terminal output never establishes activity. */
   activity?: Activity;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
   branch?: string;
@@ -348,43 +349,30 @@ function codexThreadId(pid: number): string | undefined {
   return undefined;
 }
 
-/** Match known thread IDs first; directory matches are usable only when unambiguous. */
+/** A task is a thread, not a terminal client; never guess ownership from its directory. */
 export function withCodexThreads(
   processes: (AgentProcess & { threadId?: string })[],
   threads: CodexThread[],
 ): { processes: AgentProcess[]; headless: Session[] } {
   const unpaired = [...threads];
-  const identified = processes.map(({ threadId, ...process }) => {
-    const thread = threadId ? unpaired.find((thread) => thread.id === threadId) : undefined;
+  const seen = new Set<string>();
+  const paired = processes.flatMap(({ threadId, ...process }) => {
+    if (!threadId) return threads.length ? [] : [process];
+    if (seen.has(threadId)) return [];
+    seen.add(threadId);
+    const thread = unpaired.find((thread) => thread.id === threadId);
     if (thread) unpaired.splice(unpaired.indexOf(thread), 1);
-    return {
-      process: {
+    return [
+      {
         ...process,
-        id: thread?.id ?? threadId,
+        id: threadId,
         title: thread?.title,
         cwd: thread?.cwd ?? process.cwd,
         activity: thread?.activity,
         lastActiveAt: thread?.updatedAt,
+        parentSessionId: thread?.parentThreadId,
       },
-      threadId,
-    };
-  });
-  const paired = identified.map(({ process, threadId }) => {
-    if (threadId) return process;
-    const candidates = unpaired.filter((thread) => thread.cwd === process.cwd);
-    const peers = processes.filter((peer) => !peer.threadId && peer.cwd === process.cwd);
-    if (candidates.length !== 1 || peers.length !== 1) return process;
-    const thread = candidates[0];
-    if (!thread) return process;
-    unpaired.splice(unpaired.indexOf(thread), 1);
-    return {
-      ...process,
-      id: thread.id,
-      title: thread.title,
-      cwd: thread.cwd,
-      activity: thread.activity,
-      lastActiveAt: thread.updatedAt,
-    };
+    ];
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired
@@ -392,6 +380,7 @@ export function withCodexThreads(
     .map((thread) => ({
       agent: "codex" as const,
       id: thread.id,
+      parentSessionId: thread.parentThreadId,
       title: thread.title,
       cwd: thread.cwd,
       startedAt: thread.createdAt,
@@ -448,7 +437,7 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       place,
     };
   });
-  const sessions = located.filter(hasSessionIdentity).map(({ ancestorSessionPid, ...session }) => ({
+  const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
     ...session,
     parentSessionPid: ancestorSessionPid,
   }));
@@ -460,11 +449,6 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
     ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),
   );
-}
-
-/** A Codex launch screen has a process but no task to open or report activity for. */
-export function hasSessionIdentity(session: Pick<Session, "agent" | "id" | "lastActiveAt">): boolean {
-  return session.agent !== "codex" || session.id !== undefined || session.lastActiveAt !== undefined;
 }
 
 /** A child can own a terminal, but cannot inherit one through another live agent. */
@@ -481,6 +465,28 @@ export function sessionLocation(
   return { found };
 }
 
+/** Provider relationships survive daemon execution, where children have no terminal PID. */
+export function sessionParent(session: Session, sessions: readonly Session[]): Session | undefined {
+  const directParent = (child: Session) =>
+    sessions.find(
+      (parent) =>
+        parent !== child &&
+        parent.agent === child.agent &&
+        parent.id === child.parentSessionId &&
+        child.parentSessionId !== undefined,
+    ) ??
+    sessions.find(
+      (parent) => parent !== child && parent.pid === child.parentSessionPid && child.parentSessionPid !== undefined,
+    );
+  const parent = directParent(session);
+  const seen = new Set<Session>([session]);
+  for (let ancestor = parent; ancestor; ancestor = directParent(ancestor)) {
+    if (seen.has(ancestor)) return undefined;
+    seen.add(ancestor);
+  }
+  return parent;
+}
+
 /** Keep children directly beneath their parent, preserving the order within each group. */
 export function nestSessions(sessions: readonly Session[]): Session[] {
   const result: Session[] = [];
@@ -489,12 +495,9 @@ export function nestSessions(sessions: readonly Session[]): Session[] {
     if (seen.has(session)) return;
     seen.add(session);
     result.push(session);
-    if (session.pid !== undefined)
-      for (const child of sessions) if (child.parentSessionPid === session.pid) append(child);
+    for (const child of sessions) if (sessionParent(child, sessions) === session) append(child);
   };
-  for (const session of sessions)
-    if (!sessions.some((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid))
-      append(session);
+  for (const session of sessions) if (!sessionParent(session, sessions)) append(session);
   return result;
 }
 
