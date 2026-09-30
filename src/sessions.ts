@@ -5,6 +5,7 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
+import { piStates } from "./pi";
 import { transcriptTitle } from "./session-titles";
 import { panes } from "./tmux";
 
@@ -54,6 +55,7 @@ export type Session = {
   parentSessionPid?: number;
   parentSessionId?: string;
   agent: Agent;
+  piRemote?: boolean;
   cwd: string;
   startedAt: number;
   /** Last provider or transcript update, when available. */
@@ -406,7 +408,26 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
     codexThreads(codexProcesses.flatMap((process) => (process.threadId ? [process.threadId] : []))),
   ]);
   const codex = withCodexThreads(codexProcesses, threads);
-  const running = [...claude, ...codex.processes, ...processesNamed("pi", isInteractivePi)];
+  const pi = processesNamed("pi", isInteractivePi);
+  const states = await piStates(pi.map(({ pid }) => pid));
+  const running = [
+    ...claude,
+    ...codex.processes,
+    ...pi.map((session) => {
+      const state = states.get(session.pid);
+      return state
+        ? {
+            ...session,
+            id: state.sessionId,
+            title: state.title,
+            cwd: state.cwd,
+            activity: state.activity,
+            lastActiveAt: state.updatedAt,
+            piRemote: true,
+          }
+        : session;
+    }),
+  ];
 
   const places = new Map<number, { place: Place }>();
   for (const window of windows) {

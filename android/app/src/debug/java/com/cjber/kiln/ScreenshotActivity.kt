@@ -18,10 +18,38 @@ class ScreenshotActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.getInsetsController(window, window.decorView)
             .hide(WindowInsetsCompat.Type.systemBars())
-        val pair = intent.getStringExtra("screen") == "pair"
+        val screen = intent.getStringExtra("screen")
         setContent {
             KilnTheme {
-                if (pair)
+                if (screen == "pi")
+                    PiConversation(
+                        "Demo",
+                        "Review the release",
+                        PiSnapshot(
+                            "fixture",
+                            1,
+                            "Review the release",
+                            "idle",
+                            listOf(
+                                PiMessage("user", "Check the release notes and package assets."),
+                                PiMessage(
+                                    "assistant",
+                                    "Both Linux binaries and the signed Android APK are ready. The package checks passed.",
+                                ),
+                            ),
+                            false,
+                            "Extension dialogs must be answered in the local terminal",
+                            demoNow,
+                        ),
+                        true,
+                        "",
+                        "Check the changelog next",
+                        {},
+                        false,
+                        {},
+                        {},
+                    )
+                else if (screen == "pair")
                     PairingScreen(
                         error = "",
                         onDismissError = {},
@@ -101,6 +129,7 @@ private fun demo(
         "Demo",
         agent != "codex",
         parent,
+        agent == "pi",
     )
 
 private val demoRows =

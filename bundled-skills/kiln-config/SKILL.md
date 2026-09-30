@@ -35,3 +35,7 @@ credentials into config files, URLs or issue comments.
 The bundled skill is maintained by kiln. `kiln skills sync` refreshes it from the
 installed executable; TUI startup does the same. To customise these instructions,
 copy them into a separately named user or project skill.
+
+For Pi phone control, run `kiln pi install` and restart Pi. This is separate from
+the remote_control setting. Paired users can read recent text, send prompts and
+stop turns; dialogs still require the local terminal.

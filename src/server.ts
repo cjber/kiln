@@ -5,6 +5,7 @@ import { cloudSnapshot } from "./cloud";
 import { codexRemoteHost } from "./codex";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
+import { bridgeFor, type PiState, piRequest } from "./pi";
 import { sessionTitle } from "./session-list";
 import { listSessions, type Session, sessionParent } from "./sessions";
 import { loadSettings } from "./settings";
@@ -25,6 +26,7 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: session.place.kind,
+    piRemote: session.piRemote === true,
     handoff: phoneHandoff(session, codexHost),
   };
 }
@@ -35,6 +37,8 @@ export function startServer({
   load = () => listSessions(loadSettings()),
   interval = 2_000,
   readCodexHost = codexRemoteHost,
+  controlPi = (session: Session, command: object, requestId?: string) =>
+    piRequest<PiState>(bridgeFor(session.pid), command, 500, requestId),
 } = {}) {
   const instance = randomUUID();
   let snapshot = {
@@ -46,6 +50,7 @@ export function startServer({
     problem: "Loading sessions",
     sessions: [] as ReturnType<typeof phoneSession>[],
   };
+  let liveSessions: Session[] = [];
   let refreshing = false;
   let attempts = 0;
   let windowStart = Date.now();
@@ -88,7 +93,46 @@ export function startServer({
           : response({ error: "Pairing code is invalid, expired or already used" }, 401);
       }
       const token = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
-      if (!token || !pairing.authenticate(token)) return response({ error: "Device is not paired" }, 401);
+      const device = token ? pairing.authenticate(token) : null;
+      if (!token || !device) return response({ error: "Device is not paired" }, 401);
+      const piRoute = path.match(/^\/v1\/pi\/([A-Za-z0-9_-]{1,128})$/);
+      if (piRoute) {
+        const session = liveSessions.find((row) => row.agent === "pi" && row.id === piRoute[1] && row.piRemote);
+        if (!session) return response({ error: "Pi remote session is unavailable" }, 404);
+        try {
+          if (request.method === "GET") {
+            const state = await controlPi(session, {
+              type: "get_state",
+              sessionId: session.id,
+              transcript: true,
+              writer: device.id,
+            });
+            return response({ ...state, ownWriter: state.writer === device.id });
+          }
+          if (request.method !== "POST") return response({ error: "Method not supported" }, 405);
+          if (!request.headers.get("Content-Type")?.startsWith("application/json"))
+            return response({ error: "Expected JSON" }, 415);
+          const body = (await request.json()) as { type?: string; message?: string; id?: string };
+          if (
+            !body ||
+            !["prompt", "abort"].includes(body.type ?? "") ||
+            typeof body.id !== "string" ||
+            !/^[0-9a-f-]{36}$/.test(body.id) ||
+            (body.type === "prompt" &&
+              (typeof body.message !== "string" || !body.message.trim() || Buffer.byteLength(body.message) > 3500))
+          )
+            return response({ error: "Expected a prompt or abort command with a request ID" }, 400);
+          await controlPi(
+            session,
+            { type: body.type, message: body.message, sessionId: session.id, writer: device.id },
+            body.id,
+          );
+          return response({ success: true });
+        } catch (error) {
+          if (error instanceof SyntaxError) return response({ error: "Invalid Pi command JSON" }, 400);
+          return response({ error: error instanceof Error ? error.message : "Pi command failed" }, 409);
+        }
+      }
       if (request.method === "GET" && path === "/v1/sessions") return response(snapshot);
       if (request.method === "GET" && path === "/v1/events") {
         if (server.upgrade(request, { data: { token } })) return;
@@ -124,6 +168,7 @@ export function startServer({
     refreshing = true;
     try {
       const [sessions, codexHost] = await Promise.all([load(), readCodexHost()]);
+      liveSessions = sessions;
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,

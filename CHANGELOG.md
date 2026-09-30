@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Control Pi sessions from a paired phone.** Install the bundled extension with kiln pi install and restart Pi. Android can read recent text, send a prompt and stop a turn. Live titles and activity come from the same bridge. One phone writes at a time; extension dialogs stay in the local terminal.
+
 - **Skill backups retain relative link targets.** Repair keeps links to external instructions and supporting files readable after moving a conflicting directory, while internal links remain relative.
 
 - **Releases include a signed Android app.** Each tag builds, checks and attaches kiln-android.apk using a persistent signing key, so release installations can update without losing their paired machines.

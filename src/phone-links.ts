@@ -49,6 +49,10 @@ export function phoneHandoff(session: Session, codexHost?: string): Handoff {
       return { url: "https://chatgpt.com/codex", label: "Open ChatGPT, then choose this thread", exact: false };
     }
     case "pi":
-      return { reason: "Pi remote control is not available yet" };
+      return {
+        reason: session.piRemote
+          ? "Read and control this Pi session in kiln"
+          : "Run kiln pi install and restart Pi to enable remote control",
+      };
   }
 }
