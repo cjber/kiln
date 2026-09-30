@@ -459,7 +459,7 @@ export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
-      <text>
+      <text wrapMode="none">
         <span fg={color.fgBright} attributes={1}>
           kiln
         </span>
