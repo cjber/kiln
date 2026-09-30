@@ -37,3 +37,5 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
   screen; nothing prints to the console while it is up.
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.
+- Quality: load `.agents/skills/sift-project/SKILL.md` before cleanup, dead-code or refactoring
+  work.
