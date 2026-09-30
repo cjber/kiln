@@ -4,14 +4,20 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
+import { sessionTitle } from "./session-list";
 import { listSessions, type Session } from "./sessions";
 import { loadSettings } from "./settings";
 
-export function phoneSession(session: Session) {
+function phoneId(session: Session): string {
+  return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
+}
+
+export function phoneSession(session: Session, parent?: Session) {
   return {
-    id: `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`,
+    id: phoneId(session),
+    parentId: parent ? phoneId(parent) : undefined,
     agent: session.agent,
-    title: session.place.kind === "cloud" ? session.place.title : (session.title ?? session.id ?? session.agent),
+    title: sessionTitle(session),
     cwd: session.cwd,
     branch: session.branch,
     activity: session.activity,
@@ -123,7 +129,10 @@ export function startServer({
         sessions: [
           ...new Map(
             sessions.map((session) => {
-              const row = phoneSession(session);
+              const row = phoneSession(
+                session,
+                sessions.find((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid),
+              );
               return [row.id, row] as const;
             }),
           ).values(),

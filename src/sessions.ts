@@ -76,9 +76,6 @@ type ClaudeAgent = {
   id?: string;
 };
 
-/** Recent output suggests work; silence alone cannot establish that a turn has finished. */
-const workingWindowMs = 3_000;
-
 function startedAt(pid: number): number {
   // On Linux /proc/<pid> is created with the process, so its mtime is the start time.
   try {
@@ -337,6 +334,7 @@ export function withCodexThreads(
       process: {
         ...process,
         id: thread?.id ?? threadId,
+        title: thread?.title,
         cwd: thread?.cwd ?? process.cwd,
         activity: thread?.activity,
         lastActiveAt: thread?.updatedAt,
@@ -352,12 +350,20 @@ export function withCodexThreads(
     const thread = candidates[0];
     if (!thread) return process;
     unpaired.splice(unpaired.indexOf(thread), 1);
-    return { ...process, id: thread.id, cwd: thread.cwd, activity: thread.activity, lastActiveAt: thread.updatedAt };
+    return {
+      ...process,
+      id: thread.id,
+      title: thread.title,
+      cwd: thread.cwd,
+      activity: thread.activity,
+      lastActiveAt: thread.updatedAt,
+    };
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired.map((thread) => ({
     agent: "codex" as const,
     id: thread.id,
+    title: thread.title,
     cwd: thread.cwd,
     startedAt: thread.createdAt,
     lastActiveAt: thread.updatedAt,
@@ -389,14 +395,13 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
   );
   const running = [...claude, ...codex.processes, ...processesNamed("pi", isInteractivePi)];
 
-  const places = new Map<number, { place: Place; activityAt?: number }>();
+  const places = new Map<number, { place: Place }>();
   for (const window of windows) {
     for (const pid of window.pids)
       places.set(pid, { place: { kind: "kitty", socket: window.socket, windowId: window.id } });
   }
   // A kiln pane wins over a kitty window: the window only holds the tmux client, never the agent.
-  for (const pane of owned)
-    places.set(pane.pid, { place: { kind: "kiln", name: pane.name }, activityAt: pane.activityAt });
+  for (const pane of owned) places.set(pane.pid, { place: { kind: "kiln", name: pane.name } });
 
   const runningPids = new Set(running.map((process) => process.pid));
   const located = running.map(({ background, ...process }) => {
@@ -408,24 +413,17 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
         kind: "elsewhere" as const,
         source: processSource(process.pid),
       };
-    const activity =
-      process.activity ??
-      (found?.activityAt !== undefined && Date.now() - found.activityAt < workingWindowMs ? "working" : undefined);
     return {
       ...process,
-      lastActiveAt: latestActivity(process.lastActiveAt, found?.activityAt, transcriptActivity(process.pid)),
+      lastActiveAt: process.lastActiveAt ?? transcriptActivity(process.pid),
       ancestorSessionPid,
-      activity,
       branch: gitBranch(process.cwd),
       place,
     };
   });
   const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
     ...session,
-    parentSessionPid:
-      located.find((parent) => parent.pid === ancestorSessionPid)?.place.kind === "kiln"
-        ? ancestorSessionPid
-        : undefined,
+    parentSessionPid: ancestorSessionPid,
   }));
   return nestSessions(
     [
@@ -440,10 +438,10 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
 /** A child can own a terminal, but cannot inherit one through another live agent. */
 export function sessionLocation(
   lineage: readonly number[],
-  places: ReadonlyMap<number, { place: Place; activityAt?: number }>,
+  places: ReadonlyMap<number, { place: Place }>,
   runningPids: ReadonlySet<number>,
-): { ancestorSessionPid?: number; found?: { place: Place; activityAt?: number } } {
-  let found: { place: Place; activityAt?: number } | undefined;
+): { ancestorSessionPid?: number; found?: { place: Place } } {
+  let found: { place: Place } | undefined;
   for (const [index, pid] of lineage.entries()) {
     if (index > 0 && runningPids.has(pid)) return { ancestorSessionPid: pid, found };
     found ??= places.get(pid);

@@ -39,6 +39,7 @@ const kiln = (name: string) => ({ kind: "kiln", name }) as const;
 const demo: Session[] = [
   {
     pid: 101,
+    title: "Cache map tiles",
     agent: "claude",
     cwd: code("atlas"),
     lastActiveAt: minutes(2),
@@ -49,6 +50,7 @@ const demo: Session[] = [
   },
   {
     pid: 102,
+    title: "Fix retry backoff",
     agent: "codex",
     cwd: code("atlas"),
     lastActiveAt: minutes(2),
@@ -59,6 +61,7 @@ const demo: Session[] = [
   },
   {
     pid: 103,
+    title: "Update shell bindings",
     agent: "pi",
     cwd: code("dotfiles"),
     lastActiveAt: minutes(2),
@@ -69,6 +72,7 @@ const demo: Session[] = [
   },
   {
     pid: 104,
+    title: "Draft terminal tools post",
     agent: "claude",
     cwd: code("blog"),
     lastActiveAt: minutes(2),
@@ -79,6 +83,7 @@ const demo: Session[] = [
   },
   {
     pid: 105,
+    title: "Review the retry fix",
     parentSessionPid: 102,
     agent: "claude",
     cwd: code("kiln"),
@@ -179,7 +184,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 await shoot("list", ["j"]);
-await shoot("unavailable", ["j", "j"]);
+await shoot("unavailable", ["j", "TAB", "j"]);
 await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);

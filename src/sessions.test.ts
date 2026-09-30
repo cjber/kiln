@@ -121,11 +121,10 @@ describe("nested sessions", () => {
 });
 
 describe("session placement", () => {
-  const parentPlace: { place: Place; activityAt?: number } = {
+  const parentPlace: { place: Place } = {
     place: { kind: "kiln" as const, name: "parent" },
-    activityAt: Date.now(),
   };
-  const childPlace: { place: Place; activityAt?: number } = {
+  const childPlace: { place: Place } = {
     place: { kind: "kitty" as const, socket: "@kitty", windowId: 7 },
   };
   test("a piped child neither opens its parent's terminal nor borrows pane activity", () => {

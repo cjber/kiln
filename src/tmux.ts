@@ -25,14 +25,14 @@ function configPath(): string {
   return config;
 }
 
-type Pane = { name: string; pid: number; activityAt: number };
+type Pane = { name: string; pid: number };
 
 function run(...args: string[]): boolean {
   return Bun.spawnSync([...tmux, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
 }
 
 export async function panes(): Promise<Pane[]> {
-  const format = "#{session_name}\t#{pane_pid}\t#{window_activity}";
+  const format = "#{session_name}\t#{pane_pid}";
   const process = Bun.spawn([...tmux, "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
@@ -42,8 +42,8 @@ export async function panes(): Promise<Pane[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [name = "", pid, activity] = line.split("\t");
-      return { name, pid: Number(pid), activityAt: Number(activity) * 1000 };
+      const [name = "", pid] = line.split("\t");
+      return { name, pid: Number(pid) };
     });
 }
 
