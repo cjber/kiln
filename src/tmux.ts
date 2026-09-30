@@ -34,8 +34,11 @@ function run(...args: string[]): boolean {
 export async function panes(): Promise<Pane[]> {
   const format = "#{session_name}\t#{pane_pid}\t#{window_activity}";
   const process = Bun.spawn([...tmux, "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
-  if (await process.exited) return [];
-  return (await new Response(process.stdout).text())
+  const timeout = setTimeout(() => process.kill(), 2_000);
+  const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
+  clearTimeout(timeout);
+  if (code) return [];
+  return source
     .split("\n")
     .filter(Boolean)
     .map((line) => {

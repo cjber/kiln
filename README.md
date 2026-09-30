@@ -15,7 +15,8 @@ kiln lists every interactive Claude Code, Codex and Pi session on the machine, w
 it, and takes you to the one you pick. The keys are vim's, there is no tmux prefix to learn, and one
 key brings you back to the list while the agent keeps working.
 
-The session list and shared skills view have no chat pane or daemon of their own.
+The terminal session list and shared skills view have no chat pane or daemon of their own.
+The optional Android client uses `kiln serve` to read the same list over an authenticated stream.
 
 ## Install
 
@@ -160,6 +161,45 @@ Both sources keep their last successful rows on a network or protocol fault. Cla
 are reread on each refresh, so a login refreshed by the CLI is picked up automatically. Codex
 diagnostics do not include raw CLI output; run `codex cloud list` directly to inspect login faults.
 `cloud = false` hides both providers. Long lists scroll with the selected row.
+
+## Android
+
+The native Android client lists sessions from one or more machines. It shows live directories,
+branches and activity, supports filtering and the same sort choices as the terminal list, and
+hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
+stop sessions. Pi has no phone handoff yet. Local Codex sessions open ChatGPT's Codex view; choose
+the displayed thread on the named machine. Cloud tasks and Claude Remote Control sessions have
+exact links when their provider reports one.
+
+Install the `kiln-android` APK artifact from a green CI run, or build it with JDK 21 and Android
+SDK 36: `android/gradlew -p android assembleDebug`. The APK is at
+`android/app/build/outputs/apk/debug/app-debug.apk`.
+
+On the machine, run:
+
+```sh
+kiln serve
+# In another terminal, expose only to your tailnet:
+tailscale serve --bg --https=8443 http://127.0.0.1:7437
+kiln pair https://YOUR-MACHINE.YOUR-TAILNET.ts.net:8443 --qr
+```
+
+The phone needs Tailscale connected to the same tailnet. Paste the printed invitation into the
+app and press Pair, or scan its QR. Codes expire after five minutes and
+work once. The server listens only on localhost, honours the existing cloud settings and refreshes
+local sessions every two seconds. Cloud discovery remains asynchronous and runs at most once a
+minute. A failed refresh keeps the last list with an error and its last successful update time.
+The app reconnects after a dropped connection and closes the stream while it is in the background.
+
+<img src="assets/android-pairing.png" width="270" alt="Pairing a machine in the kiln Android app" />
+
+`kiln devices` lists paired phones; `kiln revoke DEVICE-ID` disconnects one and rejects its future
+requests. Forget in the app removes its saved credential locally; revoke it on the machine too.
+Credentials are encrypted using Android Keystore, excluded from backups and never included in
+provider links. The server stores only credential hashes in
+`~/.local/state/kiln/devices.sqlite` (or `$XDG_STATE_HOME/kiln/devices.sqlite`), with user-only file
+permissions. Stop `kiln serve` to stop sharing; remove this Tailscale endpoint with
+`tailscale serve --https=8443 off`. Do not use Tailscale Funnel for this private list.
 
 ## Shared skills
 

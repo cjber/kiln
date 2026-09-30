@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Avoid duplicate background rows for resumed Codex threads.** Read the explicit thread ID from a resumed terminal even when the daemon owns its thread lock. The terminal receives its own daemon status and directory, and the same thread is no longer also listed as background.
+
+- **List sessions on Android.** Pair the native client with a localhost kiln server exposed through Tailscale. It streams directories, branches and activity, filters and sorts sessions, and opens verified Claude and cloud links. Local Codex rows explain how to select the thread in ChatGPT. Each phone has a revocable credential; pairing codes expire and work once.
+
 - **Cloud rows carry verified phone links.** Codex task URLs are retained from the CLI and Claude
   sessions use their verified claude.ai route. Unexpected URLs and malformed pages report a fault
   without leaking response content. Codex pagination deduplicates tasks while retaining the last

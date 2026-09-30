@@ -44,6 +44,9 @@ export type Place =
   | { kind: "elsewhere"; source?: string };
 
 export type Session = {
+  /** Provider identity and display name, when reported. */
+  id?: string;
+  title?: string;
   /** The agent's process; a Codex daemon thread has none of its own. */
   pid?: number;
   /** The live kiln session whose agent spawned this process. */
@@ -63,6 +66,7 @@ export type Session = {
 type AgentProcess = Omit<Session, "place" | "branch"> & { pid: number; background?: Place };
 
 type ClaudeAgent = {
+  name?: string;
   sessionId?: string;
   pid: number;
   cwd: string;
@@ -181,10 +185,13 @@ function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
 async function claudeProcesses(): Promise<AgentProcess[]> {
   if (!Bun.which("claude")) return [];
   const process = Bun.spawn(["claude", "agents", "--json"], { stdout: "pipe", stderr: "ignore" });
-  if (await process.exited) return [];
+  const timeout = setTimeout(() => process.kill(), 2_000);
+  const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
+  clearTimeout(timeout);
+  if (code) return [];
   let listed: unknown;
   try {
-    listed = JSON.parse(await new Response(process.stdout).text());
+    listed = JSON.parse(source);
   } catch {
     return [];
   }
@@ -195,6 +202,8 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
     .flatMap((item) => {
       const session = {
         pid: item.pid,
+        id: item.sessionId,
+        title: item.name,
         agent: "claude" as const,
         cwd: processCwd(item.pid) ?? item.cwd,
         startedAt: item.startedAt ?? startedAt(item.pid),
@@ -248,7 +257,7 @@ export function isInteractivePi(command: string): boolean {
 
 /** Codex and pi have no scriptable session listing, so their live sessions are found by process. */
 function processesNamed(agent: Agent, isInteractive: (command: string) => boolean): AgentProcess[] {
-  const listed = Bun.spawnSync(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore" });
+  const listed = Bun.spawnSync(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore", timeout: 2_000 });
   if (listed.exitCode !== 0) return [];
   return listed.stdout
     .toString()
@@ -287,9 +296,19 @@ function latestActivity(...times: (number | undefined)[]): number | undefined {
   return valid.length ? Math.max(...valid) : undefined;
 }
 
+/** A resumed terminal reports its identity in argv even when the daemon owns its lock. */
+export function resumedCodexThread(args: readonly string[]): string | undefined {
+  const id = args[2];
+  return args[1] === "resume" && id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
+    ? id
+    : undefined;
+}
+
 /** Older Codex TUIs hold a local thread lock; they must not borrow a daemon thread's status. */
 function codexThreadId(pid: number): string | undefined {
   try {
+    const resumed = resumedCodexThread(readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"));
+    if (resumed) return resumed;
     for (const fd of readdirSync(`/proc/${pid}/fd`)) {
       try {
         const path = readlinkSync(`/proc/${pid}/fd/${fd}`);
@@ -317,6 +336,7 @@ export function withCodexThreads(
     return {
       process: {
         ...process,
+        id: thread?.id ?? threadId,
         cwd: thread?.cwd ?? process.cwd,
         activity: thread?.activity,
         lastActiveAt: thread?.updatedAt,
@@ -332,11 +352,12 @@ export function withCodexThreads(
     const thread = candidates[0];
     if (!thread) return process;
     unpaired.splice(unpaired.indexOf(thread), 1);
-    return { ...process, cwd: thread.cwd, activity: thread.activity, lastActiveAt: thread.updatedAt };
+    return { ...process, id: thread.id, cwd: thread.cwd, activity: thread.activity, lastActiveAt: thread.updatedAt };
   });
   // Unmatched daemon threads remain attachable even when their terminal ownership is uncertain.
   const headless = unpaired.map((thread) => ({
     agent: "codex" as const,
+    id: thread.id,
     cwd: thread.cwd,
     startedAt: thread.createdAt,
     lastActiveAt: thread.updatedAt,
