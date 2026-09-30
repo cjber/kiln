@@ -72,7 +72,6 @@ fun safeLink(agent: String, value: String): String? {
         uri.scheme != "https" ||
             uri.rawUserInfo != null ||
             uri.port != -1 ||
-            uri.rawQuery != null ||
             uri.rawFragment != null
     )
         return null
@@ -80,13 +79,23 @@ fun safeLink(agent: String, value: String): String? {
         "claude" ->
             value.takeIf {
                 uri.host == "claude.ai" &&
+                    uri.rawQuery == null &&
                     uri.rawPath.matches(Regex("/code/(session|cse)_[A-Za-z0-9_-]+"))
             }
         "codex" ->
             value.takeIf {
                 uri.host == "chatgpt.com" &&
-                    (uri.rawPath == "/codex" ||
-                        uri.rawPath.matches(Regex("/codex/tasks/[A-Za-z0-9_-]+")))
+                    ((uri.rawQuery == null &&
+                        (uri.rawPath == "/codex" ||
+                            uri.rawPath.matches(Regex("/codex/tasks/[A-Za-z0-9_-]+")))) ||
+                        (uri.rawPath.matches(
+                            Regex(
+                                "/codex/remote/thread/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+                            )
+                        ) &&
+                            uri.rawQuery?.matches(
+                                Regex("hostId=slingshot%3Aenv_[A-Za-z0-9_-]+%3A8765")
+                            ) == true))
             }
         else -> null
     }

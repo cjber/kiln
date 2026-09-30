@@ -179,8 +179,8 @@ The native Android client lists sessions from one or more machines. It shows liv
 branches, titles and update times in compact rows on a black OLED theme with muted oxide accents.
 It supports filtering and the same sort choices as the terminal list, and
 hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
-stop sessions. Pi has no phone handoff yet. Local Codex sessions open ChatGPT's Codex view; choose
-the displayed thread on the named machine. Cloud tasks and Claude Remote Control sessions have
+stop sessions. Pi has no phone handoff yet. Local Codex sessions open the selected thread directly when the daemon reports a connected
+Remote Control host. Older or disconnected daemons keep the manual ChatGPT handoff. Cloud tasks and Claude Remote Control sessions have
 exact links when their provider reports one.
 
 Install the `kiln-android` APK artifact from a green CI run, or build it with JDK 21 and Android

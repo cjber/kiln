@@ -25,6 +25,25 @@ class ProtocolTest {
     }
 
     @Test
+    fun remoteThreadLinksRequireAnExactHostAndThread() {
+        val route = "https://chatgpt.com/codex/remote/thread/00000000-0000-0000-0000-000000000001"
+        val url = "$route?hostId=slingshot%3Aenv_example%3A8765"
+        assertEquals(url, safeLink("codex", url))
+        for (invalid in
+            listOf(
+                route,
+                "$route?hostId=env_example",
+                "$url&token=private",
+                "$url&hostId=other",
+                "$url#other",
+                "$route?hostId=slingshot%3Aenv_example%3A8888",
+                "https://claude.ai/code/cse_example?hostId=slingshot%3Aenv_example%3A8765",
+            )) assertNull(
+            safeLink(if (invalid.contains("claude.ai")) "claude" else "codex", invalid)
+        )
+    }
+
+    @Test
     fun acceptsOnlyHttpsPairingOrigins() {
         assertEquals("https://machine.example:8443", httpsOrigin("https://machine.example:8443/"))
         for (url in
