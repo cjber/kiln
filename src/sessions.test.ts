@@ -10,7 +10,13 @@ describe("isInteractiveCodex", () => {
   });
 
   test("drops the non-session subcommands", () => {
-    for (const command of ["codex exec 'do a thing'", "codex review", "codex agents", "codex app-server", "codex mcp list"]) {
+    for (const command of [
+      "codex exec 'do a thing'",
+      "codex review",
+      "codex agents",
+      "codex app-server",
+      "codex mcp list",
+    ]) {
       expect(isInteractiveCodex(command)).toBe(false);
     }
   });

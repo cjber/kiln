@@ -25,11 +25,15 @@ async function windowsAt(socket: string): Promise<KittyWindow[]> {
   if (await process.exited) return [];
   try {
     const instances = JSON.parse(await new Response(process.stdout).text()) as KittyLs;
-    return instances.flatMap((instance) => instance.tabs.flatMap((tab) => tab.windows.map((window) => ({
-      socket,
-      id: window.id,
-      pids: [window.pid, ...window.foreground_processes.map((item) => item.pid)],
-    }))));
+    return instances.flatMap((instance) =>
+      instance.tabs.flatMap((tab) =>
+        tab.windows.map((window) => ({
+          socket,
+          id: window.id,
+          pids: [window.pid, ...window.foreground_processes.map((item) => item.pid)],
+        })),
+      ),
+    );
   } catch {
     return [];
   }
@@ -41,5 +45,8 @@ export async function kittyWindows(): Promise<KittyWindow[]> {
 }
 
 export function focus(socket: string, windowId: number): boolean {
-  return Bun.spawnSync(["kitty", "@", "--to", socket, "focus-window", "--match", `id:${windowId}`], { stderr: "pipe" }).exitCode === 0;
+  return (
+    Bun.spawnSync(["kitty", "@", "--to", socket, "focus-window", "--match", `id:${windowId}`], { stderr: "pipe" })
+      .exitCode === 0
+  );
 }

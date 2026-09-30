@@ -7,11 +7,12 @@
  * an SVG of its cells, and rsvg-convert turns that into assets/<name>.png.
  * The fonts are JetBrains Mono where installed, else any monospace.
  */
-import type { CapturedFrame, RGBA } from "@opentui/core";
-import { testRender } from "@opentui/react/test-utils";
+
 import { mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CapturedFrame, RGBA } from "@opentui/core";
+import { testRender } from "@opentui/react/test-utils";
 
 import { App } from "../src/app";
 import type { Session } from "../src/sessions";
@@ -30,16 +31,68 @@ const code = (repo: string) => join(homedir(), "code", repo);
 const kiln = (name: string) => ({ kind: "kiln", name }) as const;
 
 const demo: Session[] = [
-  { pid: 101, agent: "claude", cwd: code("atlas"), startedAt: minutes(42), activity: "working", branch: "feat/tile-cache", place: kiln("a") },
-  { pid: 102, agent: "codex", cwd: code("atlas"), startedAt: minutes(18), activity: "waiting", branch: "fix/retry-backoff", place: kiln("b") },
-  { pid: 103, agent: "pi", cwd: code("dotfiles"), startedAt: minutes(7), activity: "working", branch: "main", place: kiln("c") },
-  { pid: 104, agent: "claude", cwd: code("blog"), startedAt: minutes(190), activity: "idle", branch: "draft/terminal-tools", place: { kind: "kitty", socket: "@kitty-1", windowId: 3 } },
-  { pid: 105, agent: "claude", cwd: code("kiln"), startedAt: minutes(64), activity: "waiting", branch: "main", place: kiln("d") },
-  { agent: "codex", cwd: join(homedir(), ".worktrees", "atlas", "search-index"), startedAt: minutes(1500), activity: "idle", branch: "feat/search-index", place: { kind: "background", id: "01a0f1ac", attach: [] } },
+  {
+    pid: 101,
+    agent: "claude",
+    cwd: code("atlas"),
+    startedAt: minutes(42),
+    activity: "working",
+    branch: "feat/tile-cache",
+    place: kiln("a"),
+  },
+  {
+    pid: 102,
+    agent: "codex",
+    cwd: code("atlas"),
+    startedAt: minutes(18),
+    activity: "waiting",
+    branch: "fix/retry-backoff",
+    place: kiln("b"),
+  },
+  {
+    pid: 103,
+    agent: "pi",
+    cwd: code("dotfiles"),
+    startedAt: minutes(7),
+    activity: "working",
+    branch: "main",
+    place: kiln("c"),
+  },
+  {
+    pid: 104,
+    agent: "claude",
+    cwd: code("blog"),
+    startedAt: minutes(190),
+    activity: "idle",
+    branch: "draft/terminal-tools",
+    place: { kind: "kitty", socket: "@kitty-1", windowId: 3 },
+  },
+  {
+    pid: 105,
+    agent: "claude",
+    cwd: code("kiln"),
+    startedAt: minutes(64),
+    activity: "waiting",
+    branch: "main",
+    place: kiln("d"),
+  },
+  {
+    agent: "codex",
+    cwd: join(homedir(), ".worktrees", "atlas", "search-index"),
+    startedAt: minutes(1500),
+    activity: "idle",
+    branch: "feat/search-index",
+    place: { kind: "background", id: "01a0f1ac", attach: [] },
+  },
 ];
 
-const hex = (color: RGBA) => `#${color.toInts().slice(0, 3).map((part) => part.toString(16).padStart(2, "0")).join("")}`;
-const escape = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const hex = (color: RGBA) =>
+  `#${color
+    .toInts()
+    .slice(0, 3)
+    .map((part) => part.toString(16).padStart(2, "0"))
+    .join("")}`;
+const escapeXml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function svg(frame: CapturedFrame): string {
   const width = cols * cell.width + pad * 2;
@@ -52,11 +105,15 @@ function svg(frame: CapturedFrame): string {
       const x = pad + col * cell.width;
       const fill = hex(span.bg);
       if (span.bg.a > 0 && fill !== background) {
-        shapes.push(`<rect x="${x}" y="${y}" width="${span.width * cell.width}" height="${cell.height}" fill="${fill}"/>`);
+        shapes.push(
+          `<rect x="${x}" y="${y}" width="${span.width * cell.width}" height="${cell.height}" fill="${fill}"/>`,
+        );
       }
       if (span.text.trim()) {
         const weight = span.attributes & 1 ? ' font-weight="bold"' : "";
-        shapes.push(`<text x="${x}" y="${y + 15}" fill="${hex(span.fg)}"${weight} xml:space="preserve">${escape(span.text)}</text>`);
+        shapes.push(
+          `<text x="${x}" y="${y + 15}" fill="${hex(span.fg)}"${weight} xml:space="preserve">${escapeXml(span.text)}</text>`,
+        );
       }
       col += span.width;
     }
@@ -69,17 +126,19 @@ ${shapes.join("\n")}
 }
 
 async function shoot(name: string, keys: string[]): Promise<void> {
-  const setup = await testRender(
-    <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />,
-    { width: cols, height: rows },
-  );
+  const setup = await testRender(<App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />, {
+    width: cols,
+    height: rows,
+  });
   await setup.waitForFrame((frame) => frame.includes("atlas"));
   for (const key of keys) await setup.mockInput.pressKey(key);
   await setup.flush();
   const path = join(scratch, `${name}.svg`);
   await Bun.write(path, svg(setup.captureSpans()));
   setup.renderer.destroy();
-  const png = Bun.spawnSync(["rsvg-convert", "--zoom", "2", "-o", join(out, `${name}.png`), path], { stderr: "inherit" });
+  const png = Bun.spawnSync(["rsvg-convert", "--zoom", "2", "-o", join(out, `${name}.png`), path], {
+    stderr: "inherit",
+  });
   if (png.exitCode !== 0) throw new Error(`rsvg-convert failed for ${name}`);
   console.log(`assets/${name}.png`);
 }

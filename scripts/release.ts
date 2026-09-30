@@ -25,7 +25,12 @@ if (git("status", "--porcelain")) throw new Error("the working tree has uncommit
 if (git("branch", "--show-current") !== "main") throw new Error("release from main");
 
 const [major = 0, minor = 0, patch = 0] = packageJson.version.split(".").map(Number);
-const next = bump === "major" ? `${major + 1}.0.0` : bump === "minor" ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
+const next =
+  bump === "major"
+    ? `${major + 1}.0.0`
+    : bump === "minor"
+      ? `${major}.${minor + 1}.0`
+      : `${major}.${minor}.${patch + 1}`;
 
 const changelog = await Bun.file("CHANGELOG.md").text();
 const date = new Date().toISOString().slice(0, 10);

@@ -8,9 +8,12 @@ from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ```sh
 bun install --frozen-lockfile
+bunx biome ci .
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
+python3 .sift/gate.py --base origin/main
+python3 .sift/agents.py check
 ```
 
 CI runs the same, plus actionlint, zizmor and gitleaks over the workflows and history.
@@ -34,3 +37,5 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
   screen; nothing prints to the console while it is up.
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.
+- Quality: load `.agents/skills/sift-project/SKILL.md` before cleanup, dead-code or refactoring
+  work.

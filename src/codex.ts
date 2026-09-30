@@ -40,11 +40,14 @@ async function rpc(socket: string): Promise<Thread[]> {
   const ws = new WebSocket(`ws+unix://${socket}`);
   const pending = new Map<number, (reply: Reply) => void>();
   let next = 0;
-  const call = <T>(method: string, params: object) => new Promise<T>((resolve, reject) => {
-    const id = ++next;
-    pending.set(id, (reply) => (reply.error ? reject(new Error(`${method}: ${reply.error.message}`)) : resolve(reply.result as T)));
-    ws.send(JSON.stringify({ id, method, params }));
-  });
+  const call = <T>(method: string, params: object) =>
+    new Promise<T>((resolve, reject) => {
+      const id = ++next;
+      pending.set(id, (reply) =>
+        reply.error ? reject(new Error(`${method}: ${reply.error.message}`)) : resolve(reply.result as T),
+      );
+      ws.send(JSON.stringify({ id, method, params }));
+    });
   ws.onmessage = (event) => {
     const reply = JSON.parse(String(event.data)) as Reply;
     if (reply.id !== undefined) pending.get(reply.id)?.(reply);
@@ -57,7 +60,9 @@ async function rpc(socket: string): Promise<Thread[]> {
     await call("initialize", { clientInfo: { name: "kiln", version: "0" } });
     ws.send(JSON.stringify({ method: "initialized" }));
     const loaded = await call<{ data: string[] }>("thread/loaded/list", {});
-    return await Promise.all(loaded.data.map(async (threadId) => (await call<{ thread: Thread }>("thread/read", { threadId })).thread));
+    return await Promise.all(
+      loaded.data.map(async (threadId) => (await call<{ thread: Thread }>("thread/read", { threadId })).thread),
+    );
   } finally {
     ws.close();
   }
@@ -71,7 +76,9 @@ export async function codexThreads(): Promise<CodexThread[]> {
   try {
     threads = await Promise.race([
       rpc(socket),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("the Codex daemon did not answer")), timeoutMs)),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("the Codex daemon did not answer")), timeoutMs),
+      ),
     ]);
   } catch {
     // A socket left behind by a stopped daemon refuses the connection; that is no daemon, not a fault.
