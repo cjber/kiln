@@ -15,7 +15,7 @@ kiln lists every interactive Claude Code, Codex and Pi session on the machine, w
 it, and takes you to the one you pick. The keys are vim's, there is no tmux prefix to learn, and one
 key brings you back to the list while the agent keeps working.
 
-It does one thing. There is no chat pane, no dashboard and no daemon of its own.
+The session list and shared skills view have no chat pane or daemon of their own.
 
 ## Install
 
@@ -52,6 +52,7 @@ The list is normal mode. Filtering is the only mode that takes text, and Esc lea
 | `/` | Filter by agent, directory, branch or status |
 | `s` | Edit settings in `$EDITOR`; they reload when you close it |
 | `o` | Cycle last activity, age, harness, directory and project order |
+| `S` | Manage shared skills for this user or the selected session's project |
 | `r` | Refresh now (the list refreshes every two seconds anyway) |
 | `q` | Quit |
 
@@ -136,7 +137,32 @@ gets neither remote control nor a real status.
 An opt-in [Pi remote control prototype](prototypes/README.md) exposes an existing interactive
 session through a private local socket. It is not installed or enabled by kiln.
 
+## Shared skills
+
+`S` opens the skills view. `u` selects `~/.agents/skills`, which applies to this user across
+projects on this machine. `p` selects `.agents/skills` at the selected session's git root, or its
+working directory when it is outside git. These are the canonical directories for all three agents.
+
+`n` creates a skill and opens `SKILL.md` in `$EDITOR`. `Enter` edits an existing skill. `i` copies
+an existing skill directory, including supporting files, into the selected scope. `l` shares it:
+Codex reads the shared directory directly; Claude and Pi use relative compatibility links in their
+own discovery directories. Existing entries that point somewhere else are marked `conflict` and
+are never replaced. `x`, then `y`, removes only those Claude and Pi links. It keeps the shared
+files and Codex access. `q` returns to sessions.
+
+Project skills stay in their project; importing them into the user scope is an explicit action.
+kiln does not migrate existing harness folders automatically. A `link` in the source column means
+the shared entry still points to files elsewhere. Plugin, synced and built-in skills remain managed
+by their harness. Reload skills or restart existing sessions after changing the links.
+
+<img src="assets/skills.png" alt="Shared project skills and their Claude and Pi compatibility links" />
+
 ## Development
+
+CI builds and runs the standalone binary on native Linux x64 and arm64 runners. It checks the
+TUI, embedded tmux configuration, attach/detach and the status bar's executable path. An Arch
+container builds and installs the rendered binary PKGBUILD without Bun and checks its metadata,
+checksums and TUI. The release job runs the same checks before publishing either executable.
 
 ```sh
 bun install --frozen-lockfile
