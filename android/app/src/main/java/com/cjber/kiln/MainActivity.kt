@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
         var retry by remember { mutableIntStateOf(0) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val connection = remember { Connection() }
+        val screenState = rememberSaveableStateHolder()
         val host = hosts.find { it.origin == selected }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
         var hiddenIds by
@@ -97,6 +99,7 @@ class MainActivity : ComponentActivity() {
                         .toSet()
                 )
             }
+        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hiddenIds)
         fun setHidden(next: Set<String>): Boolean {
             if (host == null) return false
             if (!viewPreferences.edit().putStringSet("hidden:${host.origin}", next).commit()) {
@@ -181,11 +184,14 @@ class MainActivity : ComponentActivity() {
                     launch(row)
                 },
                 copy = { copyId(row) },
-                hidden = row.id in hiddenIds,
+                hidden = row.id in effectiveHidden,
                 changeHidden = {
-                    val ids = sessionTreeIds(snapshot?.rows.orEmpty(), row.id)
-                    if (setHidden(if (row.id in hiddenIds) hiddenIds - ids else hiddenIds + ids))
-                        details = null
+                    val rows = snapshot?.rows.orEmpty()
+                    val next =
+                        if (row.id in effectiveHidden)
+                            effectiveHidden - sessionRestoreIds(rows, row.id)
+                        else effectiveHidden + sessionTreeIds(rows, row.id)
+                    if (setHidden(next)) details = null
                 },
             )
         }
@@ -260,40 +266,43 @@ class MainActivity : ComponentActivity() {
                 },
             )
         } else {
-            key(host?.origin) {
-                SessionScreen(
-                    host?.name ?: "Choose machine",
-                    hosts.map { it.name },
-                    onMachine = { selected = hosts[it].origin },
-                    onReconnect = { retry++ },
-                    onPairAnother = { pairing = true },
-                    onForget = {
-                        if (host != null && save(hosts.filter { it.origin != host.origin })) {
-                            selected = hosts.firstOrNull()?.origin
-                            pairing = hosts.isEmpty()
-                        }
-                    },
-                    error = error,
-                    onDismissError = { error = "" },
-                    state = state,
-                    updated = snapshot?.updated ?: 0,
-                    problem = snapshot?.problem.orEmpty(),
-                    filter = filter,
-                    onFilter = { filter = it },
-                    sort = sort,
-                    onSort = { sort = it },
-                    rows = snapshot?.rows.orEmpty(),
-                    loaded = snapshot != null,
-                    now = clock,
-                    expanded = expanded,
-                    hiddenIds = hiddenIds,
-                    changeHidden = ::setHidden,
-                    open = ::launch,
-                    details = { details = it },
-                    toggle = { row ->
-                        expanded = if (row.id in expanded) expanded - row.id else expanded + row.id
-                    },
-                )
+            screenState.SaveableStateProvider(host?.origin ?: "unpaired") {
+                key(host?.origin) {
+                    SessionScreen(
+                        host?.name ?: "Choose machine",
+                        hosts.map { it.name },
+                        onMachine = { selected = hosts[it].origin },
+                        onReconnect = { retry++ },
+                        onPairAnother = { pairing = true },
+                        onForget = {
+                            if (host != null && save(hosts.filter { it.origin != host.origin })) {
+                                selected = hosts.firstOrNull()?.origin
+                                pairing = hosts.isEmpty()
+                            }
+                        },
+                        error = error,
+                        onDismissError = { error = "" },
+                        state = state,
+                        updated = snapshot?.updated ?: 0,
+                        problem = snapshot?.problem.orEmpty(),
+                        filter = filter,
+                        onFilter = { filter = it },
+                        sort = sort,
+                        onSort = { sort = it },
+                        rows = snapshot?.rows.orEmpty(),
+                        loaded = snapshot != null,
+                        now = clock,
+                        expanded = expanded,
+                        hiddenIds = effectiveHidden,
+                        changeHidden = ::setHidden,
+                        open = ::launch,
+                        details = { details = it },
+                        toggle = { row ->
+                            expanded =
+                                if (row.id in expanded) expanded - row.id else expanded + row.id
+                        },
+                    )
+                }
             }
         }
     }

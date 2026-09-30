@@ -227,4 +227,27 @@ class SessionListTest {
             ),
         )
     }
+
+    @Test
+    fun newChildrenStayHiddenAndRestoringThemRestoresTheirAncestor() {
+        val rows = listOf(parent, child)
+        val hidden = hiddenSessionIds(rows, setOf("parent"))
+        assertEquals(setOf("parent", "child"), hidden)
+        assertEquals(
+            emptyList<String>(),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    emptySet(),
+                    SessionScope.LIVE,
+                    100,
+                    hiddenIds = setOf("parent"),
+                )
+            ),
+        )
+        assertEquals(setOf("parent", "child"), sessionRestoreIds(rows, "child"))
+        assertEquals(emptySet<String>(), hidden - sessionRestoreIds(rows, "child"))
+    }
 }

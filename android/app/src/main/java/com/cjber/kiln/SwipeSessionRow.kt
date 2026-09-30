@@ -26,7 +26,7 @@ fun SwipeSessionRow(
     hide: () -> Unit,
     restore: () -> Unit,
 ) {
-    val action = if (hidden) restore else hide
+    val action by rememberUpdatedState(if (hidden) restore else hide)
     val label = if (hidden) "Restore" else "Hide"
     val state =
         rememberSwipeToDismissBoxState(

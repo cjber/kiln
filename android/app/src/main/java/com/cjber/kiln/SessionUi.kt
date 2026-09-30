@@ -86,7 +86,7 @@ fun SessionScreen(
     val items = sessionItems(rows, sort, filter, expanded, scope, now, agent, activity, hiddenIds)
     val currentHidden by rememberUpdatedState(hiddenIds)
     fun restoreRow(row: Row) {
-        changeHidden(currentHidden - sessionTreeIds(rows, row.id))
+        changeHidden(currentHidden - sessionRestoreIds(rows, row.id))
     }
     fun hideRow(row: Row) {
         val added = sessionTreeIds(rows, row.id) - currentHidden
@@ -269,7 +269,7 @@ fun SessionScreen(
                                                 rows,
                                                 SessionOrder.RECENT,
                                                 "",
-                                                emptySet(),
+                                                rows.mapTo(mutableSetOf()) { it.id },
                                                 value,
                                                 now,
                                                 hiddenIds = hiddenIds,

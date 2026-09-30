@@ -48,8 +48,9 @@ fun sessionItems(
         if (row.id in seen) return false
         return byId[row.parent]?.let { canShow(it, seen + row.id) } ?: false
     }
+    val hidden = hiddenSessionIds(rows, hiddenIds)
     val eligible = rows.filter {
-        canShow(it) && ((it.id in hiddenIds) == (scope == SessionScope.HIDDEN))
+        canShow(it) && ((it.id in hidden) == (scope == SessionScope.HIDDEN))
     }
     val parents = eligible.associate { it.id to eligible.find { parent -> parent.id == it.parent } }
     val matching =
@@ -135,5 +136,16 @@ fun sessionTreeIds(rows: List<Row>, id: String): Set<String> {
         rows.filter { it.parent == parent }.forEach { if (ids.add(it.id)) append(it.id) }
     }
     append(id)
+    return ids
+}
+
+fun hiddenSessionIds(rows: List<Row>, hiddenIds: Set<String>): Set<String> =
+    hiddenIds.flatMapTo(mutableSetOf()) { sessionTreeIds(rows, it) }
+
+fun sessionRestoreIds(rows: List<Row>, id: String): Set<String> {
+    val ids = sessionTreeIds(rows, id).toMutableSet()
+    val byId = rows.associateBy { it.id }
+    var parent = byId[id]?.parent
+    while (parent != null && ids.add(parent)) parent = byId[parent]?.parent
     return ids
 }
