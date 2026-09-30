@@ -13,6 +13,12 @@ verbatim.
   and arm64 executables, including tmux and native UI loading, then builds and installs the binary
   AUR package in Arch without Bun. Releases wait for these checks.
 
+## [0.1.2] - 2026-09-30
+
+- **Archive Codex background threads with x.** The confirmation names the archive action; history
+  is kept and archived threads stay hidden. Other sessions retain their close action, and
+  unsupported actions explain why before confirmation.
+
 ## [0.1.1] - 2026-09-30
 
 - **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating
