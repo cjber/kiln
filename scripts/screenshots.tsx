@@ -15,7 +15,7 @@ import type { CapturedFrame, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 
 import { App } from "../src/app";
-import type { Session } from "../src/sessions";
+import { nestSessions, type Session } from "../src/sessions";
 import { defaults } from "../src/settings";
 
 const cols = 92;
@@ -69,12 +69,13 @@ const demo: Session[] = [
   },
   {
     pid: 105,
+    parentSessionPid: 102,
     agent: "claude",
     cwd: code("kiln"),
     startedAt: minutes(64),
     activity: "waiting",
     branch: "main",
-    place: kiln("d"),
+    place: { kind: "elsewhere", source: "pid 105 · spawned by codex (102)" },
   },
   {
     agent: "codex",
@@ -133,10 +134,13 @@ ${shapes.join("\n")}
 }
 
 async function shoot(name: string, keys: string[]): Promise<void> {
-  const setup = await testRender(<App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => demo} />, {
-    width: cols,
-    height: rows,
-  });
+  const setup = await testRender(
+    <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => nestSessions(demo)} />,
+    {
+      width: cols,
+      height: rows,
+    },
+  );
   await setup.waitForFrame((frame) => frame.includes("atlas"));
   for (const key of keys) await setup.mockInput.pressKey(key);
   await setup.flush();
@@ -151,5 +155,6 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 await shoot("list", ["j"]);
+await shoot("unavailable", ["j", "j"]);
 await shoot("new", ["n", "l"]);
 process.exit(0);
