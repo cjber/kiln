@@ -24,11 +24,14 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 
 - `src/sessions.ts` - discovery: `claude agents --json`, the Codex daemon (`src/codex.ts`), `pgrep`
   for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
+- `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `prototypes/` - opt-in Pi socket extension and its protocol test; no automatic installation.
-- `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots.
+- `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
+- `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
+  The binaries embed OpenTUI assets and `tmux.conf`; AUR `kiln-agents-bin` needs no Bun.
 
 ## Rules
 

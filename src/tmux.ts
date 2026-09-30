@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import configText from "../tmux.conf" with { type: "text" };
 
 import type { Settings } from "./settings";
 
@@ -6,9 +10,20 @@ import type { Settings } from "./settings";
  * Kiln's own tmux server. It exists only so a session outlives the moment you
  * leave it: no prefix, and one key (Ctrl+Q by default) is the way back.
  */
-const config = join(import.meta.dir, "..", "tmux.conf");
-const kiln = join(import.meta.dir, "..", "bin", "kiln");
-const tmux = ["tmux", "-L", "kiln", "-f", config];
+const kiln = import.meta.dir.startsWith("/$bunfs/") ? process.execPath : join(import.meta.dir, "..", "bin", "kiln");
+const tmux = ["tmux", "-L", "kiln"];
+let config: string | undefined;
+
+/** tmux reads a real file, including when the configuration is embedded in a standalone executable. */
+function configPath(): string {
+  if (!config) {
+    const directory = mkdtempSync(join(tmpdir(), "kiln-"));
+    config = join(directory, "tmux.conf");
+    writeFileSync(config, configText, { mode: 0o600 });
+    process.once("exit", () => rmSync(directory, { recursive: true, force: true }));
+  }
+  return config;
+}
 
 type Pane = { name: string; pid: number; activityAt: number };
 
@@ -36,7 +51,8 @@ export function exists(name: string): boolean {
 
 export function start(name: string, cwd: string, argv: string[], title: string): boolean {
   return (
-    run("new-session", "-d", "-s", name, "-c", cwd, ...argv) && run("set-option", "-t", name, "@kiln_title", title)
+    run("-f", configPath(), "new-session", "-d", "-s", name, "-c", cwd, ...argv) &&
+    run("set-option", "-t", name, "@kiln_title", title)
   );
 }
 
@@ -55,10 +71,15 @@ function bindDetach(key: string): void {
 
 function applySettings(settings: Settings): void {
   // `-f` only applies when the server starts, so re-read it for a server that predates an edit.
-  run("source-file", config);
+  run("source-file", configPath());
   bindDetach(settings.detachKey);
   run("set-option", "-g", "status", settings.statusBar ? "on" : "off");
-  run("set-option", "-g", "status-right", `#('${kiln}' status)  #[fg=#777777]${settings.detachKey} back `);
+  run(
+    "set-option",
+    "-g",
+    "status-right",
+    `#('${kiln.replaceAll("'", "'\\''")}' status)  #[fg=#777777]${settings.detachKey} back `,
+  );
 }
 
 export function attach(name: string, settings: Settings): void {

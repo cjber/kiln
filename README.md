@@ -22,7 +22,8 @@ It does one thing. There is no chat pane, no dashboard and no daemon of its own.
 On Arch, from the AUR:
 
 ```sh
-paru -S kiln-agents
+paru -S kiln-agents     # source package, requires Bun
+paru -S kiln-agents-bin # compiled binary, no Bun dependency
 ```
 
 From source, with [Bun](https://bun.sh), [tmux](https://github.com/tmux/tmux) and
@@ -69,6 +70,12 @@ opens it anyway.
 - **In the background** (`bg`): a Claude session started with `claude --bg` or from agent view, or
   a Codex thread on its shared daemon with no terminal open (`codex agents`). kiln opens it with
   `claude attach` or `codex resume --remote` inside its own tmux, so `Ctrl+Q` works the same.
+- **Codex Cloud** (`cloud`): read-only task rows. Enter shows `codex cloud status` and
+  `codex cloud diff` in tmux. Press Enter to return, or `Ctrl+Q` to detach. Tasks cannot be
+  closed here. The age is time since the last update, and the directory column shows the task
+  title. Pending tasks are working, ready or failed tasks are waiting, and applied tasks are idle.
+  Tasks refresh at most once a minute; a failed refresh keeps the last rows and shows a notice.
+  Claude cloud discovery is unavailable in the CLI.
 - **Anywhere else** (another multiplexer, an SSH session): listed, but there is nothing to attach to.
 
 ## Status
@@ -88,6 +95,7 @@ option at its default. An unknown key is an error, never silently ignored.
 detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
+cloud = true        # list read-only Codex Cloud tasks
 remote_control = true  # new Claude and Codex sessions can be driven from their phone apps
 
 [agents]             # the command each agent starts with; [] hides it from `n`
@@ -118,10 +126,20 @@ python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/s
 bun scripts/screenshots.tsx 2>/dev/null   # re-render assets/*.png from the real UI
 ```
 
+Build standalone Linux x64 and arm64 executables with:
+
+```sh
+bun install --frozen-lockfile --os linux --cpu "*"
+bun scripts/build.ts
+```
+
+The files in `dist/` include OpenTUI's native library and the tmux configuration. They still
+need tmux and fzf. Release assets can also be installed directly as `kiln` on your PATH.
+
 A release is `bun scripts/release.ts patch` (or `minor`, `major`) on `main`. It turns the
 `[Unreleased]` entry in [CHANGELOG.md](CHANGELOG.md) into the new version's, then makes a signed
 commit and tag. Pushing the tag publishes the GitHub release, with that entry as its notes, and the
-AUR package.
+source and binary AUR packages.
 
 ## Changelog
 
