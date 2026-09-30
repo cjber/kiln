@@ -9,6 +9,11 @@ verbatim.
 
 ## [Unreleased]
 
+- **Cloud rows carry verified phone links.** Codex task URLs are retained from the CLI and Claude
+  sessions use their verified claude.ai route. Unexpected URLs and malformed pages report a fault
+  without leaking response content. Codex pagination deduplicates tasks while retaining the last
+  successful list when a refresh fails.
+
 ## [0.2.0] - 2026-09-30
 
 - **Local directory and branch follow the session.** Claude uses its live process working directory

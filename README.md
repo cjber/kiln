@@ -77,6 +77,7 @@ opens it anyway.
   closed here. The age is time since the last update, and the directory column shows the task
   title. Pending tasks are working, ready or failed tasks are waiting, and applied tasks are idle.
   Tasks refresh at most once a minute; a failed refresh keeps the last rows and shows a notice.
+  Provider task URLs are validated before they can be handed to a phone.
   Claude cloud discovery is unavailable in the CLI.
 - **Anywhere else** (another multiplexer, an SSH session): listed, but there is nothing to attach to.
 
@@ -155,6 +156,9 @@ Bridge sessions already running locally and archived sessions are excluded. List
 background at most once a minute with a ten-second deadline. Failures retain the last rows and
 show a notice. Unknown worker states display `·`. Enter opens the selected session on claude.ai
 using `xdg-open`; it does not teleport or change a local branch. `x` cannot close cloud sessions.
+Both sources keep their last successful rows on a network or protocol fault. Claude credentials
+are reread on each refresh, so a login refreshed by the CLI is picked up automatically. Codex
+diagnostics do not include raw CLI output; run `codex cloud list` directly to inspect login faults.
 `cloud = false` hides both providers. Long lists scroll with the selected row.
 
 ## Shared skills

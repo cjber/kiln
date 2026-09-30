@@ -68,3 +68,38 @@ test("a failed refresh retains rows, reports the fault and waits before retrying
   expect(read().problem).toContain("offline");
   expect(calls).toBe(2);
 });
+
+test("CLI pagination deduplicates tasks, rejects repeated cursors and keeps diagnostics private", async () => {
+  const { loadCloud } = await import("./cloud");
+  const { spyOn } = await import("bun:test");
+  const which = spyOn(Bun, "which").mockReturnValue("codex");
+  const spawn = spyOn(Bun, "spawn");
+  let calls = 0;
+  const result = (body: string, code = 0) => ({
+    stdout: new Response(body).body,
+    stderr: new Response("private credentials").body,
+    exited: Promise.resolve(code),
+    kill() {},
+  });
+  try {
+    spawn.mockImplementation((() => {
+      calls++;
+      return result(JSON.stringify({ tasks: [task], cursor: calls === 1 ? "next" : null }));
+    }) as unknown as typeof Bun.spawn);
+    expect(await loadCloud()).toHaveLength(1);
+    expect(calls).toBe(2);
+    spawn.mockImplementation((() =>
+      result(JSON.stringify({ tasks: [], cursor: "same" }))) as unknown as typeof Bun.spawn);
+    await expect(loadCloud()).rejects.toThrow("repeated a pagination cursor");
+    spawn.mockImplementation((() => result("", 1)) as unknown as typeof Bun.spawn);
+    await expect(loadCloud()).rejects.toThrow("failed (exit 1)");
+    try {
+      await loadCloud();
+    } catch (error) {
+      expect(String(error)).not.toContain("private credentials");
+    }
+  } finally {
+    spawn.mockRestore();
+    which.mockRestore();
+  }
+});
