@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **Show a compact task list on desktop and Android.** Directory groups contain highlighted titles, status and elapsed update times. Timers advance independently of discovery; harness and branch stay in details. Android keeps Pi tasks visible without a handoff button and uses the shared kiln launcher mark.
+- **Match the Android list to the compact desktop view.** Task titles use the orange accent, with status and elapsed update times beneath them. Harness and branch stay together in details on both surfaces. Android keeps Pi tasks visible without a handoff button and uses the shared kiln launcher mark.
 
 - **Count Codex threads rather than terminal clients.** Confirmed thread IDs deduplicate attached terminals; unidentified clients no longer become duplicate PID tasks. Provider child threads nest beneath their parents on desktop and phone. README screenshots now come from seeded terminal and Android UI fixtures.
 

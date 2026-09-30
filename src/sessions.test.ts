@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  deduplicateSessions,
   isInteractiveCodex,
   isInteractivePi,
   nestSessions,
@@ -96,9 +97,10 @@ describe("Codex thread matching", () => {
     expect(result.headless.map((item) => item.id)).toEqual(["newer"]);
   });
 
-  test("several terminals attached to one thread produce one task", () => {
+  test("duplicate clients retain thread metadata until placement is resolved", () => {
     const result = withCodexThreads([process(1, "newer"), process(2, "newer"), process(3)], threads);
-    expect(result.processes.map((item) => item.id)).toEqual(["newer"]);
+    expect(result.processes.map((item) => item.id)).toEqual(["newer", "newer"]);
+    expect(result.processes.map((item) => item.activity)).toEqual(["working", "working"]);
     expect(result.headless.map((item) => item.id)).toEqual(["older"]);
   });
 
@@ -172,4 +174,18 @@ test("resumed daemon terminals retain their explicit thread ID", () => {
   expect(resumedCodexThread(["codex", "--config", "resume", id])).toBeUndefined();
   expect(resumedCodexThread(["codex", "resume", "--last"])).toBeUndefined();
   expect(resumedCodexThread(["codex", "--config", "prompt=resume", id])).toBeUndefined();
+});
+
+test("duplicate clients keep an openable terminal regardless of process order", () => {
+  const outside: Session = {
+    id: "task",
+    pid: 1,
+    agent: "codex",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "elsewhere" },
+  };
+  const inside: Session = { ...outside, pid: 2, place: { kind: "kiln", name: "task" } };
+  expect(deduplicateSessions([outside, inside])).toEqual([inside]);
+  expect(deduplicateSessions([inside, outside])).toEqual([inside]);
 });

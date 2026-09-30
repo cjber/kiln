@@ -355,13 +355,10 @@ export function withCodexThreads(
   threads: CodexThread[],
 ): { processes: AgentProcess[]; headless: Session[] } {
   const unpaired = [...threads];
-  const seen = new Set<string>();
   const paired = processes.flatMap(({ threadId, ...process }) => {
     if (!threadId) return threads.length ? [] : [process];
-    if (seen.has(threadId)) return [];
-    seen.add(threadId);
-    const thread = unpaired.find((thread) => thread.id === threadId);
-    if (thread) unpaired.splice(unpaired.indexOf(thread), 1);
+    const thread = threads.find((thread) => thread.id === threadId);
+    if (thread && unpaired.includes(thread)) unpaired.splice(unpaired.indexOf(thread), 1);
     return [
       {
         ...process,
@@ -437,10 +434,12 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       place,
     };
   });
-  const sessions = located.map(({ ancestorSessionPid, ...session }) => ({
-    ...session,
-    parentSessionPid: ancestorSessionPid,
-  }));
+  const sessions = deduplicateSessions(
+    located.map(({ ancestorSessionPid, ...session }) => ({
+      ...session,
+      parentSessionPid: ancestorSessionPid,
+    })),
+  );
   return nestSessions(
     [
       ...sessions,
@@ -449,6 +448,26 @@ export async function listSessions({ kitty = true, cloud = false, claudeCloud = 
       ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
     ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),
   );
+}
+
+/** Keep one client per confirmed Codex task, preferring a terminal kiln can open. */
+export function deduplicateSessions(sessions: readonly Session[]): Session[] {
+  const result: Session[] = [];
+  const indices = new Map<string, number>();
+  for (const session of sessions) {
+    if (session.agent !== "codex" || session.id === undefined) {
+      result.push(session);
+      continue;
+    }
+    const index = indices.get(session.id);
+    if (index === undefined) {
+      indices.set(session.id, result.length);
+      result.push(session);
+    } else if (result[index]?.place.kind === "elsewhere" && session.place.kind !== "elsewhere") {
+      result[index] = session;
+    }
+  }
+  return result;
 }
 
 /** A child can own a terminal, but cannot inherit one through another live agent. */
