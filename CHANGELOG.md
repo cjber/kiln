@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
 - **Prepare releases through a PR.** The release helper updates desktop and Android versions together. Its separate tag action requires the merged main commit.
 
 - **Control Pi sessions from a paired phone.** Install the bundled extension with kiln pi install and restart Pi. Android can read recent text, send a prompt and stop a turn. Live titles and activity come from the same bridge. One phone writes at a time; extension dialogs stay in the local terminal.
