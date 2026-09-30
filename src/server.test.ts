@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
 import { claudeBridgeLink, phoneHandoff } from "./phone-links";
-import { startServer } from "./server";
-import type { Session } from "./sessions";
+import { phoneSession, startServer } from "./server";
+import { type Session, sessionParent } from "./sessions";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -157,4 +157,16 @@ test("local Codex handoffs use only validated thread and relay identities", () =
   expect(phoneHandoff(session)).toMatchObject({ exact: false, url: "https://chatgpt.com/codex" });
   expect(phoneHandoff(session, "slingshot:env_example:8765&token=private")).toMatchObject({ exact: false });
   expect(phoneHandoff({ ...session, id: "../other" }, "slingshot:env_example:8765")).toMatchObject({ exact: false });
+});
+
+test("phone projection retains provider ancestry without terminal PIDs", () => {
+  const parent: Session = {
+    id: "parent",
+    agent: "codex",
+    cwd: "/project",
+    startedAt: 1,
+    place: { kind: "background", id: "parent", attach: [] },
+  };
+  const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
+  expect(phoneSession(child, sessionParent(child, [child, parent])).parentId).toBe(phoneSession(parent).id);
 });

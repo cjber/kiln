@@ -7,13 +7,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
@@ -37,25 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         incoming = intent.dataString.orEmpty()
         setContent {
-            MaterialTheme(
-                colorScheme =
-                    darkColorScheme(
-                        background = Color.Black,
-                        surface = Color(0xff101214),
-                        surfaceContainer = Color(0xff101214),
-                        primary = Color(0xffc18362),
-                        onPrimary = Color.Black,
-                        secondary = Color(0xff82968a),
-                        onSurface = Color(0xffc8c9cb),
-                        onBackground = Color(0xffc8c9cb),
-                        onSurfaceVariant = Color(0xff85898d),
-                        outline = Color(0xff333638),
-                    )
-            ) {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Kiln()
-                }
-            }
+            KilnTheme { Kiln() }
         }
     }
 
@@ -165,8 +142,12 @@ class MainActivity : ComponentActivity() {
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.cwd)
-                        Text("${row.agent} · ${row.activity} · ${row.where}")
-                        if (row.branch.isNotEmpty()) Text(row.branch)
+                        Text(
+                            listOf(row.agent, row.branch.takeIf { it.isNotEmpty() })
+                                .filterNotNull()
+                                .joinToString(" · ")
+                        )
+                        Text("${row.activity} · ${row.where}")
                         Text(
                             "Updated ${if (row.active > 0) java.time.Instant.ofEpochMilli(row.active).toString() else "unknown"} · age ${age(clock - row.started)}"
                         )
@@ -202,224 +183,87 @@ class MainActivity : ComponentActivity() {
                 dismissButton = { TextButton(onClick = { handoff = null }) { Text("Cancel") } },
             )
         }
-        Column(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (pairing) Text("kiln", style = MaterialTheme.typography.titleLarge)
-            if (error.isNotEmpty()) {
-                Text(error, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { error = "" }) { Text("Dismiss") }
-            }
-            if (pairing) {
-                Text("Pair a machine", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "On the machine, run kiln serve and expose it with Tailscale Serve. Run kiln pair with its HTTPS URL, then paste or scan the invitation here."
-                )
-                OutlinedTextField(
-                    invitation,
-                    { invitation = it },
-                    label = { Text("Pairing invitation") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 4,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        enabled = !pairingBusy,
-                        onClick = {
-                            try {
-                                val (origin, code) = com.cjber.kiln.invitation(invitation)
-                                pairingBusy = true
-                                error = ""
-                                connection.pair(origin, code, android.os.Build.MODEL) {
-                                    paired,
-                                    problem ->
-                                    runOnUiThread {
-                                        pairingBusy = false
-                                        if (paired != null) {
-                                            if (
-                                                save(
-                                                    hosts.filter { it.origin != paired.origin } +
-                                                        paired
-                                                )
-                                            ) {
-                                                selected = paired.origin
-                                                invitation = ""
-                                                pairing = false
-                                                retry++
-                                            }
-                                        } else error = problem
+        if (pairing) {
+            PairingScreen(
+                error,
+                { error = "" },
+                invitation,
+                { invitation = it },
+                pairingBusy,
+                hosts.isNotEmpty(),
+                pair = {
+                    try {
+                        val (origin, code) = com.cjber.kiln.invitation(invitation)
+                        pairingBusy = true
+                        error = ""
+                        connection.pair(origin, code, android.os.Build.MODEL) { paired, problem ->
+                            runOnUiThread {
+                                pairingBusy = false
+                                if (paired != null) {
+                                    if (
+                                        save(hosts.filter { it.origin != paired.origin } + paired)
+                                    ) {
+                                        selected = paired.origin
+                                        invitation = ""
+                                        pairing = false
+                                        retry++
                                     }
-                                }
-                            } catch (_: Exception) {
-                                error = "Paste a valid kiln invitation with an HTTPS server URL"
+                                } else error = problem
                             }
-                        },
-                    ) {
-                        Text(if (pairingBusy) "Pairing…" else "Pair")
-                    }
-                    OutlinedButton(
-                        enabled = !pairingBusy,
-                        onClick = {
-                            GmsBarcodeScanning.getClient(this@MainActivity)
-                                .startScan()
-                                .addOnSuccessListener { invitation = it.rawValue.orEmpty() }
-                                .addOnFailureListener {
-                                    error = "Scanner unavailable. Paste the invitation instead."
-                                }
-                        },
-                    ) {
-                        Text("Scan QR")
-                    }
-                    if (hosts.isNotEmpty())
-                        TextButton(
-                            onClick = {
-                                pairing = false
-                                invitation = ""
-                            }
-                        ) {
-                            Text("Cancel")
                         }
-                }
-                return@Column
-            }
-            var menu by remember { mutableStateOf(false) }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("kiln", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.weight(1f))
-                Box {
-                    TextButton(onClick = { menu = true }) {
-                        Text(host?.name ?: "Choose machine", maxLines = 1)
+                    } catch (_: Exception) {
+                        error = "Paste a valid kiln invitation with an HTTPS server URL"
                     }
-                    DropdownMenu(menu, { menu = false }) {
-                        hosts.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.name) },
-                                onClick = {
-                                    selected = item.origin
-                                    menu = false
-                                },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Reconnect") },
-                            onClick = {
-                                retry++
-                                menu = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Pair another machine") },
-                            onClick = {
-                                pairing = true
-                                menu = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Forget this machine") },
-                            onClick = {
-                                if (
-                                    host != null && save(hosts.filter { it.origin != host.origin })
-                                ) {
-                                    selected = hosts.firstOrNull()?.origin
-                                    pairing = hosts.isEmpty()
-                                }
-                                menu = false
-                            },
-                        )
-                    }
-                }
-            }
-            Text(
-                "$state · refreshed ${updateTime(snapshot?.updated ?: 0)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            snapshot
-                ?.problem
-                ?.takeIf { it.isNotEmpty() }
-                ?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            OutlinedTextField(
-                filter,
-                { filter = it },
-                placeholder = {
-                    Text("Filter sessions", style = MaterialTheme.typography.bodySmall)
                 },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth(),
+                scan = {
+                    GmsBarcodeScanning.getClient(this@MainActivity)
+                        .startScan()
+                        .addOnSuccessListener { invitation = it.rawValue.orEmpty() }
+                        .addOnFailureListener {
+                            error = "Scanner unavailable. Paste the invitation instead."
+                        }
+                },
+                cancel = {
+                    pairing = false
+                    invitation = ""
+                },
             )
-            val items = sessionItems(snapshot?.rows.orEmpty(), sort, filter, expanded)
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                TextButton(
-                    onClick = {
-                        sort = SessionOrder.entries[(sort.ordinal + 1) % SessionOrder.entries.size]
-                    },
-                    contentPadding = PaddingValues(horizontal = 0.dp),
-                ) {
-                    Text(sort.label, style = MaterialTheme.typography.labelMedium)
-                }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "${items.count { it is SessionItem.Entry }} shown",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (items.isEmpty())
-                    item {
-                        Text(
-                            if (snapshot == null) "Waiting for the machine…"
-                            else "No openable sessions match",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+        } else {
+            SessionScreen(
+                host?.name ?: "Choose machine",
+                hosts.map { it.name },
+                onMachine = { selected = hosts[it].origin },
+                onReconnect = { retry++ },
+                onPairAnother = { pairing = true },
+                onForget = {
+                    if (host != null && save(hosts.filter { it.origin != host.origin })) {
+                        selected = hosts.firstOrNull()?.origin
+                        pairing = hosts.isEmpty()
                     }
-                items(items, key = { it.key }) { item ->
-                    when (item) {
-                        is SessionItem.Header ->
-                            if (item.directory != null)
-                                Column(Modifier.padding(top = 8.dp, bottom = 2.dp)) {
-                                    Text(
-                                        item.name,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    item.directory?.let {
-                                        Text(
-                                            it,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                        is SessionItem.Entry ->
-                            SessionCard(
-                                item,
-                                item.row.id in expanded,
-                                open = {
-                                    if (item.row.exact) openSession(item.row) { error = it }
-                                    else handoff = item.row
-                                },
-                                details = { details = item.row },
-                                toggle = {
-                                    expanded =
-                                        if (item.row.id in expanded) expanded - item.row.id
-                                        else expanded + item.row.id
-                                },
-                            )
-                    }
-                }
-            }
+                },
+                error = error,
+                onDismissError = { error = "" },
+                state = state,
+                updated = snapshot?.updated ?: 0,
+                problem = snapshot?.problem.orEmpty(),
+                filter = filter,
+                onFilter = { filter = it },
+                sort = sort,
+                onSort = {
+                    sort = SessionOrder.entries[(sort.ordinal + 1) % SessionOrder.entries.size]
+                },
+                rows = snapshot?.rows.orEmpty(),
+                loaded = snapshot != null,
+                now = clock,
+                expanded = expanded,
+                open = { row ->
+                    if (row.exact) openSession(row) { error = it } else handoff = row
+                },
+                details = { details = it },
+                toggle = { row ->
+                    expanded = if (row.id in expanded) expanded - row.id else expanded + row.id
+                },
+            )
         }
     }
 }

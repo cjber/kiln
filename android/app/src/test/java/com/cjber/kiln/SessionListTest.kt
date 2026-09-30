@@ -20,7 +20,13 @@ class SessionListTest {
             false,
         )
     private val child =
-        parent.copy(id = "child", title = "Review retry", url = null, parent = "parent")
+        parent.copy(
+            id = "child",
+            title = "Review retry",
+            url = null,
+            where = "elsewhere",
+            parent = "parent",
+        )
 
     private fun ids(items: List<SessionItem>) =
         items.filterIsInstance<SessionItem.Entry>().map { it.row.id }
@@ -43,6 +49,15 @@ class SessionListTest {
     }
 
     @Test
+    fun localPiTasksStayVisibleWithoutHandoffLinks() {
+        val pi = parent.copy(id = "pi", agent = "pi", url = null)
+        assertEquals(
+            listOf("pi"),
+            ids(sessionItems(listOf(pi), SessionOrder.PROJECT, "", emptySet())),
+        )
+    }
+
+    @Test
     fun groupsUseNamesAndRecentUpdates() {
         val items =
             sessionItems(
@@ -60,5 +75,21 @@ class SessionListTest {
             items.filterIsInstance<SessionItem.Header>().map { it.name },
         )
         assertEquals(listOf("recent", "parent", "blog"), ids(items))
+    }
+
+    @Test
+    fun elapsedMatchesTerminalUnits() {
+        assertEquals("unknown", elapsed(0, 10_000))
+        assertEquals("0s", elapsed(20_000, 10_000))
+        assertEquals("59s", elapsed(1_000, 60_000))
+        assertEquals("2m", elapsed(1_000, 121_000))
+        assertEquals("3h", elapsed(1_000, 3 * 3_600_000 + 1_000))
+        assertEquals("2d", elapsed(1_000, 2 * 86_400_000 + 1_000))
+    }
+
+    @Test
+    fun tildePathShortensHome() {
+        assertEquals("~/code/atlas", tildePath("/home/demo/code/atlas"))
+        assertEquals("/srv/atlas", tildePath("/srv/atlas"))
     }
 }
