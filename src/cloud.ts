@@ -1,4 +1,6 @@
-import { homedir } from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { Activity, Session } from "./sessions";
 
@@ -49,6 +51,7 @@ export function parseCloudPage(source: string): { sessions: Session[]; cursor: s
 
 async function loadCloud(): Promise<Session[]> {
   if (!Bun.which("codex")) return [];
+  const directory = mkdtempSync(join(tmpdir(), "kiln-cloud-"));
   let process: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
   let expired = false;
   const timeout = setTimeout(() => {
@@ -62,6 +65,7 @@ async function loadCloud(): Promise<Session[]> {
     do {
       if (expired) throw new Error("codex cloud list timed out");
       process = Bun.spawn(["codex", "cloud", "list", "--json", ...(cursor ? ["--cursor", cursor] : [])], {
+        cwd: directory,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -84,6 +88,7 @@ async function loadCloud(): Promise<Session[]> {
     return sessions;
   } finally {
     clearTimeout(timeout);
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 
