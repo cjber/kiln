@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Repair shared skills without losing clashing files.** The skills view colours shared, missing and conflicting links. `f` backs up conflicts before linking the shared skill. Bundled `kiln-skills` and `kiln-config` helpers stay in sync with the installed version; edited instructions are backed up and same-name user skills are preserved.
+
+- **Show provider session titles.** Codex terminals retain their assigned title even when absent from the daemon's loaded list. Claude transcript titles and explicitly selected Pi session names follow renames without inventing activity.
+
 ## [0.3.0] - 2026-09-30
 
 - **Group sessions by directory or task, with recent updates first.** Titles and update times distinguish sessions. Unopenable roots are hidden and children start collapsed. Android uses compact rows, a black OLED background and muted oxide colours.

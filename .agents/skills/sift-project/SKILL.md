@@ -10,7 +10,7 @@ Codex and Pi session on a Linux machine and takes you to the one you pick. It ru
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
 with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
-`node_modules` (production install), `package.json` and `tmux.conf`. No other repository imports it.
+`node_modules` (production install), `bundled-skills`, `package.json` and `tmux.conf`. No other repository imports it.
 
 ## Gate
 
@@ -71,7 +71,8 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
 
 ## Model-read text
 
-None. kiln starts and lists agents but sends no prompts or tool descriptions to a model.
+`bundled-skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
+harnesses. Keep its CLI commands and settings aligned with the implementation. kiln sends no prompts.
 
 ## Zones
 

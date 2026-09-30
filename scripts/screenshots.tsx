@@ -29,7 +29,7 @@ const out = join(import.meta.dir, "..", "assets");
 const scratch = mkdtempSync(join(tmpdir(), "kiln-shots-"));
 const demoSkills: Skill[] = [
   { name: "deploy", directory: ".agents/skills/deploy", external: false, claude: "shared", pi: "shared" },
-  { name: "review", directory: ".agents/skills/review", external: false, claude: "missing", pi: "missing" },
+  { name: "review", directory: ".agents/skills/review", external: false, claude: "conflict", pi: "missing" },
 ];
 
 const minutes = (count: number) => Date.now() - count * 60_000;

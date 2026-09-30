@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -61,6 +61,15 @@ try {
   writeFileSync(join(scratch, "bin", "fzf"), `#!/bin/sh\nprintf '%s\\n' ${quote(scratch)}\n`, { mode: 0o755 });
   if (!run([executable, "--version"]).startsWith("kiln ")) throw new Error("binary version failed");
   run([executable, "status"]);
+  run([executable, "skills", "sync"]);
+  const installedSkills = JSON.parse(run([executable, "skills", "list"])).skills;
+  for (const name of ["kiln-config", "kiln-skills"]) {
+    const skill = installedSkills.find((entry: { name: string }) => entry.name === name);
+    if (skill?.claude !== "shared" || skill.pi !== "shared")
+      throw new Error(`bundled ${name} was not installed and shared`);
+    if (!readFileSync(join(skill.directory, "SKILL.md"), "utf8").includes(`name: ${name}`))
+      throw new Error(`bundled ${name} instructions are missing`);
+  }
   run([
     tmux,
     "-L",
@@ -92,7 +101,9 @@ try {
   run([tmux, "-L", inner, "detach-client", "-t", client]);
   await waitFor(capture, "q quit");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
-  console.log("binary version, status, native TUI, embedded tmux configuration, status executable and detach passed");
+  console.log(
+    "binary version, status, bundled skills, native TUI, embedded tmux configuration, status executable and detach passed",
+  );
 } finally {
   for (const server of [outer, inner])
     Bun.spawnSync([tmux, "-L", server, "kill-server"], { stdout: "ignore", stderr: "ignore" });

@@ -1,21 +1,24 @@
+import { randomUUID } from "node:crypto";
 import {
   cpSync,
   lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
+  renameSync,
   statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 export type SkillScope = "user" | "project";
 export type SkillStore = { scope: SkillScope; directory: string; adapters: { claude: string; pi: string } };
 export type Skill = { name: string; directory: string; external: boolean; claude: LinkState; pi: LinkState };
-type LinkState = "shared" | "missing" | "conflict";
+export type LinkState = "shared" | "missing" | "conflict";
 
 /** Codex reads the shared store directly. Claude and Pi need compatibility links. */
 export function skillStore(scope: SkillScope, project: string, home = homedir()): SkillStore {
@@ -69,6 +72,10 @@ export function listSkills(store: SkillStore): Skill[] {
     });
 }
 
+function checkName(name: string): void {
+  if (!name || name.startsWith(".") || basename(name) !== name) throw new Error("choose a skill name, not a path");
+}
+
 function destination(store: SkillStore, name: string): string {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64 || name === "synced")
     throw new Error("use a name of up to 64 lower-case letters, numbers and hyphens; synced is reserved");
@@ -101,6 +108,7 @@ export function importSkill(store: SkillStore, source: string): string {
 
 /** Preflight every adapter so a name clash cannot leave a partially shared skill. */
 export function shareSkill(store: SkillStore, name: string): void {
+  checkName(name);
   const target = join(store.directory, name);
   if (!statSync(join(target, "SKILL.md")).isFile()) throw new Error("this entry has no SKILL.md");
   const paths = Object.values(store.adapters).map((directory) => join(directory, name));
@@ -124,9 +132,39 @@ export function shareSkill(store: SkillStore, name: string): void {
 
 /** Remove only links to this skill. Codex still reads the canonical copy. */
 export function unshareSkill(store: SkillStore, name: string): void {
+  checkName(name);
   const target = join(store.directory, name);
   for (const directory of Object.values(store.adapters)) {
     const path = join(directory, name);
     if (linkState(path, target) === "shared") unlinkSync(path);
+  }
+}
+
+/** Keep the canonical skill and preserve clashing adapters before replacing them with links. */
+export function repairSkill(store: SkillStore, name: string): string[] {
+  checkName(name);
+  const target = join(store.directory, name);
+  if (!statSync(join(target, "SKILL.md")).isFile()) throw new Error("this entry has no SKILL.md");
+  const conflicts = Object.entries(store.adapters).filter(
+    ([, directory]) => linkState(join(directory, name), target) === "conflict",
+  );
+  const backups: { original: string; backup: string }[] = [];
+  const root = join(store.directory, ".kiln-backups", randomUUID());
+  try {
+    for (const [agent, directory] of conflicts) {
+      const original = join(directory, name);
+      const backup = join(root, agent, name);
+      mkdirSync(dirname(backup), { recursive: true });
+      if (lstatSync(original).isSymbolicLink()) {
+        symlinkSync(resolve(dirname(original), readlinkSync(original)), backup);
+        unlinkSync(original);
+      } else renameSync(original, backup);
+      backups.push({ original, backup });
+    }
+    shareSkill(store, name);
+    return backups.map(({ backup }) => backup);
+  } catch (error) {
+    for (const { original, backup } of backups.reverse()) renameSync(backup, original);
+    throw error;
   }
 }
