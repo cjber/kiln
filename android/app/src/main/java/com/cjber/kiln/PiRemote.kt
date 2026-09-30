@@ -1,12 +1,6 @@
 package com.cjber.kiln
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -158,82 +152,4 @@ fun PiRemoteScreen(host: Host, row: Row, foreground: Boolean, close: () -> Unit)
         ::command,
         close,
     )
-}
-
-@Composable
-fun PiConversation(
-    machine: String,
-    title: String,
-    state: PiSnapshot?,
-    connected: Boolean,
-    error: String,
-    prompt: String,
-    onPrompt: (String) -> Unit,
-    busy: Boolean,
-    onCommand: (String) -> Unit,
-    close: () -> Unit,
-) {
-    Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row {
-            Text(
-                state?.title?.takeIf { it.isNotBlank() } ?: title,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            TextButton(onClick = close) { Text("Back") }
-        }
-        Text(
-            "${if (connected) state?.activity else "disconnected"} · ${machine} · updated ${updateTime(state?.updated ?: 0)}",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        if (error.isNotEmpty()) Text(error, color = MaterialTheme.colorScheme.error)
-        if (state?.blocked == true)
-            Text("Another phone controls this session. You can still read it.")
-        Text(
-            state?.notice ?: "Extension dialogs must be answered in the local terminal",
-            style = MaterialTheme.typography.labelSmall,
-        )
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(state?.messages.orEmpty()) { _, message ->
-                Column {
-                    Text(
-                        message.role,
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                    Text(message.text, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-        OutlinedTextField(
-            prompt,
-            { if (it.toByteArray(Charsets.UTF_8).size <= 3500) onPrompt(it) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Prompt") },
-            maxLines = 4,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { onCommand("prompt") },
-                enabled =
-                    connected &&
-                        !busy &&
-                        state?.blocked != true &&
-                        state?.activity == "idle" &&
-                        prompt.isNotBlank(),
-            ) {
-                Text(if (busy) "Sending…" else "Send")
-            }
-            TextButton(
-                onClick = { onCommand("abort") },
-                enabled =
-                    connected && !busy && state?.blocked != true && state?.activity == "working",
-            ) {
-                Text("Stop turn")
-            }
-        }
-    }
 }

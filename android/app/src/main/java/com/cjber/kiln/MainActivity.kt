@@ -6,10 +6,12 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 
@@ -30,7 +32,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        incoming = intent.dataString.orEmpty()
+        enableEdgeToEdge()
+        incoming = if (savedInstanceState == null) intent.dataString.orEmpty() else ""
         setContent {
             KilnTheme { Kiln() }
         }
@@ -69,12 +72,12 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
-        var selected by remember { mutableStateOf(hosts.firstOrNull()?.origin) }
-        var pairing by remember { mutableStateOf(hosts.isEmpty()) }
-        var invitation by remember { mutableStateOf(incoming) }
+        var selected by rememberSaveable { mutableStateOf(hosts.firstOrNull()?.origin) }
+        var pairing by rememberSaveable { mutableStateOf(hosts.isEmpty()) }
+        var invitation by rememberSaveable { mutableStateOf(incoming) }
         var pairingBusy by remember { mutableStateOf(false) }
-        var filter by remember { mutableStateOf("") }
-        var sort by remember { mutableStateOf(SessionOrder.PROJECT) }
+        var filter by rememberSaveable { mutableStateOf("") }
+        var sort by rememberSaveable { mutableStateOf(SessionOrder.PROJECT) }
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
@@ -84,7 +87,28 @@ class MainActivity : ComponentActivity() {
         var retry by remember { mutableIntStateOf(0) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val connection = remember { Connection() }
+        val screenState = rememberSaveableStateHolder()
         val host = hosts.find { it.origin == selected }
+        val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
+        var hiddenIds by
+            remember(host?.origin) {
+                mutableStateOf(
+                    viewPreferences
+                        .getStringSet("hidden:${host?.origin}", emptySet())
+                        .orEmpty()
+                        .toSet()
+                )
+            }
+        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hiddenIds)
+        fun setHidden(next: Set<String>): Boolean {
+            if (host == null) return false
+            if (!viewPreferences.edit().putStringSet("hidden:${host.origin}", next).commit()) {
+                error = "Could not save hidden sessions"
+                return false
+            }
+            hiddenIds = next
+            return true
+        }
         fun save(next: List<Host>): Boolean =
             try {
                 credentials.write(next)
@@ -110,6 +134,8 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(host?.origin) {
             snapshot = null
             piSession = null
+            details = null
+            handoff = null
         }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
         DisposableEffect(host, retry, pairing, foreground) {
@@ -143,27 +169,30 @@ class MainActivity : ComponentActivity() {
             PiRemoteScreen(host, piSession!!, foreground) { piSession = null }
             return
         }
-        details?.let { row ->
-            AlertDialog(
-                onDismissRequest = { details = null },
-                title = { Text(row.title) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(row.cwd)
-                        Text(
-                            listOf(row.agent, row.branch.takeIf { it.isNotEmpty() })
-                                .filterNotNull()
-                                .joinToString(" · ")
-                        )
-                        Text("${row.activity} · ${row.where}")
-                        Text(
-                            "Updated ${if (row.active > 0) java.time.Instant.ofEpochMilli(row.active).toString() else "unknown"} · age ${age(clock - row.started)}"
-                        )
-                        if (row.url == null) Text(row.label)
-                        TextButton(onClick = { copyId(row) }) { Text("Copy session ID") }
-                    }
+        fun launch(row: Row) {
+            if (row.piRemote) piSession = row
+            else if (row.exact) openSession(row) { error = it } else handoff = row
+        }
+        details?.let { original ->
+            val row = snapshot?.rows?.find { it.id == original.id } ?: original
+            SessionDetails(
+                row,
+                clock,
+                dismiss = { details = null },
+                open = {
+                    details = null
+                    launch(row)
                 },
-                confirmButton = { TextButton(onClick = { details = null }) { Text("Done") } },
+                copy = { copyId(row) },
+                hidden = row.id in effectiveHidden,
+                changeHidden = {
+                    val rows = snapshot?.rows.orEmpty()
+                    val next =
+                        if (row.id in effectiveHidden)
+                            effectiveHidden - sessionRestoreIds(rows, row.id)
+                        else effectiveHidden + sessionTreeIds(rows, row.id)
+                    if (setHidden(next)) details = null
+                },
             )
         }
         handoff?.let { row ->
@@ -237,52 +266,44 @@ class MainActivity : ComponentActivity() {
                 },
             )
         } else {
-            SessionScreen(
-                host?.name ?: "Choose machine",
-                hosts.map { it.name },
-                onMachine = { selected = hosts[it].origin },
-                onReconnect = { retry++ },
-                onPairAnother = { pairing = true },
-                onForget = {
-                    if (host != null && save(hosts.filter { it.origin != host.origin })) {
-                        selected = hosts.firstOrNull()?.origin
-                        pairing = hosts.isEmpty()
-                    }
-                },
-                error = error,
-                onDismissError = { error = "" },
-                state = state,
-                updated = snapshot?.updated ?: 0,
-                problem = snapshot?.problem.orEmpty(),
-                filter = filter,
-                onFilter = { filter = it },
-                sort = sort,
-                onSort = {
-                    sort = SessionOrder.entries[(sort.ordinal + 1) % SessionOrder.entries.size]
-                },
-                rows = snapshot?.rows.orEmpty(),
-                loaded = snapshot != null,
-                now = clock,
-                expanded = expanded,
-                open = { row ->
-                    if (row.piRemote) piSession = row
-                    else if (row.exact) openSession(row) { error = it } else handoff = row
-                },
-                details = { details = it },
-                toggle = { row ->
-                    expanded = if (row.id in expanded) expanded - row.id else expanded + row.id
-                },
-            )
+            screenState.SaveableStateProvider(host?.origin ?: "unpaired") {
+                key(host?.origin) {
+                    SessionScreen(
+                        host?.name ?: "Choose machine",
+                        hosts.map { it.name },
+                        onMachine = { selected = hosts[it].origin },
+                        onReconnect = { retry++ },
+                        onPairAnother = { pairing = true },
+                        onForget = {
+                            if (host != null && save(hosts.filter { it.origin != host.origin })) {
+                                selected = hosts.firstOrNull()?.origin
+                                pairing = hosts.isEmpty()
+                            }
+                        },
+                        error = error,
+                        onDismissError = { error = "" },
+                        state = state,
+                        updated = snapshot?.updated ?: 0,
+                        problem = snapshot?.problem.orEmpty(),
+                        filter = filter,
+                        onFilter = { filter = it },
+                        sort = sort,
+                        onSort = { sort = it },
+                        rows = snapshot?.rows.orEmpty(),
+                        loaded = snapshot != null,
+                        now = clock,
+                        expanded = expanded,
+                        hiddenIds = effectiveHidden,
+                        changeHidden = ::setHidden,
+                        open = ::launch,
+                        details = { details = it },
+                        toggle = { row ->
+                            expanded =
+                                if (row.id in expanded) expanded - row.id else expanded + row.id
+                        },
+                    )
+                }
+            }
         }
-    }
-}
-
-private fun age(milliseconds: Long): String {
-    val seconds = milliseconds.coerceAtLeast(0) / 1000
-    return when {
-        seconds < 60 -> "${seconds}s"
-        seconds < 3600 -> "${seconds / 60}m"
-        seconds < 86400 -> "${seconds / 3600}h"
-        else -> "${seconds / 86400}d"
     }
 }

@@ -1,12 +1,24 @@
 package com.cjber.kiln
 
 enum class SessionOrder(val label: String) {
-    PROJECT("Directory / task"),
+    PROJECT("Project"),
     RECENT("Last active"),
-    AGE("Age"),
-    HARNESS("Harness"),
-    DIRECTORY("Full directory"),
+    AGE("Oldest first"),
+    HARNESS("Agent"),
+    DIRECTORY("Directory"),
 }
+
+enum class SessionScope(val label: String) {
+    LIVE("Live"),
+    HISTORY("History"),
+    HIDDEN("Hidden"),
+}
+
+fun isCurrentSession(row: Row, now: Long): Boolean =
+    row.where != "cloud" ||
+        row.activity == "working" ||
+        row.activity == "waiting" ||
+        (row.active.takeIf { it > 0 } ?: row.started).let { it > 0 && now - it < 86_400_000 }
 
 sealed interface SessionItem {
     val key: String
@@ -24,6 +36,11 @@ fun sessionItems(
     order: SessionOrder,
     filter: String,
     expanded: Set<String>,
+    scope: SessionScope? = null,
+    now: Long = System.currentTimeMillis(),
+    agent: String? = null,
+    activity: String? = null,
+    hiddenIds: Set<String> = emptySet(),
 ): List<SessionItem> {
     val byId = rows.associateBy { it.id }
     fun canShow(row: Row, seen: Set<String> = emptySet()): Boolean {
@@ -31,10 +48,23 @@ fun sessionItems(
         if (row.id in seen) return false
         return byId[row.parent]?.let { canShow(it, seen + row.id) } ?: false
     }
-    val eligible = rows.filter { canShow(it) }
+    val hidden = hiddenSessionIds(rows, hiddenIds)
+    val eligible = rows.filter {
+        canShow(it) && ((it.id in hidden) == (scope == SessionScope.HIDDEN))
+    }
     val parents = eligible.associate { it.id to eligible.find { parent -> parent.id == it.parent } }
     val matching =
         eligible
+            .filter { row ->
+                (when (scope) {
+                    null,
+                    SessionScope.HIDDEN -> true
+                    SessionScope.LIVE -> isCurrentSession(row, now)
+                    SessionScope.HISTORY -> !isCurrentSession(row, now)
+                }) &&
+                    (agent == null || row.agent == agent) &&
+                    (activity == null || row.activity == activity)
+            }
             .filter { row ->
                 listOf(row.title, row.cwd, row.agent, row.branch, row.activity).any {
                     it.contains(filter, ignoreCase = true)
@@ -81,7 +111,8 @@ fun sessionItems(
                 .filter { parents[it.id]?.id == row.id && it.id in matching }
                 .sortedByDescending { it.active }
         result.add(SessionItem.Entry(row, depth, children.size))
-        if (row.id in expanded || filter.isNotBlank()) children.forEach { append(it, depth + 1) }
+        if (row.id in expanded || filter.isNotBlank() || activity != null || agent != null)
+            children.forEach { append(it, depth + 1) }
     }
     groups.forEach { (key, group) ->
         if (grouped) {
@@ -97,4 +128,24 @@ fun sessionItems(
         group.forEach { append(it, 0) }
     }
     return result
+}
+
+fun sessionTreeIds(rows: List<Row>, id: String): Set<String> {
+    val ids = mutableSetOf(id)
+    fun append(parent: String) {
+        rows.filter { it.parent == parent }.forEach { if (ids.add(it.id)) append(it.id) }
+    }
+    append(id)
+    return ids
+}
+
+fun hiddenSessionIds(rows: List<Row>, hiddenIds: Set<String>): Set<String> =
+    hiddenIds.flatMapTo(mutableSetOf()) { sessionTreeIds(rows, it) }
+
+fun sessionRestoreIds(rows: List<Row>, id: String): Set<String> {
+    val ids = sessionTreeIds(rows, id).toMutableSet()
+    val byId = rows.associateBy { it.id }
+    var parent = byId[id]?.parent
+    while (parent != null && ids.add(parent)) parent = byId[parent]?.parent
+    return ids
 }
