@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  hasSessionIdentity,
   isInteractiveCodex,
   isInteractivePi,
   nestSessions,
@@ -10,6 +11,14 @@ import {
   sessionLocation,
   withCodexThreads,
 } from "./sessions";
+
+test("unassigned Codex terminals are hidden while real local and daemon tasks remain", () => {
+  expect(hasSessionIdentity({ agent: "codex" })).toBe(false);
+  expect(hasSessionIdentity({ agent: "codex", id: "local-thread" })).toBe(true);
+  expect(hasSessionIdentity({ agent: "codex", lastActiveAt: 100 })).toBe(true);
+  expect(hasSessionIdentity({ agent: "claude" })).toBe(true);
+  expect(hasSessionIdentity({ agent: "pi" })).toBe(true);
+});
 
 describe("isInteractiveCodex", () => {
   test("keeps a plain session, a resume, and flags that merely contain a subcommand name", () => {

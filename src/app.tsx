@@ -44,15 +44,13 @@ function tilde(path: string): string {
   return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-function clock(time: number | undefined): string {
-  return time ? new Date(time).toLocaleTimeString("en-GB", { hour12: false }) : "unknown";
-}
-
-function age(startedAt: number): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60_000));
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}h`;
-  return `${Math.floor(minutes / 60 / 24)}d`;
+function age(time: number | undefined, now: number): string {
+  if (!time) return "unknown";
+  const seconds = Math.max(0, Math.floor((now - time) / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
 function activityColor(activity: Activity | undefined): string {
@@ -65,21 +63,6 @@ function activityColor(activity: Activity | undefined): string {
       return color.fgDim;
     case undefined:
       return color.comment;
-  }
-}
-
-function where(session: Session): string {
-  switch (session.place.kind) {
-    case "kiln":
-      return "kiln";
-    case "kitty":
-      return "kitty";
-    case "background":
-      return "bg";
-    case "cloud":
-      return "cloud";
-    case "elsewhere":
-      return "other";
   }
 }
 
@@ -172,7 +155,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
   const [order, getOrder, setOrder] = useLatest(initialSettings.sort);
   const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
-  const [updatedAt, setUpdatedAt] = useState<number>();
+  const [now, setNow] = useState(Date.now());
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState(initialNotice);
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
@@ -194,7 +177,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       );
       const current = before[Math.min(getSelected(), before.length - 1)];
       setSessions(loaded);
-      setUpdatedAt(Date.now());
       const after = sessionRows(loaded, getOrder(), getFilter(), getExpanded()).flatMap((row) =>
         row.kind === "session" ? [row.session] : [],
       );
@@ -213,10 +195,15 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     return () => clearInterval(interval);
   }, [refresh]);
 
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
   const visible = rows.flatMap((row) => (row.kind === "session" ? [row.session] : []));
   const current = visible[Math.min(selected, visible.length - 1)];
-  const pageSize = Math.max(1, height - (mode === "agent" ? 7 : 6));
+  const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
   const firstRow = Math.max(0, selectedRow - pageSize + 1);
 
@@ -469,31 +456,24 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       />
     );
 
-  const availableWidth = Math.max(1, width - 46);
-  const branchWidth = Math.min(
-    24,
-    Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)),
-    Math.floor(availableWidth / 3),
-  );
-  const titleWidth = Math.max(1, availableWidth - branchWidth);
+  const titleWidth = Math.max(1, width - 26);
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
-      <text>
+      <text wrapMode="none">
         <span fg={color.fgBright} attributes={1}>
           kiln
         </span>
         <span fg={color.comment}>
           {" "}
-          {visible.length} shown · {order === "project" ? "directory / task" : order.replaceAll("_", " ")} · refreshed{" "}
-          {clock(updatedAt)}
+          {visible.length} tasks · {order === "project" ? "directory / task" : order.replaceAll("_", " ")}
         </span>
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
       </text>
-      <box flexDirection="column" marginTop={1} flexGrow={1}>
+      <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
-          <text fg={color.comment}>
-            {`  ${"agent".padEnd(9)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"updated".padStart(8)}  ${"title".padEnd(titleWidth)}  ${branchWidth ? "branch" : ""}`}
+          <text wrapMode="none" fg={color.comment}>
+            {`  ${"task".padEnd(titleWidth + 2)}${"status".padEnd(9)}${"updated".padStart(8)}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -501,11 +481,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
             if (row.kind === "header")
               return (
                 <text key={row.key} fg={color.fgBright} attributes={1}>
-                  {fit(
-                    `${row.name}${row.directory ? ` · ${tilde(row.directory)}` : " · cloud task"}`,
-                    Math.max(1, width - 2),
-                    "end",
-                  )}
+                  {fit(row.directory ? tilde(row.directory) : row.name, Math.max(1, width - 2), "end")}
                 </text>
               );
             const { session, depth, children } = row;
@@ -514,19 +490,16 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
             const title = `${depth ? "↳ " : ""}${sessionTitle(session)}${children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : ""}`;
             return (
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
-                <text>
+                <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
+                  <span fg={unavailable ? color.comment : agentColor[session.agent]}>
+                    {fit(title, titleWidth, "end").padEnd(titleWidth)}
+                    {"  "}
+                  </span>
                   <span fg={unavailable ? color.comment : activityColor(session.activity)}>
                     {(session.activity ?? "unknown").padEnd(9)}
                   </span>
-                  <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
-                  <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
-                  <span fg={color.comment}>{clock(session.lastActiveAt).padStart(8)} </span>
-                  <span fg={unavailable ? color.comment : active ? color.fgBright : color.fg}>
-                    {fit(title, titleWidth, "end").padEnd(titleWidth)}{" "}
-                  </span>
-                  <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
+                  <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span>
                 </text>
               </box>
             );
@@ -558,7 +531,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           )}
         </text>
       ) : null}
-      <text fg={notice ? color.peach : color.comment}>
+      <text wrapMode="none" fg={notice ? color.peach : color.comment}>
         {mode === "confirm"
           ? hints(mode, pendingSession)
           : notice ||
@@ -577,7 +550,7 @@ function hints(mode: Mode, current: Session | undefined): string {
   const action = current ? sessionAction(current) : undefined;
   switch (mode) {
     case "normal":
-      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · o sort · tab children · s settings · S skills · q quit`;
+      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · q quit`;
     case "filter":
       return "type to filter · enter keep · esc clear";
     case "agent":
