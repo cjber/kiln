@@ -92,4 +92,139 @@ class SessionListTest {
         assertEquals("~/code/atlas", tildePath("/home/demo/code/atlas"))
         assertEquals("/srv/atlas", tildePath("/srv/atlas"))
     }
+
+    @Test
+    fun liveKeepsLocalAndBusyCloudSessionsButSeparatesOlderHistory() {
+        val now = 10 * 86_400_000L
+        val recent = parent.copy(id = "recent", where = "cloud", active = now - 1000)
+        val boundary = recent.copy(id = "boundary", active = now - 86_400_000)
+        val working = boundary.copy(id = "working", activity = "working")
+        val waiting = boundary.copy(id = "waiting", activity = "waiting")
+        val unknown = boundary.copy(id = "unknown", activity = "unknown")
+        val noTimestamp = boundary.copy(id = "undated", active = 0, started = 0)
+        val created = boundary.copy(id = "created", active = 0, started = now - 1000)
+        val rows = listOf(parent, recent, boundary, working, waiting, unknown, noTimestamp, created)
+        assertEquals(
+            setOf("parent", "recent", "working", "waiting", "created"),
+            ids(sessionItems(rows, SessionOrder.RECENT, "", emptySet(), SessionScope.LIVE, now))
+                .toSet(),
+        )
+        assertEquals(
+            setOf("boundary", "unknown", "undated"),
+            ids(sessionItems(rows, SessionOrder.RECENT, "", emptySet(), SessionScope.HISTORY, now))
+                .toSet(),
+        )
+    }
+
+    @Test
+    fun activityAndAgentFiltersRevealMatchingChildrenWithTheirParent() {
+        val waitingChild = child.copy(activity = "waiting", agent = "claude")
+        assertEquals(
+            listOf("parent", "child"),
+            ids(
+                sessionItems(
+                    listOf(parent, waitingChild),
+                    SessionOrder.RECENT,
+                    "",
+                    emptySet(),
+                    SessionScope.LIVE,
+                    100,
+                    "claude",
+                    "waiting",
+                )
+            ),
+        )
+        assertEquals(
+            emptyList<String>(),
+            ids(
+                sessionItems(
+                    listOf(parent, waitingChild),
+                    SessionOrder.RECENT,
+                    "",
+                    emptySet(),
+                    SessionScope.LIVE,
+                    100,
+                    "pi",
+                    "waiting",
+                )
+            ),
+        )
+    }
+
+    @Test
+    fun hiddenChildrenDoNotResurrectTheirVisibleParentAndTreesRestoreTogether() {
+        val rows = listOf(parent, child)
+        val hidden = sessionTreeIds(rows, "parent")
+        assertEquals(setOf("parent", "child"), hidden)
+        assertEquals(
+            emptyList<String>(),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    emptySet(),
+                    SessionScope.LIVE,
+                    100,
+                    hiddenIds = hidden,
+                )
+            ),
+        )
+        assertEquals(
+            listOf("parent", "child"),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    setOf("parent"),
+                    SessionScope.HIDDEN,
+                    100,
+                    hiddenIds = hidden,
+                )
+            ),
+        )
+        assertEquals(
+            listOf("child"),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    emptySet(),
+                    SessionScope.HIDDEN,
+                    100,
+                    hiddenIds = setOf("child"),
+                )
+            ),
+        )
+        assertEquals(
+            listOf("parent"),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    setOf("parent"),
+                    SessionScope.LIVE,
+                    100,
+                    hiddenIds = setOf("child"),
+                )
+            ),
+        )
+        assertEquals(
+            listOf("parent", "child"),
+            ids(
+                sessionItems(
+                    rows,
+                    SessionOrder.RECENT,
+                    "",
+                    setOf("parent"),
+                    SessionScope.LIVE,
+                    100,
+                    hiddenIds = hidden - sessionTreeIds(rows, "parent"),
+                )
+            ),
+        )
+    }
 }

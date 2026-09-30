@@ -1,12 +1,19 @@
 package com.cjber.kiln
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -15,7 +22,7 @@ import java.time.format.DateTimeFormatter
 
 fun updateTime(time: Long): String =
     if (time > 0)
-        DateTimeFormatter.ofPattern("HH:mm:ss")
+        DateTimeFormatter.ofPattern("d MMM, HH:mm")
             .withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochMilli(time))
     else "unknown"
@@ -31,7 +38,57 @@ fun elapsed(time: Long, now: Long): String {
     }
 }
 
+fun relativeTime(time: Long, now: Long): String =
+    when {
+        time <= 0 -> "Activity unknown"
+        now - time < 60_000 -> "Just now"
+        else -> "${elapsed(time, now)} ago"
+    }
+
 fun tildePath(path: String): String = path.replace(Regex("^/(home|Users)/[^/]+(?=/|$)"), "~")
+
+@Composable
+fun AgentMark(agent: String, modifier: Modifier = Modifier) {
+    when (agent) {
+        "claude",
+        "codex" ->
+            Icon(
+                painter =
+                    androidx.compose.ui.res.painterResource(
+                        if (agent == "claude") R.drawable.agent_claude else R.drawable.agent_codex
+                    ),
+                contentDescription = agentName(agent),
+                modifier = modifier.size(22.dp),
+                tint =
+                    if (agent == "claude") MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+            )
+        else ->
+            Box(modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "π",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.semantics { contentDescription = "Pi" },
+                )
+            }
+    }
+}
+
+@Composable
+fun ActivityBadge(activity: String) {
+    val color = activityColor(activity)
+    Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), contentColor = color) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Surface(Modifier.size(6.dp), shape = CircleShape, color = color) {}
+            Text(activityName(activity), style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
 
 @Composable
 fun SessionCard(
@@ -41,54 +98,91 @@ fun SessionCard(
     open: () -> Unit,
     details: () -> Unit,
     toggle: () -> Unit,
+    restore: (() -> Unit)? = null,
 ) {
     val row = item.row
-    val statusColor =
-        when (row.activity) {
-            "working" -> Color(0xff85a078)
-            "waiting" -> Color(0xffd4ae78)
-            "idle" -> Color(0xff8c8f92)
-            else -> Color(0xff64676b)
-        }
+    val openable = row.url != null || row.piRemote
     Card(
-        onClick = details,
-        modifier = Modifier.fillMaxWidth().padding(start = if (item.depth > 0) 12.dp else 0.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xff101214)),
+        onClick = if (openable) open else details,
+        modifier = Modifier.fillMaxWidth().padding(start = if (item.depth > 0) 16.dp else 0.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        colors =
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Text(
-                row.title,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth()
+                .heightIn(min = 60.dp)
+                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            AgentMark(row.agent)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    "${row.activity} · ${elapsed(row.active, now)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = statusColor,
+                    row.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    modifier = Modifier.weight(1f),
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (item.children > 0)
-                    TextButton(
-                        onClick = toggle,
-                        contentPadding = PaddingValues(horizontal = 6.dp),
-                    ) {
-                        Text(
-                            "${if (expanded) "−" else "+"}${item.children}",
-                            modifier =
-                                Modifier.semantics {
-                                    contentDescription =
-                                        "${if (expanded) "Collapse" else "Expand"} ${item.children} child sessions"
-                                },
-                        )
-                    }
-                if (row.url != null || row.piRemote)
-                    TextButton(onClick = open, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Text("Open")
-                    }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        activityName(row.activity),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = activityColor(row.activity),
+                    )
+                    Text(
+                        if (row.where == "cloud") "Cloud"
+                        else
+                            listOf(
+                                    row.cwd.trimEnd('/').substringAfterLast('/'),
+                                    row.branch.takeIf { it.isNotBlank() },
+                                )
+                                .filterNotNull()
+                                .joinToString(" / "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Text(
+                if (row.active > 0) elapsed(row.active, now) else "?",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier =
+                    Modifier.semantics { contentDescription = relativeTime(row.active, now) },
+            )
+            if (item.children > 0)
+                TextButton(
+                    onClick = toggle,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Text(item.children.toString(), style = MaterialTheme.typography.labelSmall)
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowDown
+                        else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        "${if (expanded) "Collapse" else "Expand"} ${item.children} subagents",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            if (restore != null)
+                IconButton(onClick = restore, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Default.Check, "Restore ${row.title}", Modifier.size(20.dp))
+                }
+            IconButton(onClick = details, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.Info,
+                    "Details for ${row.title}",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

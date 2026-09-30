@@ -13,7 +13,7 @@ vector = ET.Element("vector", {
     f"{{{android}}}width": "108dp", f"{{{android}}}height": "108dp",
     f"{{{android}}}viewportWidth": "108", f"{{{android}}}viewportHeight": "108",
 })
-foreground = ET.SubElement(vector, "group", {f"{{{android}}}pivotX": "54", f"{{{android}}}pivotY": "54", f"{{{android}}}scaleX": "0.85", f"{{{android}}}scaleY": "0.85"})
+foreground = ET.SubElement(vector, "group", {f"{{{android}}}pivotX": "54", f"{{{android}}}pivotY": "54", f"{{{android}}}scaleX": "0.70", f"{{{android}}}scaleY": "0.70"})
 for path in paths[1:]:
     ET.SubElement(foreground, "path", {
         f"{{{android}}}fillColor": path.attrib["fill"],

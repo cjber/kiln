@@ -213,11 +213,18 @@ kiln pair https://YOUR-MACHINE.YOUR-TAILNET.ts.net:8443 --qr
 ```
 
 The phone needs Tailscale connected to the same tailnet. Paste the printed invitation into the
-app and press Pair, or scan its QR. Codes expire after five minutes and
+app and press Connect machine, or scan its QR. Codes expire after five minutes and
 work once. The server listens only on localhost, honours the existing cloud settings and refreshes
 local sessions every two seconds. Cloud discovery remains asynchronous and runs at most once a
 minute. A failed refresh keeps the last list with an error and its last successful update time.
 The app reconnects after a dropped connection and closes the stream while it is in the background.
+
+The compact list has Live, History and Hidden views. Live includes local sessions and cloud tasks
+that are working, waiting or updated within 24 hours; older cloud tasks appear in History.
+Tap a row to open it, or its information icon for details. Search, agent/activity filters and sort
+choices are in the toolbar. Swipe left to hide a session on this phone, then use Undo or restore
+it from Hidden. Hiding also hides its subagents, is saved per machine and never stops or archives
+the provider session. The machine menu lets you switch, reconnect, pair or forget machines.
 
 <img src="assets/android-list.png" width="270" alt="Seeded task list rendered by the Android app on an emulator" />
 <img src="assets/android-pairing.png" width="270" alt="Seeded pairing screen rendered by the Android app on an emulator" />
