@@ -4,9 +4,10 @@ import { defaults, parseSettings } from "./settings";
 
 test("a partial file overrides only what it names", () => {
   const settings = parseSettings(
-    `status_bar = false\n[agents]\nclaude = ["claude", "--dangerously-skip-permissions"]\npi = []\n`,
+    `status_bar = false\ncloud = false\n[agents]\nclaude = ["claude", "--dangerously-skip-permissions"]\npi = []\n`,
     "config.toml",
   );
+  expect(settings.cloud).toBe(false);
   expect(settings.statusBar).toBe(false);
   expect(settings.remoteControl).toBe(true);
   expect(settings.detachKey).toBe(defaults.detachKey);
@@ -17,6 +18,7 @@ test("a partial file overrides only what it names", () => {
 
 test("a typo is an error naming the file and key, not a silent default", () => {
   expect(() => parseSettings(`statusbar = false\n`, "config.toml")).toThrow('config.toml: unknown setting "statusbar"');
+  expect(() => parseSettings(`cloud = "yes"\n`, "config.toml")).toThrow("cloud must be true or false");
   expect(() => parseSettings(`zoxide = "yes"\n`, "config.toml")).toThrow("zoxide must be true or false");
   expect(() => parseSettings(`[agents]\ngemini = ["gemini"]\n`, "config.toml")).toThrow('unknown agent "gemini"');
 });

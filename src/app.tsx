@@ -5,6 +5,7 @@ import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { cloudSnapshot } from "./cloud";
 import { focus } from "./kitty";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
@@ -65,9 +66,15 @@ function where(session: Session): string {
       return "kitty";
     case "background":
       return "bg";
+    case "cloud":
+      return "cloud";
     case "elsewhere":
       return "other";
   }
+}
+
+function label(session: Session): string {
+  return session.place.kind === "cloud" ? session.place.title : tilde(session.cwd);
 }
 
 /** Shorten with an ellipsis, keeping the end of a path (the repo) or the start of a branch. */
@@ -158,7 +165,7 @@ function matching(sessions: readonly Session[], filter: string): Session[] {
   return sessions.filter(
     (session) =>
       !needle ||
-      `${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""}`
+      `${session.agent} ${label(session)} ${where(session)} ${session.branch ?? ""} ${session.activity ?? ""}`
         .toLowerCase()
         .includes(needle),
   );
@@ -171,7 +178,7 @@ type AppProps = {
   loadSessions?: () => Promise<Session[]>;
 };
 
-export function App({ initialSettings, onQuit, loadSessions = listSessions }: AppProps) {
+export function App({ initialSettings, onQuit, loadSessions }: AppProps) {
   const renderer = useRenderer();
   const { width } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -188,11 +195,11 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      setSessions(await loadSessions());
+      setSessions(await (loadSessions ? loadSessions() : listSessions({ cloud: getSettings().cloud })));
     } finally {
       refreshing.current = false;
     }
-  }, [loadSessions, setSessions]);
+  }, [getSettings, loadSessions, setSessions]);
 
   useEffect(() => {
     void refresh();
@@ -241,6 +248,19 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
           }
           return handOver(name);
         }
+        case "cloud": {
+          const name = `codex-cloud-${new Bun.CryptoHasher("sha256").update(session.place.id).digest("hex").slice(0, 16)}`;
+          const command = [
+            "sh",
+            "-c",
+            'codex cloud status -- "$1"; codex cloud diff -- "$1"; printf "\\nPress Enter to return to kiln "; read -r reply',
+            "sh",
+            session.place.id,
+          ];
+          if (!exists(name) && !start(name, homedir(), command, `codex cloud · ${session.place.title}`))
+            return setNotice("could not open this Codex Cloud task");
+          return handOver(name);
+        }
         case "elsewhere":
           return setNotice(
             `this ${session.agent} runs outside kiln and kitty (pid ${session.pid}), so there is nothing to open`,
@@ -281,11 +301,12 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
     );
     try {
       setSettings(loadSettings());
+      await refresh();
       setNotice("settings reloaded");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [setSettings, withTerminal]);
+  }, [refresh, setSettings, withTerminal]);
 
   const close = useCallback(
     async (session: Session) => {
@@ -354,7 +375,10 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
     if (key.name === "/") return setMode("filter");
     if (key.name === "r") return void refresh();
     if (key.name === "return" && current) return void open(current);
-    if (key.name === "x" && current) return setMode("confirm");
+    if (key.name === "x" && current) {
+      if (current.place.kind === "cloud") return setNotice("cloud tasks are read-only and cannot be closed here");
+      return setMode("confirm");
+    }
     if (key.name === "s") return void editSettings();
     if (key.name === "n") {
       if (!choices.length) return setNotice("every agent is hidden in settings; press s to add one");
@@ -367,11 +391,8 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
   const fixedWidth = 2 + 7 + 9 + 6 + 6;
   const branchWidth = Math.min(32, Math.max(0, ...visible.map((session) => session.branch?.length ?? 0)));
   const pathWidth = Math.max(
-    12,
-    Math.min(
-      Math.max(0, ...visible.map((session) => tilde(session.cwd).length)),
-      width - 2 - fixedWidth - branchWidth - 2,
-    ),
+    15,
+    Math.min(Math.max(0, ...visible.map((session) => label(session).length)), width - 2 - fixedWidth - branchWidth - 2),
   );
 
   return (
@@ -386,7 +407,7 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
       <box flexDirection="column" marginTop={1} flexGrow={1}>
         {visible.length ? (
           <text fg={color.comment}>
-            {`  ${"agent".padEnd(7)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
+            {`  ${"agent".padEnd(7)}${"status".padEnd(9)}${"where".padEnd(6)}${"age".padStart(4)}  ${"directory / task".padEnd(pathWidth)}  ${branchWidth ? "branch" : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -394,7 +415,12 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
             const active = session === current;
             return (
               <box
-                key={session.pid ?? (session.place.kind === "background" ? session.place.id : session.cwd)}
+                key={
+                  session.pid ??
+                  (session.place.kind === "background" || session.place.kind === "cloud"
+                    ? `${session.place.kind}:${session.place.id}`
+                    : session.cwd)
+                }
                 backgroundColor={active ? color.bg2 : undefined}
               >
                 <text>
@@ -404,7 +430,7 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
                   <span fg={color.fgDim}>{where(session).padEnd(6)}</span>
                   <span fg={color.comment}>{age(session.startedAt).padStart(4)} </span>
                   <span fg={active ? color.fgBright : color.fg}>
-                    {fit(tilde(session.cwd), pathWidth, "start").padEnd(pathWidth)}{" "}
+                    {fit(label(session), pathWidth, "start").padEnd(pathWidth)}{" "}
                   </span>
                   <span fg={color.teal}>{fit(session.branch ?? "", branchWidth, "end")}</span>
                 </text>
@@ -429,7 +455,9 @@ export function App({ initialSettings, onQuit, loadSessions = listSessions }: Ap
           ))}
         </text>
       ) : null}
-      <text fg={notice ? color.peach : color.comment}>{notice || hints(mode, current)}</text>
+      <text fg={notice ? color.peach : color.comment}>
+        {notice || (settings.cloud ? cloudSnapshot(false).problem : "") || hints(mode, current)}
+      </text>
     </box>
   );
 }
@@ -446,6 +474,8 @@ function stop(session: Session): true | string {
         Bun.spawnSync(place.stop, { stdout: "ignore", stderr: "ignore" }).exitCode === 0 ||
         `${place.stop.join(" ")} failed`
       );
+    case "cloud":
+      return "cloud tasks are read-only and cannot be closed here";
     case "kitty":
     case "elsewhere":
       if (session.pid === undefined) return `${session.agent} in ${tilde(session.cwd)} has no process to close`;

@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Codex Cloud tasks appear in the list.** Read-only cloud rows show their title and activity.
+  Enter opens status and diff in tmux; they cannot be closed from kiln. Cloud refreshes at most
+  once a minute without delaying local sessions, and `cloud = false` hides them.
+
 - **Install kiln without Bun.** Releases include Linux x64 and arm64 executables, and
   `kiln-agents-bin` installs them from the AUR. The tmux configuration and native UI library
   are embedded.

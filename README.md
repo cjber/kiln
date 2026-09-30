@@ -70,6 +70,12 @@ opens it anyway.
 - **In the background** (`bg`): a Claude session started with `claude --bg` or from agent view, or
   a Codex thread on its shared daemon with no terminal open (`codex agents`). kiln opens it with
   `claude attach` or `codex resume --remote` inside its own tmux, so `Ctrl+Q` works the same.
+- **Codex Cloud** (`cloud`): read-only task rows. Enter shows `codex cloud status` and
+  `codex cloud diff` in tmux. Press Enter to return, or `Ctrl+Q` to detach. Tasks cannot be
+  closed here. The age is time since the last update, and the directory column shows the task
+  title. Pending tasks are working, ready or failed tasks are waiting, and applied tasks are idle.
+  Tasks refresh at most once a minute; a failed refresh keeps the last rows and shows a notice.
+  Claude cloud discovery is unavailable in the CLI.
 - **Anywhere else** (another multiplexer, an SSH session): listed, but there is nothing to attach to.
 
 ## Status
@@ -89,6 +95,7 @@ option at its default. An unknown key is an error, never silently ignored.
 detach_key = "C-q"   # back to the list, in tmux key syntax
 status_bar = true    # the one-line bar inside an attached session
 zoxide = true        # rank new-session directories with zoxide
+cloud = true        # list read-only Codex Cloud tasks
 remote_control = true  # new Claude and Codex sessions can be driven from their phone apps
 
 [agents]             # the command each agent starts with; [] hides it from `n`

@@ -13,6 +13,8 @@ export type Settings = {
   zoxide: boolean;
   /** Start Claude and Codex sessions reachable from claude.ai / ChatGPT, e.g. on a phone. */
   remoteControl: boolean;
+  /** Include read-only Codex Cloud tasks. */
+  cloud: boolean;
   /** The command each agent starts with; an empty list hides it from the new-session picker. */
   agents: Record<Agent, string[]>;
 };
@@ -22,6 +24,7 @@ export const defaults: Settings = {
   statusBar: true,
   zoxide: true,
   remoteControl: true,
+  cloud: true,
   agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
 };
 
@@ -39,6 +42,9 @@ zoxide = true
 # Start Claude with --remote-control, and Codex on its daemon with remote control
 # on, so new sessions can be driven from the Claude and ChatGPT apps.
 remote_control = true
+
+# Include read-only Codex Cloud tasks, refreshed at most once a minute.
+cloud = true
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
@@ -87,6 +93,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "remote_control":
         if (typeof value !== "boolean") fail(path, `${key} must be true or false`);
         settings[key === "status_bar" ? "statusBar" : key === "remote_control" ? "remoteControl" : "zoxide"] = value;
+        break;
+      case "cloud":
+        if (typeof value !== "boolean") fail(path, "cloud must be true or false");
+        settings.cloud = value;
         break;
       case "agents":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[agents] must be a table");
