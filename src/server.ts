@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
+import { codexRemoteHost } from "./codex";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
@@ -12,7 +13,7 @@ function phoneId(session: Session): string {
   return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
 }
 
-export function phoneSession(session: Session, parent?: Session) {
+export function phoneSession(session: Session, parent?: Session, codexHost?: string) {
   return {
     id: phoneId(session),
     parentId: parent ? phoneId(parent) : undefined,
@@ -24,7 +25,7 @@ export function phoneSession(session: Session, parent?: Session) {
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: session.place.kind,
-    handoff: phoneHandoff(session),
+    handoff: phoneHandoff(session, codexHost),
   };
 }
 
@@ -33,6 +34,7 @@ export function startServer({
   pairing = new Pairing(),
   load = () => listSessions(loadSettings()),
   interval = 2_000,
+  readCodexHost = codexRemoteHost,
 } = {}) {
   const instance = randomUUID();
   let snapshot = {
@@ -121,7 +123,7 @@ export function startServer({
     if (refreshing) return;
     refreshing = true;
     try {
-      const sessions = await load();
+      const [sessions, codexHost] = await Promise.all([load(), readCodexHost()]);
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
@@ -132,12 +134,15 @@ export function startServer({
               const row = phoneSession(
                 session,
                 sessions.find((parent) => parent.pid !== undefined && parent.pid === session.parentSessionPid),
+                codexHost.id,
               );
               return [row.id, row] as const;
             }),
           ).values(),
         ],
-        problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem].filter(Boolean).join("; "),
+        problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem, codexHost.problem]
+          .filter(Boolean)
+          .join("; "),
       };
     } catch {
       snapshot = {

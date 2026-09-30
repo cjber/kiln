@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Open the selected local Codex thread from Android.** Connected daemon relay metadata supplies the host identity for ChatGPT's thread route. The client validates the thread and host query; unavailable metadata keeps the manual handoff and reports read failures without exposing provider responses.
+
 ## [0.3.1] - 2026-09-30
 
 - **Show compact task rows with live elapsed updates.** Directory headings group task titles, status and time since their last update. The clock advances even while discovery is slow. Unassigned Codex launch screens and exited Claude processes are omitted.

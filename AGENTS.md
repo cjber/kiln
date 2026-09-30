@@ -37,6 +37,8 @@ visible change. Every version needs a `CHANGELOG.md` entry (prose, bold-lead bul
 - `src/actions.ts` - close/archive capabilities and execution for each session type.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
+  Local Codex links require a connected relay identity from the experimental remote-control status RPC;
+  Android accepts only the expected thread path and hostId query, never arbitrary query parameters.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
