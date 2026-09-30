@@ -9,6 +9,11 @@ verbatim.
 
 ## [Unreleased]
 
+- **List Claude cloud sessions through its existing login.** `claude_cloud = true` opts into the
+  internal API used by Claude Code's cloud picker. Enter opens the session on claude.ai; archived
+  and local bridge sessions are left out. Refreshes run in the background, and long lists scroll
+  with the selection. The API may change between Claude Code versions.
+
 ## [0.1.1] - 2026-09-30
 
 - **Sessions that cannot be opened appear grey.** Selecting one shows its PID, terminal and originating

@@ -92,6 +92,13 @@ const demo: Session[] = [
     activity: "waiting",
     place: { kind: "cloud", id: "task_demo", title: "atlas: update search index" },
   },
+  {
+    agent: "claude",
+    cwd: homedir(),
+    startedAt: minutes(24),
+    activity: "idle",
+    place: { kind: "cloud", id: "cse_demo", title: "atlas: check release changes" },
+  },
 ];
 
 const hex = (color: RGBA) =>
