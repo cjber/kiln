@@ -26,7 +26,9 @@ cleanup() {
   chown -R "$PACKAGE_UID:$PACKAGE_GID" /work
 }
 trap cleanup EXIT
-pacman -Syu --noconfirm --needed base-devel tmux fzf
+
+# Runner kernels may not permit the downloader Landlock sandbox inside Docker.
+pacman -Syu --disable-sandbox --noconfirm --needed base-devel tmux fzf
 useradd -m builder
 chown -R builder:builder /work
 for directory in /work/aur /work/aur/bin; do
