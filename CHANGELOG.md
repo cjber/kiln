@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-30
+
 - **Android uses a compact session list.** Two-line rows show agent logos, activity, project and relative age. Search and named filters sit in the toolbar; pairing, machine management and Pi conversations use the same light and dark themes.
 
 - **Hide sessions on your phone.** Swipe left to hide a session and its subagents, undo the swipe or restore them from Hidden. Hidden sessions are saved per machine without stopping or archiving anything on the provider.
