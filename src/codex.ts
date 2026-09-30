@@ -55,7 +55,7 @@ function activity(status: ThreadStatus): Activity | undefined {
 type Call = <T>(method: string, params: object) => Promise<T>;
 
 /** Bound the connection lifetime, including initialization, and close timed-out sockets. */
-async function rpc<T>(socket: string, action: (call: Call) => Promise<T>): Promise<T> {
+async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experimental = false): Promise<T> {
   const ws = new WebSocket(`ws+unix://${socket}`);
   const pending = new Map<number, (reply: Reply) => void>();
   let next = 0;
@@ -89,7 +89,13 @@ async function rpc<T>(socket: string, action: (call: Call) => Promise<T>): Promi
       }),
       timeout,
     ]);
-    await Promise.race([call("initialize", { clientInfo: { name: "kiln", version: "0" } }), timeout]);
+    await Promise.race([
+      call("initialize", {
+        clientInfo: { name: "kiln", version: "0" },
+        capabilities: experimental ? { experimentalApi: true } : undefined,
+      }),
+      timeout,
+    ]);
     ws.send(JSON.stringify({ method: "initialized" }));
     return await Promise.race([action(call), timeout]);
   } finally {
@@ -158,4 +164,31 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
 /** Archive through the daemon, retaining history and letting Codex manage its descendants. */
 export async function archiveCodexThread(threadId: string): Promise<void> {
   await rpc(controlSocket(), (call) => call("thread/archive", { threadId }));
+}
+
+/** The phone's host identity comes from the connected relay, not the machine's hostname. */
+export async function codexRemoteHost(): Promise<{ id?: string; problem?: string }> {
+  const socket = controlSocket();
+  if (!existsSync(socket)) return {};
+  try {
+    const state = await rpc<{
+      status: "disabled" | "connecting" | "connected" | "errored";
+      environmentId?: string | null;
+    }>(socket, (call) => call("remoteControl/status/read", {}), true);
+    switch (state.status) {
+      case "connected":
+        return state.environmentId && /^env_[A-Za-z0-9_-]+$/.test(state.environmentId)
+          ? { id: `slingshot:${state.environmentId}:8765` }
+          : { problem: "Codex Remote Control has no recognised host identity" };
+      case "disabled":
+      case "connecting":
+        return {};
+      case "errored":
+        return { problem: "Codex Remote Control is disconnected" };
+      default:
+        return { problem: "Codex Remote Control returned an unknown state" };
+    }
+  } catch {
+    return { problem: "Cannot read Codex Remote Control status; open ChatGPT manually" };
+  }
 }

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
-import { claudeBridgeLink } from "./phone-links";
+import { claudeBridgeLink, phoneHandoff } from "./phone-links";
 import { phoneSession, startServer } from "./server";
 import { type Session, sessionParent } from "./sessions";
 
@@ -80,9 +80,19 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     port: 0,
     pairing,
     interval: 20,
+    readCodexHost: async () => ({ id: "slingshot:env_example:8765" }),
     load: async () => {
       if (fail) throw new Error("private provider response");
-      return [{ agent: "pi", cwd: "/project", startedAt: 1, pid: 42, place: { kind: "elsewhere" } }];
+      return [
+        {
+          agent: "codex",
+          id: "00000000-0000-0000-0000-000000000001",
+          cwd: "/project",
+          startedAt: 1,
+          pid: 42,
+          place: { kind: "elsewhere" },
+        },
+      ];
     },
   });
   const origin = `http://127.0.0.1:${server.port}`;
@@ -102,9 +112,13 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     const headers = { Authorization: `Bearer ${paired.token}` };
     const first = (await (await fetch(`${origin}/v1/sessions`, { headers })).json()) as {
       sequence: number;
-      sessions: unknown[];
+      sessions: { handoff: { url: string; exact: boolean } }[];
     };
     expect(first.sessions).toHaveLength(1);
+    expect(first.sessions[0]?.handoff).toMatchObject({
+      exact: true,
+      url: "https://chatgpt.com/codex/remote/thread/00000000-0000-0000-0000-000000000001?hostId=slingshot%3Aenv_example%3A8765",
+    });
     const socket = new WebSocket(`${origin.replace("http:", "ws:")}/v1/events`, { headers });
     const received = new Promise<{ sequence: number }>((resolve, reject) => {
       socket.onmessage = (event) => resolve(JSON.parse(String(event.data)));
@@ -129,6 +143,20 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     server.stop();
     pairing.close();
   }
+});
+
+test("local Codex handoffs use only validated thread and relay identities", () => {
+  const session: Session = {
+    agent: "codex",
+    id: "00000000-0000-0000-0000-000000000001",
+    cwd: "/project",
+    startedAt: 1,
+    place: { kind: "elsewhere" },
+  };
+  expect(phoneHandoff(session, "slingshot:env_example:8765")).toMatchObject({ exact: true });
+  expect(phoneHandoff(session)).toMatchObject({ exact: false, url: "https://chatgpt.com/codex" });
+  expect(phoneHandoff(session, "slingshot:env_example:8765&token=private")).toMatchObject({ exact: false });
+  expect(phoneHandoff({ ...session, id: "../other" }, "slingshot:env_example:8765")).toMatchObject({ exact: false });
 });
 
 test("phone projection retains provider ancestry without terminal PIDs", () => {

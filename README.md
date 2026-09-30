@@ -180,8 +180,8 @@ groups, highlighted task titles, status and elapsed update times on a black OLED
 oxide accents. Harness and branch remain in task details. Pi tasks stay visible without an Open button.
 It supports filtering and the same sort choices as the terminal list, and
 hands sessions to the Claude or ChatGPT app (or a browser). It sends no model prompts and cannot
-stop sessions. Pi has no phone handoff yet. Local Codex sessions open ChatGPT's Codex view; choose
-the displayed thread on the named machine. Cloud tasks and Claude Remote Control sessions have
+stop sessions. Pi has no phone handoff yet. Local Codex sessions open the selected thread directly when the daemon reports a connected
+Remote Control host. Older or disconnected daemons keep the manual ChatGPT handoff. Cloud tasks and Claude Remote Control sessions have
 exact links when their provider reports one.
 
 Install the `kiln-android` APK artifact from a green CI run, or build it with JDK 21 and Android

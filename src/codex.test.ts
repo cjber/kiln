@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runSessionAction } from "./actions";
-import { archiveCodexThread, codexThreads } from "./codex";
+import { archiveCodexThread, codexRemoteHost, codexThreads } from "./codex";
 
 let root: string;
 let server: ReturnType<typeof Bun.serve>;
@@ -13,6 +13,7 @@ let rejectArchive: boolean;
 let holdInitialization: boolean;
 let requests: { method: string; params?: Record<string, unknown> }[];
 let archived: Set<string>;
+let remoteState: { status: string; environmentId?: string | null };
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "kiln-codex-"));
@@ -24,6 +25,7 @@ beforeEach(() => {
   rejectArchive = false;
   holdInitialization = false;
   requests = [];
+  remoteState = { status: "connected", environmentId: "env_example" };
   server = Bun.serve({
     unix: join(control, "app-server-control.sock"),
     fetch(request, server) {
@@ -37,6 +39,9 @@ beforeEach(() => {
         if (request.id === undefined || (holdInitialization && request.method === "initialize")) return;
         let result: unknown = {};
         switch (request.method) {
+          case "remoteControl/status/read":
+            result = remoteState;
+            break;
           case "thread/loaded/list":
             result = { data: ["active", "already-archived"] };
             break;
@@ -136,4 +141,15 @@ test("local terminal titles are read without treating unloaded threads as active
   expect(
     requests.filter((request) => request.method === "thread/read" && request.params?.threadId === "local"),
   ).toHaveLength(1);
+});
+
+test("phone host identities require connected relay metadata and request experimental access", async () => {
+  expect(await codexRemoteHost()).toEqual({ id: "slingshot:env_example:8765" });
+  expect(requests[0]?.params?.capabilities).toEqual({ experimentalApi: true });
+  remoteState = { status: "disabled", environmentId: "env_old" };
+  expect(await codexRemoteHost()).toEqual({});
+  remoteState = { status: "connected", environmentId: "env_bad&token=private" };
+  expect(await codexRemoteHost()).toEqual({ problem: "Codex Remote Control has no recognised host identity" });
+  remoteState = { status: "future-state" };
+  expect((await codexRemoteHost()).problem).toContain("unknown state");
 });
