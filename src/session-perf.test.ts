@@ -8,7 +8,7 @@ const session = (id: string, parentSessionId?: string): Session => ({
   parentSessionId,
   cwd: "/tmp/perf",
   startedAt: 1,
-  place: { kind: "kiln", name: id },
+  place: { kind: "acp", id: id },
 });
 
 test("indexed ancestry preserves first-match precedence, PID fallback and cycle rejection", () => {
@@ -55,7 +55,7 @@ test("500 shallow or deeply nested tasks stay within an interactive refresh budg
     expect(elapsed).toBeLessThan(500);
     if (shape === "chain") {
       expect(rows.at(-1)).toMatchObject({ depth: 499 });
-      const hidden = sessions.map((row, index) => (index ? { ...row, place: { kind: "elsewhere" as const } } : row));
+      const hidden = sessions;
       expect(sessionRows(hidden, "project", "499", new Set()).filter((row) => row.kind === "session")).toHaveLength(
         500,
       );

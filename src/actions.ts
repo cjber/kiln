@@ -1,15 +1,10 @@
 import { acpRequest } from "./acp-host";
 import type { Session } from "./sessions";
-export type SessionAction = { verb: "close" | "archive" } | { reason: string };
+export type SessionAction = { verb: "close" } | { reason: string };
 export function sessionAction(session: Session): SessionAction {
   return session.place.kind === "acp"
     ? { verb: "close" }
-    : {
-        reason:
-          session.place.kind === "cloud"
-            ? "cloud tasks are read-only and cannot be closed here"
-            : "this session is not managed by kiln",
-      };
+    : { reason: "cloud tasks are read-only and cannot be closed here" };
 }
 export async function runSessionAction(session: Session): Promise<true | string> {
   const action = sessionAction(session);

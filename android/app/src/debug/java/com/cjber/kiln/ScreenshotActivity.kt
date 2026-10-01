@@ -40,7 +40,6 @@ class ScreenshotActivity : ComponentActivity() {
                                     "Both Linux binaries and the signed Android APK are ready. The package checks passed.",
                                 ),
                             ),
-                            false,
                             "Approvals appear here when the agent needs input",
                             demoNow,
                         ),

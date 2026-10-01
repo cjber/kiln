@@ -225,10 +225,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         case "acp":
           setConversationId(session.place.id);
           return;
-        case "kiln":
-        case "kitty":
-        case "background":
-          return setNotice("This session is not managed by kiln");
         case "cloud": {
           if (session.agent === "claude") {
             if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
@@ -252,10 +248,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
             return setNotice("could not open this Codex Cloud task");
           return handOver(name);
         }
-        case "elsewhere":
-          return setNotice(
-            `cannot open · ${session.place.source ?? `pid ${session.pid ?? "unknown"}`} · outside kiln and kitty`,
-          );
       }
     },
     [handOver, setConversationId],
@@ -308,7 +300,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const closed = await runSessionAction(session);
       setNotice(
         closed === true && "verb" in action
-          ? `${action.verb === "archive" ? "archived" : "closed"} ${session.agent} in ${tilde(session.cwd)}`
+          ? `closed ${session.agent} in ${tilde(session.cwd)}`
           : closed === true
             ? "session closed"
             : closed,
@@ -520,7 +512,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${statusHint(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · outside kiln and kitty" : ""}`,
+            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${statusHint(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
             Math.max(1, width - 2),
             "end",
           )}
@@ -555,7 +547,7 @@ function hints(mode: Mode, current: Session | undefined, width: number): string 
     case "confirm": {
       if (!current || !action) return "";
       if ("reason" in action) return action.reason;
-      return `${action.verb} ${current.agent} in ${tilde(current.cwd)}? ${action.verb === "archive" ? "history kept; may archive children · " : ""}y to confirm, anything else cancels`;
+      return `${action.verb} ${current.agent} in ${tilde(current.cwd)}? y to confirm, anything else cancels`;
     }
   }
 }

@@ -49,7 +49,7 @@ if (live) {
             : undefined,
       cwd: "/tmp/perf",
       startedAt: index,
-      place: { kind: "kiln", name: `perf-${index}` },
+      place: { kind: "acp", id: `perf-${index}` },
     }));
     const expanded = new Set(sessions.map(sessionKey));
     await measure(`${count} ${shape} sessions: discovery nesting + expanded list`, () => {

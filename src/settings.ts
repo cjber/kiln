@@ -137,6 +137,7 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
           const argv = stringList(path, `agents.${agent}`, command);
+          if (argv.length === 1 && argv[0] === agent) continue;
           if (argv[0] && agents.includes(basename(argv[0]) as Agent))
             fail(path, `agents.${agent} must run an ACP adapter; use ${defaults.agents[agent as Agent][0]}`);
           settings.agents[agent as Agent] = argv;

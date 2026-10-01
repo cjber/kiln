@@ -12,5 +12,4 @@ test("only kiln-owned ACP sessions can be closed", () => {
   };
   expect(sessionAction(session)).toEqual({ verb: "close" });
   expect(sessionAction({ ...session, place: { kind: "cloud", id: "task", title: "task" } })).toHaveProperty("reason");
-  expect(sessionAction({ ...session, pid: 123, place: { kind: "elsewhere" } })).toHaveProperty("reason");
 });

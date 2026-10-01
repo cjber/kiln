@@ -73,8 +73,8 @@ function applySettings(settings: Settings): boolean {
 
 /**
  * Hand the terminal to the session until it is detached. stdout is discarded because tmux prints
- * "[detached ...]" there as it leaves, which flashes over the list; scripts/tui-e2e.ts checks the
- * session still draws, takes input and follows resizes without it.
+ * "[detached ...]" there as it leaves, which flashes over the list; the list resumes without
+ * the detach banner.
  */
 export async function attach(name: string, settings: Settings): Promise<void> {
   if (!applySettings(settings)) throw new Error("could not configure kiln's tmux server");

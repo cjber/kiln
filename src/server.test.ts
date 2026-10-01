@@ -127,7 +127,7 @@ test("phone projection retains provider ancestry without terminal PIDs", () => {
     agent: "codex",
     cwd: "/project",
     startedAt: 1,
-    place: { kind: "background", id: "parent", attach: [] },
+    place: { kind: "acp", id: "parent" },
   };
   const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
   expect(phoneSession(child, sessionParent(child, [child, parent])).parentId).toBe(phoneSession(parent).id);

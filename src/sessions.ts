@@ -10,13 +10,7 @@ export const agents: readonly Agent[] = ["claude", "codex", "pi"];
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
 
-type Place =
-  | { kind: "acp"; id: string }
-  | { kind: "kiln"; name: string }
-  | { kind: "kitty"; socket: string; windowId: number }
-  | { kind: "background"; id: string; attach: string[]; stop?: string[] }
-  | { kind: "cloud"; id: string; title: string; url?: string }
-  | { kind: "elsewhere"; source?: string };
+type Place = { kind: "acp"; id: string } | { kind: "cloud"; id: string; title: string; url?: string };
 
 export type Session = {
   /** Provider identity and display name, when reported. */

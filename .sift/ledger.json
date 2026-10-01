@@ -1,4 +1,19 @@
 {
   "schema_version": 1,
-  "items": []
+  "items": [
+    {
+      "id": "02d859233b",
+      "lens": "dead-code",
+      "file": "src/assets.d.ts",
+      "quote": "declare module \"*pi-remote.js\" {",
+      "what": "Removed Pi bridge still has an ambient module declaration",
+      "why": "Native Pi bridge and every importer were removed in the ACP migration. Whole repository and workflow searches plus independent Claude review found no caller.",
+      "confidence": "high",
+      "status": "fixed",
+      "reason": "Independent Claude review and whole-repository reachability checks confirm the bridge has no callers; declaration removed.",
+      "first_seen": "2026-10-01",
+      "updated": "2026-10-01",
+      "guard": "lens-only: ambient module declarations are checked against shipped assets and their importers"
+    }
+  ]
 }

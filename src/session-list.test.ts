@@ -9,7 +9,7 @@ const parent: Session = {
   cwd: "/z/atlas",
   startedAt: 1,
   lastActiveAt: 20,
-  place: { kind: "kiln", name: "parent" },
+  place: { kind: "acp", id: "parent" },
 };
 const child: Session = {
   pid: 2,
@@ -18,7 +18,7 @@ const child: Session = {
   title: "Review retry",
   cwd: "/a/other",
   startedAt: 2,
-  place: { kind: "elsewhere" },
+  place: { kind: "acp", id: "child" },
 };
 const entries = (rows: ReturnType<typeof sessionRows>) =>
   rows.flatMap((row) => (row.kind === "session" ? [row.session.pid] : []));
@@ -30,7 +30,7 @@ test("daemon children nest by provider thread identity without process ancestry"
     pid: undefined,
     id: "child",
     parentSessionId: "root",
-    place: { kind: "background", id: "child", attach: [] },
+    place: { kind: "acp", id: "child" },
   };
   expect(sessionRows([nested, root], "project", "", new Set()).filter((row) => row.kind === "session")).toHaveLength(1);
   expect(
@@ -40,9 +40,8 @@ test("daemon children nest by provider thread identity without process ancestry"
   ).toEqual([0, 1]);
 });
 
-test("unopenable roots are hidden and children expand or match with their parent", () => {
-  const orphan: Session = { ...child, pid: 3, parentSessionPid: undefined };
-  const sessions = [child, orphan, parent];
+test("children expand or match with their parent", () => {
+  const sessions = [child, parent];
   const collapsed = sessionRows(sessions, "project", "", new Set());
   expect(entries(collapsed)).toEqual([1]);
   expect(collapsed.find((row) => row.kind === "session")).toMatchObject({ children: 1, depth: 0 });
@@ -58,8 +57,8 @@ test("directory groups sort by name and retain latest updates inside each group"
   expect(entries(rows)).toEqual([4, 1, 5]);
 });
 
-test("input requests remain visible outside managed terminals and match their displayed status", () => {
+test("input requests remain visible and match their displayed status", () => {
   const orphan: Session = { ...child, pid: 3, parentSessionPid: undefined, activity: "waiting" };
   expect(entries(sessionRows([orphan], "project", "needs input", new Set()))).toEqual([3]);
-  expect(entries(sessionRows([{ ...orphan, activity: "idle" }], "project", "", new Set()))).toEqual([]);
+  expect(entries(sessionRows([{ ...orphan, activity: "idle" }], "project", "", new Set()))).toEqual([3]);
 });

@@ -13,7 +13,9 @@ bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
 bun scripts/perf.ts
-bun scripts/tui-e2e.ts
+bun scripts/list-tui-e2e.ts
+bun scripts/acp-tui-e2e.ts
+bun scripts/acp-host-e2e.ts
 python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
 ```

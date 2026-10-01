@@ -14,7 +14,7 @@ test("cycling sort keeps the selected session, updates the label and shows activ
       cwd: "/z/project-z",
       startedAt: 10,
       lastActiveAt: Date.now(),
-      place: { kind: "kiln", name: "z" },
+      place: { kind: "acp", id: "z" },
     },
     {
       pid: 2,
@@ -22,7 +22,7 @@ test("cycling sort keeps the selected session, updates the label and shows activ
       agent: "claude",
       cwd: "/a/project-a",
       startedAt: 20,
-      place: { kind: "kiln", name: "a" },
+      place: { kind: "acp", id: "a" },
     },
   ];
   let calls = 0;

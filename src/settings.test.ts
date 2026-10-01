@@ -34,3 +34,10 @@ test("the README settings example matches the shipped defaults", async () => {
   expect(example).not.toBeNull();
   expect(parseSettings(example?.[1] ?? "", "README.md")).toEqual(defaults);
 });
+
+test("old generated agent defaults migrate while custom native commands fail clearly", () => {
+  expect(parseSettings('[agents]\nclaude = ["claude"]\ncodex = ["codex"]\npi = ["pi"]').agents).toEqual(
+    defaults.agents,
+  );
+  expect(() => parseSettings('[agents]\ncodex = ["codex", "--model", "custom"]')).toThrow("ACP adapter");
+});
