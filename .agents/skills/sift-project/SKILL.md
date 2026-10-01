@@ -5,12 +5,12 @@ description: "Project skill for sift in kiln: the exact quality-gate and evidenc
 
 # sift project skill: kiln
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that lists every interactive Claude Code,
-Codex and Pi session on a Linux machine and takes you to the one you pick. It runs from source under
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that runs kiln-owned Claude,
+Codex and Pi sessions through ACP and lists cached cloud tasks. It runs from source under
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
 with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
-`node_modules` (production install), `bundled-skills`, `extensions`, `package.json` and `tmux.conf`. No other repository imports it.
+`node_modules` (production install), `bundled-skills`, `package.json` and `tmux.conf`. No other repository imports it.
 
 ## Gate
 
@@ -64,15 +64,13 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
 - `scripts/changelog.ts` and `scripts/render-aur.ts` run from `.github/workflows/`;
   `scripts/build.ts` runs in releases; `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
 - `App`'s `loadSessions` prop exists for `scripts/screenshots.tsx`, which passes demo sessions.
-- External formats parsed, not owned: `claude agents --json`, the Codex app-server JSON-RPC over
-  `$CODEX_HOME/app-server-control/app-server-control.sock`, `kitty @ ls`, `pgrep`/`/proc`. Fields
-  read from them look unused to a reader of kiln alone.
+- `src/acp-host.ts` owns a private Unix socket and persisted ACP identities. Never infer live status from stored conversations or terminal output. ACP session update and permission callbacks are live roots.
 - Persisted data: `~/.config/kiln/config.toml` (`src/settings.ts`); every key is user-facing.
 
 ## Model-read text
 
 `bundled-skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
-harnesses. Keep its CLI commands and settings aligned with the implementation. The optional Pi bridge forwards only prompts explicitly entered by a paired user.
+harnesses. Keep its CLI commands and settings aligned with the implementation. Paired conversation commands target an exact kiln-owned ACP session.
 
 ## Zones
 
@@ -102,10 +100,10 @@ How each part of the tree is reviewed. Unlisted paths are `production`.
 Audit slices from lowest to highest risk:
 
 1. `scripts/`: developer and release tooling.
-2. `src/zoxide.ts`, `src/kitty.ts`, `src/cli.ts`: small adapters.
+2. `src/zoxide.ts`, `src/cli.ts`: small adapters.
 3. `src/settings.ts`: user config parsing; errors are the contract.
 4. `src/tmux.ts`, `tmux.conf`: kiln's private tmux server.
-5. `src/codex.ts`, `src/sessions.ts`: discovery against other tools' formats.
+5. `src/acp.ts`, `src/acp-host.ts`, `src/sessions.ts`: protocol sessions and cached provider discovery.
 6. `src/app.tsx`, `src/index.tsx`: the whole UI and key handling.
 
 ## Settled

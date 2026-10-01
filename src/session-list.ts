@@ -5,15 +5,9 @@ import { type Session, sessionParents } from "./sessions";
 export function sessionKey(session: Session): string {
   if (session.pid !== undefined) return `pid:${session.pid}`;
   switch (session.place.kind) {
+    case "acp":
     case "cloud":
-    case "background":
       return `${session.agent}:${session.place.kind}:${session.place.id}`;
-    case "kiln":
-      return `kiln:${session.place.name}`;
-    case "kitty":
-      return `kitty:${session.place.socket}:${session.place.windowId}`;
-    case "elsewhere":
-      return `${session.agent}:${session.cwd}`;
   }
 }
 
@@ -28,7 +22,7 @@ export type ListRow =
   | { kind: "header"; key: string; name: string; directory?: string }
   | { kind: "session"; key: string; session: Session; depth: number; children: number };
 
-/** Unopenable children stay reachable through their visible parent; unopenable roots stay hidden. */
+/** Group sessions and reveal matching or expanded children beneath their parent. */
 export function sessionRows(
   sessions: readonly Session[],
   order: SessionSort,
@@ -36,20 +30,7 @@ export function sessionRows(
   expanded: ReadonlySet<string>,
 ): ListRow[] {
   const ordered = sortSessions(sessions, order);
-  const allParents = sessionParents(ordered);
-  const shown = new Map<Session, boolean>();
-  const canShow = (session: Session): boolean => {
-    const path: Session[] = [];
-    let parent: Session | undefined = session;
-    while (parent && parent.place.kind === "elsewhere" && !shown.has(parent)) {
-      path.push(parent);
-      parent = allParents.get(parent);
-    }
-    const visible = parent !== undefined && (shown.get(parent) ?? true);
-    for (const child of path) shown.set(child, visible);
-    return visible;
-  };
-  const eligible = ordered.filter(canShow);
+  const eligible = ordered;
   const parents = sessionParents(eligible);
   const children = new Map<Session, Session[]>();
   for (const session of eligible) {
@@ -62,7 +43,7 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""} ${session.activity === "waiting" ? "needs input" : session.activity === "idle" ? "ready" : ""} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
   const matching = new Set(eligible.filter(matches));

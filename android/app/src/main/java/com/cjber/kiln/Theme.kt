@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -76,8 +77,13 @@ fun KilnTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
 @Composable
 fun activityColor(activity: String): Color =
     when (activity) {
-        "working" -> MaterialTheme.colorScheme.secondary
-        "waiting" -> MaterialTheme.colorScheme.primary
+        "working" -> MaterialTheme.colorScheme.onSurfaceVariant
+        "waiting" ->
+            if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFFE5C46B)
+            else Color(0xFF806000)
+        "idle" ->
+            if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF6A9955)
+            else Color(0xFF48634F)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
@@ -93,6 +99,6 @@ fun activityName(activity: String): String =
     when (activity) {
         "working" -> "Working"
         "waiting" -> "Needs input"
-        "idle" -> "Idle"
+        "idle" -> "Ready"
         else -> "Unknown"
     }

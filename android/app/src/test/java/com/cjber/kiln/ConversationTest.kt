@@ -5,7 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
-class PiRemoteTest {
+class ConversationTest {
     private fun state(): JSONObject =
         JSONObject()
             .put("instance", "bridge")
@@ -20,14 +20,12 @@ class PiRemoteTest {
             )
 
     @Test
-    fun reconnectSnapshotsRetainTextAndWriterState() {
-        val json = state().put("writer", "another-phone").put("ownWriter", false)
-        val snapshot = parsePiSnapshot(json.toString())
+    fun reconnectSnapshotsRetainText() {
+        val json = state()
+        val snapshot = parseConversationSnapshot(json.toString())
         assertEquals("Named session", snapshot.title)
         assertEquals(123L, snapshot.updated)
-        assertEquals(listOf(PiMessage("user", "Existing prompt")), snapshot.messages)
-        assertTrue(snapshot.blocked)
-        assertFalse(parsePiSnapshot(json.put("ownWriter", true).toString()).blocked)
+        assertEquals(listOf(ConversationMessage("user", "Existing prompt")), snapshot.messages)
     }
 
     @Test
@@ -42,7 +40,9 @@ class PiRemoteTest {
                             .put(JSONObject().put("role", "user").put("text", "x".repeat(4001))),
                     ),
             )) {
-            assertThrows(IllegalArgumentException::class.java) { parsePiSnapshot(json.toString()) }
+            assertThrows(IllegalArgumentException::class.java) {
+                parseConversationSnapshot(json.toString())
+            }
         }
     }
 }

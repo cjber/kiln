@@ -1,7 +1,7 @@
 # AGENTS.md
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that lists every interactive Claude Code,
-Codex and Pi session on a Linux machine and takes you to the one you pick. Arch users install it
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that runs kiln-owned Claude,
+Codex and Pi sessions through ACP, plus read-only cloud discovery. Arch users install it
 from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
@@ -13,7 +13,9 @@ bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
 bun scripts/perf.ts
-bun scripts/tui-e2e.ts
+bun scripts/list-tui-e2e.ts
+bun scripts/acp-tui-e2e.ts
+bun scripts/acp-host-e2e.ts
 python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
 ```
@@ -30,10 +32,9 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 ## Layout
 
-- Local session directories refresh from live processes or matched Codex daemon threads; branches
-  are read from that directory on every refresh. Temporary tool-command directories are not session roots.
-- `src/sessions.ts` - discovery: `claude agents --json`, the Codex daemon (`src/codex.ts`), `pgrep`
-  for the rest, then each process's place (kiln's tmux, a kitty window, background, elsewhere).
+- `src/acp.ts`, `src/acp-host.ts` - one owner-only host owns ACP stdio sessions; TUI and phone share its status, progress and approvals. Saved kiln identities are restored through ACP session loading. External native sessions are not discovered.
+- `src/sessions.ts` - owned ACP plus cached cloud rows, branches and provider parent relationships.
+- `src/conversation-view.tsx` - OpenTUI conversation, prompt entry and exact approval choices.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering and directory/task groups with collapsed children.
@@ -43,17 +44,12 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/actions.ts` - close/archive capabilities and execution for each session type.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
-  Local Codex links require a connected relay identity from the experimental remote-control status RPC;
-  Android accepts only the expected thread path and hostId query, never arbitrary query parameters.
+  Paired phones control owned conversations through `/v1/acp/:id`; cloud handoffs use verified provider HTTPS links.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
 - `src/bundled-skills.ts`, `bundled-skills/` - embedded helpers synced to the shared user store before the TUI starts.
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
-- `src/session-titles.ts` - incremental Claude/Pi title metadata; titles never establish activity.
-- `extensions/` - opt-in Pi socket bridge and protocol tests, embedded for source and binary installs.
-- `src/pi.ts`, `src/pi-install.ts` - verified owner/PID discovery, bounded bridge calls and managed installation.
-  Phone commands require pairing and an exact live session ID; the extension enforces one writer lease.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
 - `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.

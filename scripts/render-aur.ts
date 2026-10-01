@@ -12,15 +12,15 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 export const pkgname = "kiln-agents";
-const pkgdesc = "Vim-style overview of every Claude, Codex and Pi session on the machine";
+const pkgdesc = "ACP conversations for Claude, Codex and Pi with a paired phone client";
 const url = "https://github.com/cjber/kiln";
-const depends = ["bun", "tmux", "fzf"];
+const depends = ["bun", "tmux", "fzf", "util-linux"];
 const optdepends = [
-  "libnotify: desktop notifications when agent turns finish",
+  "libnotify: desktop notifications for input requests and completed turns",
   "zoxide: rank the directories offered for new sessions",
-  "kitty: jump to agents running in other kitty windows",
-  "claude-code: Claude sessions",
-  "openai-codex: Codex sessions",
+  "nodejs: run the npm ACP adapters",
+  "npm: install the Claude, Codex and Pi ACP adapters",
+  "openai-codex: read-only Codex Cloud discovery",
 ];
 
 const quoted = (items: readonly string[]) => items.map((item) => `'${item}'`).join(" ");
@@ -52,7 +52,7 @@ build() {
 package() {
   cd "kiln-\${pkgver}"
   install -d "\${pkgdir}/usr/lib/kiln" "\${pkgdir}/usr/bin"
-  cp -a bin src extensions bundled-skills node_modules package.json tmux.conf "\${pkgdir}/usr/lib/kiln/"
+  cp -a bin src bundled-skills node_modules package.json tmux.conf "\${pkgdir}/usr/lib/kiln/"
   ln -s /usr/lib/kiln/bin/kiln "\${pkgdir}/usr/bin/kiln"
   install -Dm644 LICENSE "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
   install -Dm644 README.md "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"

@@ -81,7 +81,7 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
-        var piSession by remember { mutableStateOf<Row?>(null) }
+        var conversationSession by remember { mutableStateOf<Row?>(null) }
         var state by remember { mutableStateOf("Connecting") }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
         var retry by remember { mutableIntStateOf(0) }
@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(host?.origin) {
             snapshot = null
-            piSession = null
+            conversationSession = null
             details = null
             handoff = null
         }
@@ -165,12 +165,14 @@ class MainActivity : ComponentActivity() {
                 retry++
             }
         }
-        if (piSession != null && host != null && !pairing) {
-            PiRemoteScreen(host, piSession!!, foreground) { piSession = null }
+        if (conversationSession != null && host != null && !pairing) {
+            ConversationScreen(host, conversationSession!!, foreground) {
+                conversationSession = null
+            }
             return
         }
         fun launch(row: Row) {
-            if (row.piRemote) piSession = row
+            if (row.acpRemote) conversationSession = row
             else if (row.exact) openSession(row) { error = it } else handoff = row
         }
         details?.let { original ->
@@ -271,6 +273,7 @@ class MainActivity : ComponentActivity() {
                     SessionScreen(
                         host?.name ?: "Choose machine",
                         hosts.map { it.name },
+                        selectedMachine = hosts.indexOf(host),
                         onMachine = { selected = hosts[it].origin },
                         onReconnect = { retry++ },
                         onPairAnother = { pairing = true },

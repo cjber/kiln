@@ -4,9 +4,9 @@ import type { Session } from "./sessions";
 import { defaults, parseSettings } from "./settings";
 
 const rows: [Session, Session, Session] = [
-  { pid: 1, agent: "pi", cwd: "/a/zebra", startedAt: 10, lastActiveAt: 20, place: { kind: "kiln", name: "a" } },
-  { pid: 2, agent: "claude", cwd: "/z/atlas", startedAt: 20, lastActiveAt: 30, place: { kind: "elsewhere" } },
-  { pid: 3, agent: "codex", cwd: "/m/middle", startedAt: 30, place: { kind: "elsewhere" } },
+  { pid: 1, agent: "pi", cwd: "/a/zebra", startedAt: 10, lastActiveAt: 20, place: { kind: "acp", id: "a" } },
+  { pid: 2, agent: "claude", cwd: "/z/atlas", startedAt: 20, lastActiveAt: 30, place: { kind: "acp", id: "child" } },
+  { pid: 3, agent: "codex", cwd: "/m/middle", startedAt: 30, place: { kind: "acp", id: "child" } },
 ];
 
 test("all sort modes distinguish activity, age, harness, full directory and project basename", () => {

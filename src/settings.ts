@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { type SessionSort, sessionSorts } from "./session-sort";
 
@@ -15,7 +15,7 @@ export type Settings = {
   statusBar: boolean;
   /** Rank new-session directories with zoxide, and record the ones kiln opens. */
   zoxide: boolean;
-  /** Start Claude and Codex sessions reachable from claude.ai / ChatGPT, e.g. on a phone. */
+  /** Legacy configuration compatibility; kiln controls local sessions through ACP. */
   remoteControl: boolean;
   /** Include read-only Codex Cloud tasks. */
   cloud: boolean;
@@ -23,7 +23,7 @@ export type Settings = {
   notifications: boolean;
   /** Opt into Claude Code's internal cloud-listing API using its existing login. */
   claudeCloud: boolean;
-  /** The command each agent starts with; an empty list hides it from the new-session picker. */
+  /** ACP stdio adapter command; an empty list hides it from the new-session picker. */
   agents: Record<Agent, string[]>;
 };
 
@@ -36,7 +36,7 @@ export const defaults: Settings = {
   cloud: true,
   notifications: true,
   claudeCloud: false,
-  agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
+  agents: { claude: ["claude-agent-acp"], codex: ["codex-acp"], pi: ["pi-acp"] },
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -54,8 +54,7 @@ status_bar = true
 # Rank new-session directories with zoxide and record the ones kiln opens.
 zoxide = true
 
-# Start Claude with --remote-control, and Codex on its daemon with remote control
-# on, so new sessions can be driven from the Claude and ChatGPT apps.
+# Retained for existing configuration files. Local control uses ACP.
 remote_control = true
 
 # Include read-only Codex Cloud tasks, refreshed at most once a minute.
@@ -70,9 +69,9 @@ claude_cloud = false
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
-claude = ["claude"]
-codex = ["codex"]
-pi = ["pi"]
+claude = ["claude-agent-acp"]
+codex = ["codex-acp"]
+pi = ["pi-acp"]
 `;
 
 function settingsPath(): string {
@@ -137,7 +136,11 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
         for (const [agent, command] of Object.entries(value)) {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
-          settings.agents[agent as Agent] = stringList(path, `agents.${agent}`, command);
+          const argv = stringList(path, `agents.${agent}`, command);
+          if (argv.length === 1 && argv[0] === agent) continue;
+          if (argv[0] && agents.includes(basename(argv[0]) as Agent))
+            fail(path, `agents.${agent} must run an ACP adapter; use ${defaults.agents[agent as Agent][0]}`);
+          settings.agents[agent as Agent] = argv;
         }
         break;
       default:

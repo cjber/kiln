@@ -64,6 +64,7 @@ fun SessionScreen(
     toggle: (Row) -> Unit,
     hiddenIds: Set<String> = emptySet(),
     changeHidden: (Set<String>) -> Boolean = { false },
+    selectedMachine: Int = 0,
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -183,6 +184,7 @@ fun SessionScreen(
                     machineLabel,
                     machines,
                     status,
+                    selectedMachine,
                     select = {
                         onMachine(it)
                         machinesPage = false
@@ -398,7 +400,7 @@ fun SessionListView(
                         Text(
                             tildePath(item.directory),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp),

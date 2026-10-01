@@ -19,10 +19,10 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PiConversation(
+fun ConversationView(
     machine: String,
     title: String,
-    state: PiSnapshot?,
+    state: ConversationSnapshot?,
     connected: Boolean,
     error: String,
     prompt: String,
@@ -38,7 +38,7 @@ fun PiConversation(
         if (messages.isNotEmpty() && !listState.canScrollForward)
             listState.animateScrollToItem(messages.lastIndex)
     }
-    val writable = connected && !busy && state?.blocked != true && state?.activity == "idle"
+    val writable = connected && !busy && state?.activity == "idle"
     Scaffold(
         topBar = {
             TopAppBar(
@@ -52,7 +52,7 @@ fun PiConversation(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            "Pi · $machine",
+                            machine,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -93,14 +93,9 @@ fun PiConversation(
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
-                    if (state?.blocked == true)
-                        Text(
-                            "Another phone controls this session. You can still read it.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     Text(
                         state?.notice?.takeIf { it.isNotBlank() }
-                            ?: "Answer extension dialogs on your computer.",
+                            ?: "Approvals appear here when the agent needs input.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -139,7 +134,8 @@ fun PiConversation(
                             ) {
                                 Text(
                                     if (user) "You"
-                                    else if (message.role == "assistant") "Pi" else message.role,
+                                    else if (message.role in listOf("assistant", "agent")) "Agent"
+                                    else message.role,
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -155,19 +151,31 @@ fun PiConversation(
                         Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (state?.activity == "working")
+                        state?.approvals?.firstOrNull()?.let { approval ->
+                            Text("Needs input: ${approval.title}", color = activityColor("waiting"))
+                            approval.options.forEach { option ->
+                                OutlinedButton(
+                                    onClick = { onCommand("approve:${approval.id}:${option.id}") },
+                                    enabled = connected && !busy,
+                                ) {
+                                    Text(option.name)
+                                }
+                            }
+                        }
+                        if (state?.activity in listOf("working", "waiting"))
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    "Pi is working…",
+                                    if (state?.activity == "waiting") "Awaiting approval"
+                                    else "Agent is working…",
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.weight(1f),
                                 )
                                 TextButton(
                                     onClick = { onCommand("abort") },
-                                    enabled = connected && !busy && state.blocked != true,
+                                    enabled = connected && !busy,
                                 ) {
                                     Text("Stop turn")
                                 }
@@ -180,7 +188,7 @@ fun PiConversation(
                                 prompt,
                                 { if (it.toByteArray(Charsets.UTF_8).size <= 3500) onPrompt(it) },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("Message Pi") },
+                                placeholder = { Text("Message agent") },
                                 maxLines = 4,
                                 shape = MaterialTheme.shapes.medium,
                             )

@@ -36,7 +36,7 @@ const demoSkills: Skill[] = [
 Date.now = () => 1_800_000_000_000;
 const minutes = (count: number) => Date.now() - count * 60_000;
 const code = (repo: string) => join(homedir(), "code", repo);
-const kiln = (name: string) => ({ kind: "kiln", name }) as const;
+const kiln = (id: string) => ({ kind: "acp", id }) as const;
 
 const demo: Session[] = [
   {
@@ -81,7 +81,7 @@ const demo: Session[] = [
     startedAt: minutes(190),
     activity: "idle",
     branch: "draft/terminal-tools",
-    place: { kind: "kitty", socket: "@kitty-1", windowId: 3 },
+    place: kiln("d"),
   },
   {
     pid: 105,
@@ -93,7 +93,7 @@ const demo: Session[] = [
     startedAt: minutes(64),
     activity: "waiting",
     branch: "main",
-    place: { kind: "elsewhere", source: "pid 105 · spawned by codex (102)" },
+    place: kiln("e"),
   },
   {
     agent: "codex",
@@ -102,7 +102,7 @@ const demo: Session[] = [
     startedAt: minutes(1500),
     activity: "idle",
     branch: "feat/search-index",
-    place: { kind: "background", id: "01a0f1ac", attach: [] },
+    place: kiln("01a0f1ac"),
   },
   {
     agent: "codex",
@@ -165,7 +165,17 @@ async function shoot(name: string, keys: string[]): Promise<void> {
     name === "skills" ? (
       <SkillsView project={code("atlas")} onBack={() => {}} edit={async () => {}} loadSkills={() => demoSkills} />
     ) : (
-      <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => nestSessions(demo)} />
+      <App
+        initialSettings={defaults}
+        onQuit={() => {}}
+        loadSessions={async () =>
+          nestSessions(
+            name === "unavailable"
+              ? demo.map((session, index) => (index ? session : { ...session, activity: undefined }))
+              : demo,
+          )
+        }
+      />
     ),
     {
       width: cols,
@@ -186,7 +196,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 await shoot("list", ["j"]);
-await shoot("unavailable", ["j", "TAB", "j"]);
+await shoot("unavailable", []);
 await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
