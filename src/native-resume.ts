@@ -24,7 +24,7 @@ function nativeSession(record: SavedSession, owned: boolean): Session {
     ...session,
     id: record.providerId,
     pid: undefined,
-    activity: undefined,
+    activity: owned ? session.activity : undefined,
     place: {
       kind: "background",
       id: record.providerId,

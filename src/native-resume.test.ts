@@ -45,10 +45,11 @@ test("saved ACP sessions open the exact native provider identity and retain reco
       attach: ["codex", "resume", record.providerId],
       acpId: "kiln-id",
     });
-    expect(native.activity).toBeUndefined();
+    expect(native.activity).toBe("working");
     await releaseForNative(native);
     expect(closed).toBe(true);
     expect(JSON.parse(readFileSync(join(`${socket}.json.native`, "kiln-id.json"), "utf8"))).toEqual([record]);
+    expect(nativeSavedSessions([])[0]?.activity).toBeUndefined();
     expect(nativeSavedSessions([])[0]?.place).toMatchObject({
       attach: ["codex", "resume", record.providerId],
       acpId: undefined,
