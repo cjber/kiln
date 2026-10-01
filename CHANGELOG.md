@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-01
+
+- **Closing a resumed session removes its recovery row.** Private backups stay on disk without bringing an explicitly closed session back into the list.
+
 ## [0.7.1] - 2026-10-01
 
 - **Saved sessions open native terminals.** Claude and Codex sessions created before 0.7.0 resume their exact provider identity instead of reopening kiln's chat view. Kiln keeps a private recovery copy before releasing the old ACP adapter.

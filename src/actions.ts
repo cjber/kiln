@@ -1,5 +1,6 @@
 import { acpRequest } from "./acp-host";
 import { archiveCodexThread } from "./codex";
+import { closeNativeRecovery } from "./native-resume";
 import type { Session } from "./sessions";
 import { kill } from "./tmux";
 export type SessionAction = { verb: "close" | "archive" } | { reason: string };
@@ -44,6 +45,7 @@ export async function runSessionAction(session: Session): Promise<true | string>
       default:
         return "this session is not managed by kiln";
     }
+    closeNativeRecovery(session);
     return true;
   } catch (error) {
     return `could not close ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedSession } from "./acp";
-import { nativeSavedSessions, releaseForNative } from "./native-resume";
+import { closeNativeRecovery, nativeSavedSessions, releaseForNative } from "./native-resume";
 import type { Session } from "./sessions";
 
 test("saved ACP sessions open the exact native provider identity and retain recovery history", async () => {
@@ -54,6 +54,9 @@ test("saved ACP sessions open the exact native provider identity and retain reco
       attach: ["codex", "resume", record.providerId],
       acpId: undefined,
     });
+    closeNativeRecovery(native);
+    expect(nativeSavedSessions([])).toEqual([]);
+    expect(JSON.parse(readFileSync(join(`${socket}.json.native`, "kiln-id.json.closed"), "utf8"))).toEqual([record]);
     record.providerId = "--last";
     writeFileSync(`${socket}.json`, JSON.stringify([record]));
     expect(nativeSavedSessions([session])[0]?.place.kind).toBe("acp");
