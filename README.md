@@ -282,6 +282,9 @@ bunx biome ci .                           # format and lint; `bunx biome check -
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
+bun scripts/perf.ts                       # 500-session shallow and deep tree timings
+bun scripts/perf.ts --live                # read-only discovery timings on this machine
+bun scripts/tui-e2e.ts                    # real PTY navigation, input, resize and attach/detach
 python3 .sift/gate.py --base origin/main   # project rules (see .agents/skills/sift-project)
 python3 .sift/agents.py check
 bun scripts/screenshots.tsx 2>/dev/null   # seeded terminal screenshots

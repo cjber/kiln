@@ -265,11 +265,13 @@ export function isInteractivePi(command: string): boolean {
 }
 
 /** Codex and pi have no scriptable session listing, so their live sessions are found by process. */
-function processesNamed(agent: Agent, isInteractive: (command: string) => boolean): AgentProcess[] {
-  const listed = Bun.spawnSync(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore", timeout: 2_000 });
-  if (listed.exitCode !== 0) return [];
-  return listed.stdout
-    .toString()
+async function processesNamed(agent: Agent, isInteractive: (command: string) => boolean): Promise<AgentProcess[]> {
+  const listed = Bun.spawn(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore" });
+  const timeout = setTimeout(() => listed.kill(), 2_000);
+  const [source, code] = await Promise.all([new Response(listed.stdout).text(), listed.exited]);
+  clearTimeout(timeout);
+  if (code !== 0) return [];
+  return source
     .split("\n")
     .filter(Boolean)
     .flatMap((line) => {
@@ -397,18 +399,21 @@ export function withCodexThreads(
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listSessions({ kitty = true, cloud = false, claudeCloud = false } = {}): Promise<Session[]> {
-  const codexProcesses = processesNamed("codex", isInteractiveCodex).map((process) => ({
-    ...process,
-    threadId: codexThreadId(process.pid),
-  }));
-  const [claude, owned, windows, threads] = await Promise.all([
+  const readCodex = async () => {
+    const processes = (await processesNamed("codex", isInteractiveCodex)).map((process) => ({
+      ...process,
+      threadId: codexThreadId(process.pid),
+    }));
+    const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
+    return withCodexThreads(processes, threads);
+  };
+  const [claude, owned, windows, codex, pi] = await Promise.all([
     claudeProcesses(),
     panes(),
     kitty ? kittyWindows() : [],
-    codexThreads(codexProcesses.flatMap((process) => (process.threadId ? [process.threadId] : []))),
+    readCodex(),
+    processesNamed("pi", isInteractivePi),
   ]);
-  const codex = withCodexThreads(codexProcesses, threads);
-  const pi = processesNamed("pi", isInteractivePi);
   const states = await piStates(pi.map(({ pid }) => pid));
   const running = [
     ...claude,
@@ -505,39 +510,80 @@ export function sessionLocation(
   return { found };
 }
 
+/** Resolve provider-first parents once, rejecting cycles and any path into one. */
+export function sessionParents(sessions: readonly Session[], queried?: Session): Map<Session, Session | undefined> {
+  const candidates = queried && !sessions.includes(queried) ? [...sessions, queried] : sessions;
+  const ids = new Map<string, Session[]>();
+  const pids = new Map<number, Session[]>();
+  for (const session of sessions) {
+    if (session.id !== undefined) {
+      const key = `${session.agent}:${session.id}`;
+      const group = ids.get(key) ?? [];
+      group.push(session);
+      ids.set(key, group);
+    }
+    if (session.pid !== undefined) {
+      const group = pids.get(session.pid) ?? [];
+      group.push(session);
+      pids.set(session.pid, group);
+    }
+  }
+  const parents = new Map<Session, Session | undefined>();
+  for (const session of candidates) {
+    const provider =
+      session.parentSessionId === undefined
+        ? undefined
+        : ids.get(`${session.agent}:${session.parentSessionId}`)?.find((parent) => parent !== session);
+    const process =
+      session.parentSessionPid === undefined
+        ? undefined
+        : pids.get(session.parentSessionPid)?.find((parent) => parent !== session);
+    parents.set(session, provider ?? process);
+  }
+  const valid = new Map<Session, boolean>();
+  for (const session of candidates) {
+    const path = new Set<Session>();
+    let ancestor: Session | undefined = session;
+    while (ancestor && !valid.has(ancestor) && !path.has(ancestor)) {
+      path.add(ancestor);
+      ancestor = parents.get(ancestor);
+    }
+    const accepted = ancestor === undefined || valid.get(ancestor) === true;
+    for (const member of path) valid.set(member, accepted);
+  }
+  for (const session of candidates) if (!valid.get(session)) parents.set(session, undefined);
+  return parents;
+}
+
 /** Provider relationships survive daemon execution, where children have no terminal PID. */
 export function sessionParent(session: Session, sessions: readonly Session[]): Session | undefined {
-  const directParent = (child: Session) =>
-    sessions.find(
-      (parent) =>
-        parent !== child &&
-        parent.agent === child.agent &&
-        parent.id === child.parentSessionId &&
-        child.parentSessionId !== undefined,
-    ) ??
-    sessions.find(
-      (parent) => parent !== child && parent.pid === child.parentSessionPid && child.parentSessionPid !== undefined,
-    );
-  const parent = directParent(session);
-  const seen = new Set<Session>([session]);
-  for (let ancestor = parent; ancestor; ancestor = directParent(ancestor)) {
-    if (seen.has(ancestor)) return undefined;
-    seen.add(ancestor);
-  }
-  return parent;
+  return sessionParents(sessions, session).get(session);
 }
 
 /** Keep children directly beneath their parent, preserving the order within each group. */
 export function nestSessions(sessions: readonly Session[]): Session[] {
+  const parents = sessionParents(sessions);
+  const children = new Map<Session | undefined, Session[]>();
+  for (const session of sessions) {
+    const parent = parents.get(session);
+    const group = children.get(parent) ?? [];
+    group.push(session);
+    children.set(parent, group);
+  }
   const result: Session[] = [];
   const seen = new Set<Session>();
-  const append = (session: Session) => {
-    if (seen.has(session)) return;
+  const pending = [...(children.get(undefined) ?? [])].reverse();
+  while (pending.length) {
+    const session = pending.pop();
+    if (!session || seen.has(session)) continue;
     seen.add(session);
     result.push(session);
-    for (const child of sessions) if (sessionParent(child, sessions) === session) append(child);
-  };
-  for (const session of sessions) if (!sessionParent(session, sessions)) append(session);
+    const descendants = children.get(session) ?? [];
+    for (let index = descendants.length - 1; index >= 0; index--) {
+      const child = descendants[index];
+      if (child) pending.push(child);
+    }
+  }
   return result;
 }
 

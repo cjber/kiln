@@ -221,7 +221,13 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   );
 
   const handOver = useCallback(
-    (name: string) => withTerminal(() => attach(name, getSettings())),
+    async (name: string) => {
+      try {
+        await withTerminal(() => attach(name, getSettings()));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "could not open this session");
+      }
+    },
     [getSettings, withTerminal],
   );
 

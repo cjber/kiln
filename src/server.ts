@@ -7,7 +7,7 @@ import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { bridgeFor, type PiState, piRequest } from "./pi";
 import { sessionTitle } from "./session-list";
-import { listSessions, type Session, sessionParent } from "./sessions";
+import { listSessions, type Session, sessionParents } from "./sessions";
 import { loadSettings } from "./settings";
 
 function phoneId(session: Session): string {
@@ -169,6 +169,7 @@ export function startServer({
     try {
       const [sessions, codexHost] = await Promise.all([load(), readCodexHost()]);
       liveSessions = sessions;
+      const parents = sessionParents(sessions);
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
@@ -176,7 +177,7 @@ export function startServer({
         sessions: [
           ...new Map(
             sessions.map((session) => {
-              const row = phoneSession(session, sessionParent(session, sessions), codexHost.id);
+              const row = phoneSession(session, parents.get(session), codexHost.id);
               return [row.id, row] as const;
             }),
           ).values(),
