@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { type SessionSort, sessionSorts } from "./session-sort";
 
@@ -15,7 +15,7 @@ export type Settings = {
   statusBar: boolean;
   /** Rank new-session directories with zoxide, and record the ones kiln opens. */
   zoxide: boolean;
-  /** Legacy configuration compatibility; kiln controls local sessions through ACP. */
+  /** Enable provider-native remote control when launching desktop sessions. */
   remoteControl: boolean;
   /** Include read-only Codex Cloud tasks. */
   cloud: boolean;
@@ -23,7 +23,7 @@ export type Settings = {
   notifications: boolean;
   /** Opt into Claude Code's internal cloud-listing API using its existing login. */
   claudeCloud: boolean;
-  /** ACP stdio adapter command; an empty list hides it from the new-session picker. */
+  /** Native Claude/Codex TUI or Pi ACP command; [] hides an agent from the picker. */
   agents: Record<Agent, string[]>;
 };
 
@@ -36,7 +36,7 @@ export const defaults: Settings = {
   cloud: true,
   notifications: true,
   claudeCloud: false,
-  agents: { claude: ["claude-agent-acp"], codex: ["codex-acp"], pi: ["pi-acp"] },
+  agents: { claude: ["claude"], codex: ["codex"], pi: ["pi-acp"] },
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -54,7 +54,7 @@ status_bar = true
 # Rank new-session directories with zoxide and record the ones kiln opens.
 zoxide = true
 
-# Retained for existing configuration files. Local control uses ACP.
+# Enable the provider's own remote control for native desktop sessions.
 remote_control = true
 
 # Include read-only Codex Cloud tasks, refreshed at most once a minute.
@@ -69,8 +69,8 @@ claude_cloud = false
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
-claude = ["claude-agent-acp"]
-codex = ["codex-acp"]
+claude = ["claude"]
+codex = ["codex"]
 pi = ["pi-acp"]
 `;
 
@@ -137,9 +137,15 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
           const argv = stringList(path, `agents.${agent}`, command);
-          if (argv.length === 1 && argv[0] === agent) continue;
-          if (argv[0] && agents.includes(basename(argv[0]) as Agent))
-            fail(path, `agents.${agent} must run an ACP adapter; use ${defaults.agents[agent as Agent][0]}`);
+          if (
+            argv.length === 1 &&
+            ((agent === "claude" && argv[0] === "claude-agent-acp") ||
+              (agent === "codex" && argv[0] === "codex-acp") ||
+              (agent === "pi" && argv[0] === "pi"))
+          )
+            continue;
+          if (agent !== "pi" && argv[0]?.includes("acp"))
+            fail(path, `agents.${agent} must launch the native TUI; use ${agent}`);
           settings.agents[agent as Agent] = argv;
         }
         break;

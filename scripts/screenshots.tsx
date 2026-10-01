@@ -36,7 +36,7 @@ const demoSkills: Skill[] = [
 Date.now = () => 1_800_000_000_000;
 const minutes = (count: number) => Date.now() - count * 60_000;
 const code = (repo: string) => join(homedir(), "code", repo);
-const kiln = (id: string) => ({ kind: "acp", id }) as const;
+const kiln = (name: string) => ({ kind: "kiln", name }) as const;
 
 const demo: Session[] = [
   {

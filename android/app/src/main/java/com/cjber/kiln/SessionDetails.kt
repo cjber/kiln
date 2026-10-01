@@ -21,7 +21,10 @@ fun SessionDetails(
     hidden: Boolean,
     changeHidden: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = dismiss) {
+    ModalBottomSheet(
+        onDismissRequest = dismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
         Column(
             Modifier.fillMaxWidth()
                 .verticalScroll(rememberScrollState())
@@ -43,7 +46,13 @@ fun SessionDetails(
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
                     DetailField(
                         "Location",
-                        if (row.where == "cloud") "Cloud task" else "Managed by kiln",
+                        when (row.where) {
+                            "cloud" -> "Cloud task"
+                            "acp",
+                            "kiln" -> "Managed by kiln"
+                            "background" -> "Native background session"
+                            else -> "Native terminal"
+                        },
                     )
                     DetailField(
                         "Last active",
@@ -52,11 +61,10 @@ fun SessionDetails(
                     DetailField("Started", updateTime(row.started))
                 }
             }
-            if (row.url != null || row.acpRemote)
+            if (row.url != null)
                 Button(onClick = open, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        if (row.acpRemote) "Open conversation"
-                        else if (row.exact) "Open in ${agentName(row.agent)}"
+                        if (row.exact) "Open in ${agentName(row.agent)}"
                         else "Find in ${agentName(row.agent)}"
                     )
                 }

@@ -9,6 +9,8 @@ import { runSessionAction, sessionAction } from "./actions";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { ConversationView } from "./conversation-view";
+import { focus } from "./kitty";
+import { nativeNotifications } from "./notifications";
 import { sessionKey, sessionRows, sessionTitle } from "./session-list";
 import { sessionSorts } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
@@ -149,6 +151,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
+  const notifyNative = useMemo(() => nativeNotifications(), []);
 
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
@@ -162,6 +165,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       );
       const current = before[Math.min(getSelected(), before.length - 1)];
       setSessions(loaded);
+      notifyNative(loaded, getSettings().notifications);
       const after = sessionRows(loaded, getOrder(), getFilter(), getExpanded()).flatMap((row) =>
         row.kind === "session" ? [row.session] : [],
       );
@@ -169,13 +173,24 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
     } catch {
       setSessions((last) =>
-        last.map((session) => (session.place.kind === "acp" ? { ...session, activity: undefined } : session)),
+        last.map((session) => (session.place.kind !== "cloud" ? { ...session, activity: undefined } : session)),
       );
-      setNotice("ACP host unavailable; showing the last successful list");
+      setNotice("Session discovery unavailable; showing the last successful list");
     } finally {
       refreshing.current = false;
     }
-  }, [getSettings, getSessions, getOrder, getFilter, getExpanded, getSelected, loadSessions, setSessions, setSelected]);
+  }, [
+    getSettings,
+    getSessions,
+    getOrder,
+    getFilter,
+    getExpanded,
+    getSelected,
+    loadSessions,
+    setSessions,
+    setSelected,
+    notifyNative,
+  ]);
 
   useEffect(() => {
     void refresh();
@@ -225,6 +240,19 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         case "acp":
           setConversationId(session.place.id);
           return;
+        case "kiln":
+          return handOver(session.place.name);
+        case "kitty":
+          if (!focus(session.place.socket, session.place.windowId)) setNotice("kitty could not focus this session");
+          return;
+        case "background": {
+          const name = `${session.agent}-bg-${session.place.id.slice(0, 16)}`;
+          if (!exists(name) && !start(name, session.cwd, session.place.attach, sessionTitle(session)))
+            return setNotice(`could not attach to ${session.agent}`);
+          return handOver(name);
+        }
+        case "elsewhere":
+          return setNotice(`Open this session in its terminal · ${session.place.source ?? session.id ?? "unknown"}`);
         case "cloud": {
           if (session.agent === "claude") {
             if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
@@ -261,15 +289,44 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       if (!cwd) return;
       if (!isDirectory(cwd)) return setNotice(`${tilde(cwd)} is not a directory`);
       try {
+        if (agent !== "pi") {
+          const command = settings.agents[agent];
+          if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agent} is not on PATH`);
+          let remoteProblem: string | undefined;
+          if (agent === "codex" && settings.remoteControl) {
+            const child = Bun.spawn(["codex", "remote-control", "start"], {
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "pipe",
+            });
+            const timer = setTimeout(() => child.kill(), 5000);
+            try {
+              const [problem, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+              if (code) remoteProblem = problem.trim() || "Codex Remote Control did not start";
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+          const name = `${agent}-${crypto.randomUUID()}`;
+          const argv =
+            agent === "claude" && settings.remoteControl && !command.includes("--remote-control")
+              ? [...command, "--remote-control"]
+              : command;
+          if (!start(name, cwd, argv, `${agent} · ${cwd}`)) throw new Error(`could not start ${agent}`);
+          if (settings.zoxide) recordDirectory(cwd);
+          await handOver(name);
+          if (remoteProblem) setNotice(remoteProblem);
+          return;
+        }
         const session = await acpRequest<Session>("/sessions", { agent, cwd });
         if (settings.zoxide) recordDirectory(cwd);
         if (session.id) setConversationId(session.id);
         await refresh();
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Could not start ACP session");
+        setNotice(error instanceof Error ? error.message : "Could not start session");
       }
     },
-    [getSettings, withTerminal, refresh, setConversationId],
+    [getSettings, withTerminal, refresh, setConversationId, handOver],
   );
 
   /** Settings are a file: open it in $EDITOR, then re-read it, keeping the old ones if the edit does not parse. */

@@ -4,6 +4,7 @@ import type { Conversation } from "./acp";
 import { acpRequest } from "./acp-host";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
+import { codexRemoteHost } from "./codex";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
@@ -14,7 +15,7 @@ function phoneId(session: Session): string {
   return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
 }
 
-export function phoneSession(session: Session, parent?: Session) {
+export function phoneSession(session: Session, parent?: Session, codexHost?: string) {
   return {
     id: phoneId(session),
     parentId: parent ? phoneId(parent) : undefined,
@@ -27,7 +28,7 @@ export function phoneSession(session: Session, parent?: Session) {
     lastActiveAt: session.lastActiveAt,
     where: session.place.kind,
     acpRemote: session.place.kind === "acp",
-    handoff: phoneHandoff(session),
+    handoff: phoneHandoff(session, codexHost),
   };
 }
 
@@ -181,6 +182,11 @@ export function startServer({
     refreshing = true;
     try {
       const sessions = await load();
+      const codexHost = sessions.some(
+        (row) => row.agent === "codex" && row.place.kind !== "cloud" && row.place.kind !== "acp",
+      )
+        ? await codexRemoteHost()
+        : {};
       liveSessions = sessions;
       const parents = sessionParents(sessions);
       snapshot = {
@@ -190,7 +196,7 @@ export function startServer({
         sessions: [
           ...new Map(
             sessions.map((session) => {
-              const row = phoneSession(session, parents.get(session));
+              const row = phoneSession(session, parents.get(session), codexHost.id);
               return [row.id, row] as const;
             }),
           ).values(),
@@ -203,7 +209,7 @@ export function startServer({
         sequence: snapshot.sequence + 1,
         problem: "Session host unavailable; showing the last successful list",
         sessions: snapshot.sessions.map((session) =>
-          session.where === "acp" ? { ...session, activity: undefined } : session,
+          session.where !== "cloud" ? { ...session, activity: undefined } : session,
         ),
       };
     } finally {

@@ -19,7 +19,6 @@ data class Row(
     val label: String,
     val exact: Boolean,
     val parent: String? = null,
-    val acpRemote: Boolean = false,
 )
 
 data class Snapshot(
@@ -129,7 +128,6 @@ fun parseSnapshot(source: String): Snapshot {
                 else handoff.optString("reason", "No verified session link"),
                 handoff.optBoolean("exact"),
                 item.optString("parentId").takeIf { it.isNotEmpty() },
-                item.optBoolean("acpRemote"),
             )
         }
     return Snapshot(

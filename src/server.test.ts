@@ -94,7 +94,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
       sessions: { handoff: { reason: string } }[];
     };
     expect(first.sessions).toHaveLength(1);
-    expect(first.sessions[0]?.handoff).toEqual({ reason: "Read and control this session in kiln" });
+    expect(first.sessions[0]?.handoff).toEqual({ reason: "Open this saved ACP session in kiln on your PC" });
     const socket = new WebSocket(`${origin.replace("http:", "ws:")}/v1/events`, { headers });
     const received = new Promise<{ sequence: number }>((resolve, reject) => {
       socket.onmessage = (event) => resolve(JSON.parse(String(event.data)));

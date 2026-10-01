@@ -12,15 +12,15 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 export const pkgname = "kiln-agents";
-const pkgdesc = "ACP conversations for Claude, Codex and Pi with a paired phone client";
+const pkgdesc = "Native Claude and Codex session launcher with a paired phone client";
 const url = "https://github.com/cjber/kiln";
 const depends = ["bun", "tmux", "fzf", "util-linux"];
 const optdepends = [
   "libnotify: desktop notifications for input requests and completed turns",
   "zoxide: rank the directories offered for new sessions",
-  "nodejs: run the npm ACP adapters",
-  "npm: install the Claude, Codex and Pi ACP adapters",
-  "openai-codex: read-only Codex Cloud discovery",
+  "nodejs: run the Pi ACP adapter",
+  "npm: install the Pi ACP adapter",
+  "openai-codex: native Codex sessions and cloud discovery",
 ];
 
 const quoted = (items: readonly string[]) => items.map((item) => `'${item}'`).join(" ");

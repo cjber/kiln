@@ -10,6 +10,7 @@ const scratch = mkdtempSync(join(tmpdir(), "kiln-binary-"));
 const executable = join(scratch, "installed kiln");
 const outer = `kiln-smoke-outer-${process.pid}`;
 const socket = join(scratch, "host.sock");
+const native = `kiln-smoke-native-${process.pid}`;
 let hostPid: number | undefined;
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const { TMUX: _outer, ...inherited } = Bun.env;
@@ -22,6 +23,7 @@ const env = {
   PI_CODING_AGENT_DIR: join(scratch, ".pi", "agent"),
   PATH: `${join(scratch, "bin")}:${Bun.env.PATH}`,
   KILN_ACP_SOCKET: socket,
+  KILN_TMUX_SERVER: native,
 };
 
 function run(argv: string[]): string {
@@ -54,23 +56,15 @@ try {
   const fixture = join(scratch, "agent.py");
   writeFileSync(
     fixture,
-    `import sys,json
+    `import sys
+print('Ready',flush=True)
 for line in sys.stdin:
- r=json.loads(line)
- method=r.get('method')
- if 'id' not in r: continue
- result={}
- if method=='initialize': result={'protocolVersion':r['params']['protocolVersion'],'agentCapabilities':{}}
- elif method=='session/new': result={'sessionId':'smoke'}
- elif method=='session/prompt':
-  print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':'smoke','update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'KILN_SMOKE_OK'}}}}),flush=True)
-  result={'stopReason':'end_turn'}
- print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
+ print('KILN_SMOKE_OK: '+line.strip(),flush=True)
 `,
   );
   writeFileSync(
     join(env.XDG_CONFIG_HOME, "kiln", "config.toml"),
-    `cloud = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\npi = []\n`,
+    `cloud = false\nremote_control = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\npi = []\n`,
   );
   // The directory picker returns a fixture path; the agent is sleep, so no provider is contacted.
   writeFileSync(join(scratch, "bin", "fzf"), `#!/bin/sh\nprintf '%s\\n' ${quote(scratch)}\n`, { mode: 0o755 });
@@ -111,15 +105,13 @@ for line in sys.stdin:
   hostPid = ((await health.json()) as { pid: number }).pid;
   run([tmux, "-L", outer, "send-keys", "-t", "list", "hello", "Enter"]);
   await waitFor(capture, "KILN_SMOKE_OK");
-  run([tmux, "-L", outer, "send-keys", "-t", "list", "Escape"]);
+  run([tmux, "-L", outer, "send-keys", "-t", "list", "C-q"]);
   await waitFor(capture, "q quit");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
-  console.log(
-    "binary version, status, bundled skills, ACP session host, prompt, conversation and return to list passed",
-  );
+  console.log("binary version, status, bundled skills, native TUI prompt and return to list passed");
 } finally {
   if (hostPid) process.kill(hostPid, "SIGTERM");
-  for (const server of [outer])
+  for (const server of [outer, native])
     Bun.spawnSync([tmux, "-L", server, "kill-server"], { stdout: "ignore", stderr: "ignore" });
   rmSync(scratch, { recursive: true, force: true });
 }

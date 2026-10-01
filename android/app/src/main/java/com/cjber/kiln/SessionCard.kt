@@ -101,7 +101,7 @@ fun SessionCard(
     restore: (() -> Unit)? = null,
 ) {
     val row = item.row
-    val openable = row.url != null || row.acpRemote
+    val openable = row.url != null
     Card(
         onClick = if (openable) open else details,
         modifier = Modifier.fillMaxWidth().padding(start = if (item.depth > 0) 16.dp else 0.dp),

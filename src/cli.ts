@@ -4,7 +4,8 @@ import { loadSettings } from "./settings";
 
 const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
-       kiln serve [--port 7437]    serve the phone list on localhost
+       kiln serve [--port 7437] [--origin https://host | --local]
+                                  start phone access and print a pairing QR
        kiln pair <https-origin> [--qr]   print a five-minute phone invitation
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
@@ -45,17 +46,27 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     try {
       const { Pairing, serverOrigin } = await import("./pairing");
       if (command === "serve") {
-        if (args.length !== 1 && (args.length !== 3 || args[1] !== "--port" || !/^\d+$/.test(args[2] ?? "")))
-          throw new Error("usage: kiln serve [--port 7437]");
-        const port = args[2] ? Number(args[2]) : 7437;
-        if (port < 1 || port > 65535) throw new Error("port must be between 1 and 65535");
+        const { serveOptions, setupTailscale, printInvitation } = await import("./serve");
+        const options = serveOptions(args.slice(1));
         loadSettings();
         const { ensureAcpHost } = await import("./acp-host");
         await ensureAcpHost();
         const { startServer } = await import("./server");
         const pairing = new Pairing();
-        const server = startServer({ port, pairing });
-        console.log(`kiln: listening on http://127.0.0.1:${server.port}; expose through Tailscale Serve`);
+        let server: ReturnType<typeof startServer> | undefined;
+        try {
+          server = startServer({ port: options.port, pairing });
+          console.log(`kiln: listening on http://127.0.0.1:${server.port}`);
+          if (!options.local) {
+            const origin = options.origin ?? (await setupTailscale(server.port ?? options.port));
+            console.log(`kiln: phone access at ${origin}`);
+            await printInvitation(pairing, origin);
+          }
+        } catch (error) {
+          server?.stop();
+          pairing.close();
+          throw error;
+        }
         const stop = () => {
           server.stop();
           pairing.close();
@@ -76,15 +87,8 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         switch (command) {
           case "pair": {
             const origin = serverOrigin(args[1] ?? "");
-            const invitation = new URL("kiln://pair");
-            invitation.searchParams.set("server", origin);
-            invitation.searchParams.set("code", pairing.invite());
-            console.log(invitation.href);
-            if (args[2] === "--qr") {
-              const { default: QRCode } = await import("qrcode");
-              console.log(await QRCode.toString(invitation.href, { type: "terminal", small: true }));
-            }
-            console.log("Paste this invitation into kiln on the phone. It expires in five minutes and works once.");
+            const { printInvitation } = await import("./serve");
+            await printInvitation(pairing, origin, args[2] === "--qr");
             return 0;
           }
           case "devices":
