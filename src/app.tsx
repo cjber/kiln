@@ -10,6 +10,7 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { ConversationView } from "./conversation-view";
 import { focus } from "./kitty";
+import { releaseForNative } from "./native-resume";
 import { nativeNotifications } from "./notifications";
 import { sessionKey, sessionRows, sessionTitle } from "./session-list";
 import { sessionSorts } from "./session-sort";
@@ -238,6 +239,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     async (session: Session) => {
       switch (session.place.kind) {
         case "acp":
+          if (session.agent !== "pi")
+            return setNotice(
+              "This saved session has no native provider identity; open it in the provider's resume picker",
+            );
           setConversationId(session.place.id);
           return;
         case "kiln":
@@ -247,8 +252,18 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           return;
         case "background": {
           const name = `${session.agent}-bg-${session.place.id.slice(0, 16)}`;
-          if (!exists(name) && !start(name, session.cwd, session.place.attach, sessionTitle(session)))
-            return setNotice(`could not attach to ${session.agent}`);
+          if (!exists(name)) {
+            if (!session.place.attach[0] || !Bun.which(session.place.attach[0]))
+              return setNotice(`${session.agent} is not on PATH`);
+            if (!isDirectory(session.cwd)) return setNotice(`${tilde(session.cwd)} is not a directory`);
+            try {
+              await releaseForNative(session);
+            } catch (error) {
+              return setNotice(error instanceof Error ? error.message : "Could not resume the saved session");
+            }
+            if (!start(name, session.cwd, session.place.attach, sessionTitle(session)))
+              return setNotice(`could not attach to ${session.agent}`);
+          }
           return handOver(name);
         }
         case "elsewhere":
