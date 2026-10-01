@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-01
+
 - **Desktop sessions use native Claude and Codex TUIs.** Enter attaches or focuses the provider terminal. Kiln observes provider status; existing ACP conversations and Pi keep their shared controls.
 
 - **One command pairs the phone.** `kiln serve` configures Tailscale Serve and prints a pairing QR without replacing another service. Use `--origin` with another HTTPS tunnel or `--local` for localhost only.
