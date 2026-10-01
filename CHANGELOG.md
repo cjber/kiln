@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The kiln icon includes a terminal prompt.** A keystone arch surrounds the prompt in the shared README and Android launcher mark, keeping the oxide and ember colours.
+
 - **Large session lists respond faster.** Parent and child relationships are indexed once per snapshot. Process lookup and Pi bridge directory scans no longer block terminal input while they wait.
 
 - **Return from sessions without the detach flash.** Kiln suppresses tmux's exit message, batches attachment settings and reports attachment failures inside the list.

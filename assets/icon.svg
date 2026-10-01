@@ -1,9 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
   <title>kiln</title>
   <path fill="#101214" d="M0 0h108v108H0z"/>
-  <path fill="#82968a" d="M34 25h40a7 7 0 0 1 7 7v5H27v-5a7 7 0 0 1 7-7z"/>
-  <path fill="#d4ae78" d="M29 41h50a6 6 0 0 1 6 6v8H23v-8a6 6 0 0 1 6-6z"/>
-  <path fill="#c18362" d="M27 59h54a8 8 0 0 1 8 8v12a6 6 0 0 1-6 6H25a6 6 0 0 1-6-6V67a8 8 0 0 1 8-8z"/>
-  <path fill="#101214" d="M43 85V74a11 11 0 0 1 22 0v11z"/>
-  <path fill="#d4ae78" d="M48 81v-7a6 6 0 0 1 12 0v7z"/>
+  <path fill="#df8b63" d="M22 83V51a32 32 0 0 1 20-29l4 13a19 19 0 0 0-11 18v30zm64 0V51a32 32 0 0 0-20-29l-4 13a19 19 0 0 1 11 18v30zM45 19h18l-4 15H49z"/>
+  <path fill="#ffc477" d="m40.9 54.1 4.2-4.2L58.2 63 45.1 76.1l-4.2-4.2 8.9-8.9z"/>
+  <path fill="#ffc477" d="M58 71h11v6H58z"/>
 </svg>
