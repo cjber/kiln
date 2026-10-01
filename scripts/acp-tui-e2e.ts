@@ -9,7 +9,7 @@ mkdirSync(join(config, "kiln"), { recursive: true });
 const command = [process.execPath, resolve("scripts/acp-fixture.ts")];
 writeFileSync(
   join(config, "kiln", "config.toml"),
-  `cloud = false\nnotifications = false\n[agents]\ncodex = ${JSON.stringify(command)}\n`,
+  `cloud = false\nnotifications = false\n[agents]\npi = ${JSON.stringify(command)}\n`,
 );
 const name = `kiln-acp-e2e-${process.pid}`;
 const output = resolve(Bun.env.KILN_E2E_OUTPUT ?? join(tmpdir(), "kiln-tui-e2e-evidence"));
@@ -64,7 +64,7 @@ try {
   await drive("press", "x");
   await drive("wait", "close");
   await drive("press", "y");
-  await drive("wait", "closed codex");
+  await drive("wait", "closed pi");
   await drive("press", "q");
   console.log(`ACP PTY E2E passed; screenshots: ${output}`);
 } catch (error) {

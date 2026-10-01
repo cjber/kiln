@@ -9,6 +9,7 @@ export function sessionAction(session: Session): SessionAction {
     case "kiln":
       return { verb: "close" };
     case "background":
+      if (session.place.acpId) return { verb: "close" };
       return session.agent === "codex"
         ? { verb: "archive" }
         : session.place.stop
@@ -33,7 +34,8 @@ export async function runSessionAction(session: Session): Promise<true | string>
         if (!kill(session.place.name)) throw new Error("tmux could not close this session");
         break;
       case "background":
-        if (session.agent === "codex") await archiveCodexThread(session.place.id);
+        if (session.place.acpId) await acpRequest(`/sessions/${session.place.acpId}/close`, {});
+        else if (session.agent === "codex") await archiveCodexThread(session.place.id);
         else if (session.place.stop) {
           const child = Bun.spawn(session.place.stop, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
           if (await child.exited) throw new Error("provider could not stop this session");

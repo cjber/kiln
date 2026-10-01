@@ -14,7 +14,7 @@ export type Place =
   | { kind: "acp"; id: string }
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
-  | { kind: "background"; id: string; attach: string[]; stop?: string[] }
+  | { kind: "background"; id: string; attach: string[]; stop?: string[]; acpId?: string }
   | { kind: "elsewhere"; source?: string }
   | { kind: "cloud"; id: string; title: string; url?: string };
 
@@ -71,12 +71,16 @@ export async function listSessions({
   const { acpRequest } = await import("./acp-host");
   const { listNativeSessions } = await import("./native-sessions");
   const owned = await acpRequest<Session[]>("/sessions");
+  const { nativeSavedSessions } = await import("./native-resume");
+  const saved = native ? nativeSavedSessions(owned) : owned;
   const observed = native
     ? await listNativeSessions({ kitty, excludedPids: owned.flatMap((row) => (row.pid ? [row.pid] : [])) })
     : [];
   return nestSessions(
     [
-      ...owned.map((session) => ({ ...session, branch: gitBranch(session.cwd) })),
+      ...saved
+        .filter((session) => !observed.some((row) => row.agent === session.agent && row.id === session.id))
+        .map((session) => ({ ...session, branch: gitBranch(session.cwd) })),
       ...observed,
       ...(cloud ? cloudSnapshot().sessions : []),
       ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),

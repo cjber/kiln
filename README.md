@@ -47,7 +47,7 @@ Directory headings are orange. Sessions needing permission are yellow, ready ses
 
 New Claude and Codex sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
-An owner-only ACP host keeps Pi and previously saved ACP conversations alive when the list closes. Existing ACP conversations retain their shared prompt and approval controls. Native sessions do not run through ACP adapters. Unknown provider activity stays unknown.
+An owner-only ACP host keeps Pi and previously saved ACP conversations alive when the list closes. Saved Claude and Codex ACP conversations resume in their native terminal, with a private recovery copy of the old kiln history. Pi retains its prompt and approval controls. Native sessions do not run through ACP adapters. Unknown provider activity stays unknown.
 
 Desktop notifications identify the session when it needs input or finishes an observed turn. Enable `notify-send` and a desktop notification service to receive them.
 

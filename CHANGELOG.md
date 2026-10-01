@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-01
+
+- **Saved sessions open native terminals.** Claude and Codex sessions created before 0.7.0 resume their exact provider identity instead of reopening kiln's chat view. Kiln keeps a private recovery copy before releasing the old ACP adapter.
+
 ## [0.7.0] - 2026-10-01
 
 - **Desktop sessions use native Claude and Codex TUIs.** Enter attaches or focuses the provider terminal. Kiln observes provider status; existing ACP conversations and Pi keep their shared controls.

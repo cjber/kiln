@@ -6,7 +6,7 @@ import type { Session } from "../src/sessions";
 import { loadSettings } from "../src/settings";
 
 const host = startAcpHost();
-const session = await acpRequest<Session>("/sessions", { agent: "codex", cwd: process.cwd() });
+const session = await acpRequest<Session>("/sessions", { agent: "pi", cwd: process.cwd() });
 if (!session.id) throw new Error("ACP fixture has no identity");
 await acpRequest(`/sessions/${session.id}/prompt`, { text: "approve this" });
 const renderer = await createCliRenderer({ exitOnCtrlC: false });
