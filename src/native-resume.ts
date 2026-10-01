@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SavedSession } from "./acp";
@@ -80,4 +80,19 @@ export async function releaseForNative(session: Session): Promise<void> {
     }
   }
   await acpRequest(`/sessions/${id}/close`, {});
+}
+
+/** Explicit close retires recovery rows while keeping the private history backup. */
+export function closeNativeRecovery(session: Session): void {
+  const directory = archivePath();
+  if (!existsSync(directory)) return;
+  for (const name of readdirSync(directory).filter((name) => name.endsWith(".json"))) {
+    const path = join(directory, name);
+    if (
+      records(path).some(
+        (record) => record.providerId === session.id && record.conversation.session.agent === session.agent,
+      )
+    )
+      renameSync(path, `${path}.closed`);
+  }
 }
