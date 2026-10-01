@@ -43,7 +43,7 @@ fun SessionDetails(
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
                     DetailField(
                         "Location",
-                        if (row.where == "cloud") "Cloud task" else "Local · ${row.where}",
+                        if (row.where == "cloud") "Cloud task" else "Managed by kiln",
                     )
                     DetailField(
                         "Last active",
@@ -52,10 +52,10 @@ fun SessionDetails(
                     DetailField("Started", updateTime(row.started))
                 }
             }
-            if (row.url != null || row.piRemote)
+            if (row.url != null || row.acpRemote)
                 Button(onClick = open, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        if (row.piRemote) "Open conversation"
+                        if (row.acpRemote) "Open conversation"
                         else if (row.exact) "Open in ${agentName(row.agent)}"
                         else "Find in ${agentName(row.agent)}"
                     )

@@ -9,7 +9,8 @@ if (!tmux) throw new Error("binary smoke test needs tmux");
 const scratch = mkdtempSync(join(tmpdir(), "kiln-binary-"));
 const executable = join(scratch, "installed kiln");
 const outer = `kiln-smoke-outer-${process.pid}`;
-const inner = `kiln-smoke-inner-${process.pid}`;
+const socket = join(scratch, "host.sock");
+let hostPid: number | undefined;
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const { TMUX: _outer, ...inherited } = Bun.env;
 const env = {
@@ -20,6 +21,7 @@ const env = {
   CODEX_HOME: join(scratch, ".codex"),
   PI_CODING_AGENT_DIR: join(scratch, ".pi", "agent"),
   PATH: `${join(scratch, "bin")}:${Bun.env.PATH}`,
+  KILN_ACP_SOCKET: socket,
 };
 
 function run(argv: string[]): string {
@@ -49,27 +51,32 @@ try {
   chmodSync(executable, 0o755);
   mkdirSync(join(scratch, "bin"));
   mkdirSync(join(env.XDG_CONFIG_HOME, "kiln"), { recursive: true });
+  const fixture = join(scratch, "agent.py");
   writeFileSync(
-    join(env.XDG_CONFIG_HOME, "kiln", "config.toml"),
-    `remote_control = false\ncloud = false\nzoxide = false\n[agents]\nclaude = ["sh", "-c", "sleep 60"]\ncodex = []\npi = []\n`,
+    fixture,
+    `import sys,json
+for line in sys.stdin:
+ r=json.loads(line)
+ method=r.get('method')
+ if 'id' not in r: continue
+ result={}
+ if method=='initialize': result={'protocolVersion':r['params']['protocolVersion'],'agentCapabilities':{}}
+ elif method=='session/new': result={'sessionId':'smoke'}
+ elif method=='session/prompt':
+  print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':'smoke','update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'KILN_SMOKE_OK'}}}}),flush=True)
+  result={'stopReason':'end_turn'}
+ print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
+`,
   );
   writeFileSync(
-    join(scratch, "bin", "tmux"),
-    `#!/bin/sh\nif [ "$1" = -L ] && [ "$2" = kiln ]; then\n  shift 2\n  exec ${quote(tmux)} -L ${quote(inner)} "$@"\nfi\nexec ${quote(tmux)} "$@"\n`,
-    { mode: 0o755 },
+    join(env.XDG_CONFIG_HOME, "kiln", "config.toml"),
+    `cloud = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\npi = []\n`,
   );
   // The directory picker returns a fixture path; the agent is sleep, so no provider is contacted.
   writeFileSync(join(scratch, "bin", "fzf"), `#!/bin/sh\nprintf '%s\\n' ${quote(scratch)}\n`, { mode: 0o755 });
   if (!run([executable, "--version"]).startsWith("kiln ")) throw new Error("binary version failed");
   run([executable, "status"]);
   run([executable, "skills", "sync"]);
-  run([executable, "pi", "install"]);
-  if (
-    !readFileSync(join(scratch, ".pi", "agent", "extensions", "kiln-remote.js"), "utf8").includes(
-      "kiln-managed Pi remote extension",
-    )
-  )
-    throw new Error("bundled Pi extension is missing");
   const installedSkills = JSON.parse(run([executable, "skills", "list"])).skills;
   for (const name of ["kiln-config", "kiln-skills"]) {
     const skill = installedSkills.find((entry: { name: string }) => entry.name === name);
@@ -99,21 +106,20 @@ try {
   run([tmux, "-L", outer, "send-keys", "-t", "list", "n"]);
   await waitFor(capture, "pick a directory");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "Enter"]);
-  await waitFor(() => run([tmux, "-L", inner, "list-sessions", "-F", "#{session_name}"]), "claude-");
-  const status = await waitFor(() => run([tmux, "-L", inner, "show-option", "-gv", "status-right"]), executable);
-  if (!status.includes("status")) throw new Error("status bar does not invoke the installed binary");
-  if (run([tmux, "-L", inner, "show-option", "-gv", "prefix"]).trim() !== "None")
-    throw new Error("embedded tmux configuration was not applied");
-  await waitFor(() => run([tmux, "-L", inner, "list-keys", "-T", "root"]), "detach-client");
-  const client = (await waitFor(() => run([tmux, "-L", inner, "list-clients", "-F", "#{client_tty}"]), "/")).trim();
-  run([tmux, "-L", inner, "detach-client", "-t", client]);
+  await waitFor(capture, "Ready");
+  const health = await fetch("http://localhost/health", { unix: socket });
+  hostPid = ((await health.json()) as { pid: number }).pid;
+  run([tmux, "-L", outer, "send-keys", "-t", "list", "hello", "Enter"]);
+  await waitFor(capture, "KILN_SMOKE_OK");
+  run([tmux, "-L", outer, "send-keys", "-t", "list", "Escape"]);
   await waitFor(capture, "q quit");
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
   console.log(
-    "binary version, status, bundled skills and Pi extension, native TUI, embedded tmux configuration, status executable and detach passed",
+    "binary version, status, bundled skills, ACP session host, prompt, conversation and return to list passed",
   );
 } finally {
-  for (const server of [outer, inner])
+  if (hostPid) process.kill(hostPid, "SIGTERM");
+  for (const server of [outer])
     Bun.spawnSync([tmux, "-L", server, "kill-server"], { stdout: "ignore", stderr: "ignore" });
   rmSync(scratch, { recursive: true, force: true });
 }

@@ -1,14 +1,14 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { acpRequest } from "./acp-host";
 import { runSessionAction, sessionAction } from "./actions";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
-import { focus } from "./kitty";
-import { turnNotifications } from "./notifications";
+import { ConversationView } from "./conversation-view";
 import { sessionKey, sessionRows, sessionTitle } from "./session-list";
 import { sessionSorts } from "./session-sort";
 import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
@@ -28,6 +28,7 @@ const color = {
   orange: "#e78a53",
   teal: "#5f8787",
   peach: "#fbcb97",
+  yellow: "#e5c46b",
   red: "#c75a5a",
   green: "#6a9955",
   purple: "#9d7cd8",
@@ -56,13 +57,26 @@ function age(time: number | undefined, now: number): string {
 function activityColor(activity: Activity | undefined): string {
   switch (activity) {
     case "working":
-      return color.green;
-    case "waiting":
-      return color.peach;
-    case "idle":
       return color.fgDim;
+    case "waiting":
+      return color.yellow;
+    case "idle":
+      return color.green;
     case undefined:
       return color.comment;
+  }
+}
+
+function statusHint(session: Session): string {
+  switch (session.activity) {
+    case "working":
+      return "working";
+    case "waiting":
+      return "needs your input";
+    case "idle":
+      return "ready for a prompt";
+    case undefined:
+      return session.place.kind === "acp" ? "ACP connection lost" : "status unavailable from provider";
   }
 }
 
@@ -74,34 +88,6 @@ function label(session: Session): string {
 function fit(value: string, width: number, cut: "start" | "end"): string {
   if (value.length <= width) return value;
   return cut === "start" ? `…${value.slice(value.length - width + 1)}` : `${value.slice(0, width - 1)}…`;
-}
-
-function sessionName(agent: Agent, cwd: string): string {
-  // tmux reserves `.` and `:` in target names.
-  const repo = basename(cwd).replace(/[^A-Za-z0-9_-]/g, "-");
-  return `${agent}-${repo}-${crypto.randomUUID().slice(0, 4)}`;
-}
-
-/**
- * The command a new session starts with. Claude takes remote control per
- * session; Codex has it on the shared daemon its TUI connects to, which kiln
- * starts (or finds running) first. Pi has no remote control.
- */
-function launch(agent: Agent, settings: Settings): { argv: string[]; problem?: string } {
-  const argv = settings.agents[agent];
-  if (!settings.remoteControl) return { argv };
-  switch (agent) {
-    case "claude":
-      return { argv: argv.includes("--remote-control") ? argv : [...argv, "--remote-control"] };
-    case "codex": {
-      const daemon = Bun.spawnSync(["codex", "remote-control", "start"], { stdout: "ignore", stderr: "pipe" });
-      return daemon.exitCode === 0
-        ? { argv }
-        : { argv, problem: `codex remote control did not start: ${daemon.stderr.toString().trim()}` };
-    }
-    case "pi":
-      return { argv };
-  }
 }
 
 function untilde(path: string): string {
@@ -146,6 +132,7 @@ type AppProps = {
 };
 
 export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" }: AppProps) {
+  const [conversationId, getConversationId, setConversationId] = useLatest<string | undefined>(undefined);
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -162,7 +149,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
-  const notifications = useRef(turnNotifications());
 
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
@@ -171,7 +157,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const loaded = await (loadSessions
         ? loadSessions()
         : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
-      if (!loadSessions) notifications.current(loaded, getSettings().notifications);
       const before = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
         row.kind === "session" ? [row.session] : [],
       );
@@ -183,7 +168,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
       setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
     } catch {
-      setNotice("session discovery failed; showing the last successful list");
+      setSessions((last) =>
+        last.map((session) => (session.place.kind === "acp" ? { ...session, activity: undefined } : session)),
+      );
+      setNotice("ACP host unavailable; showing the last successful list");
     } finally {
       refreshing.current = false;
     }
@@ -234,22 +222,13 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const open = useCallback(
     async (session: Session) => {
       switch (session.place.kind) {
-        case "kiln":
-          return handOver(session.place.name);
-        case "kitty":
-          if (!focus(session.place.socket, session.place.windowId)) setNotice("kitty would not focus that window");
+        case "acp":
+          setConversationId(session.place.id);
           return;
-        case "background": {
-          // One kiln session per background agent, so leaving and coming back finds the same attach.
-          const name = `${session.agent}-bg-${session.place.id.slice(0, 8)}`;
-          if (
-            !exists(name) &&
-            !start(name, session.cwd, session.place.attach, `${session.agent} · ${basename(session.cwd)}`)
-          ) {
-            return setNotice(`could not attach to ${session.agent} in ${tilde(session.cwd)}`);
-          }
-          return handOver(name);
-        }
+        case "kiln":
+        case "kitty":
+        case "background":
+          return setNotice("This session is not managed by kiln");
         case "cloud": {
           if (session.agent === "claude") {
             if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
@@ -279,7 +258,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           );
       }
     },
-    [handOver],
+    [handOver, setConversationId],
   );
 
   const create = useCallback(
@@ -289,15 +268,16 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const cwd = await withTerminal(() => pickDirectory(settings.zoxide ? rankedDirectories() : []));
       if (!cwd) return;
       if (!isDirectory(cwd)) return setNotice(`${tilde(cwd)} is not a directory`);
-      const name = sessionName(agent, cwd);
-      const { argv, problem } = launch(agent, settings);
-      if (!start(name, cwd, argv, `${agent} · ${basename(cwd)}`))
-        return setNotice(`could not start ${agent} in ${tilde(cwd)}`);
-      if (settings.zoxide) recordDirectory(cwd);
-      await handOver(name);
-      if (problem) setNotice(problem);
+      try {
+        const session = await acpRequest<Session>("/sessions", { agent, cwd });
+        if (settings.zoxide) recordDirectory(cwd);
+        if (session.id) setConversationId(session.id);
+        await refresh();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "Could not start ACP session");
+      }
     },
-    [getSettings, handOver, withTerminal],
+    [getSettings, withTerminal, refresh, setConversationId],
   );
 
   /** Settings are a file: open it in $EDITOR, then re-read it, keeping the old ones if the edit does not parse. */
@@ -339,7 +319,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   );
 
   useKeyboard((key) => {
-    if (getSkillsProject() !== undefined) return;
+    if (getSkillsProject() !== undefined || getConversationId() !== undefined) return;
     // Shadow the render values with the latest ones; see useLatest.
     const mode = getMode();
     const agentIndex = getAgentIndex();
@@ -443,6 +423,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     }
   });
 
+  if (conversationId) return <ConversationView id={conversationId} onBack={() => setConversationId(undefined)} />;
+
   if (skillsProject !== undefined)
     return (
       <SkillsView
@@ -462,7 +444,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       />
     );
 
-  const titleWidth = Math.max(1, width - 26);
+  const titleWidth = Math.max(1, width - 37);
+  const needsInput = sessions.filter((session) => session.activity === "waiting").length;
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
@@ -474,36 +457,42 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           {" "}
           {visible.length} tasks · {order === "project" ? "directory / task" : order.replaceAll("_", " ")}
         </span>
+        {needsInput ? <span fg={color.yellow}> · {needsInput} need input</span> : null}
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
       </text>
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"task".padEnd(titleWidth + 2)}${"status".padEnd(9)}${"updated".padStart(8)}`}
+            {`  ${"harness".padEnd(8)}${"task".padEnd(titleWidth + 2)}${"status".padEnd(12)}${"updated".padStart(8)}`}
           </text>
         ) : null}
         {visible.length ? (
           rows.slice(firstRow, firstRow + pageSize).map((row) => {
             if (row.kind === "header")
               return (
-                <text key={row.key} fg={color.fgBright} attributes={1}>
+                <text key={row.key} fg={color.orange} attributes={1}>
                   {fit(row.directory ? tilde(row.directory) : row.name, Math.max(1, width - 2), "end")}
                 </text>
               );
             const { session, depth, children } = row;
             const active = session === current;
-            const unavailable = session.place.kind === "elsewhere";
             const title = `${depth ? "↳ " : ""}${sessionTitle(session)}${children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : ""}`;
             return (
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={unavailable ? color.comment : active ? color.peach : color.orange}>
+                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(8)}</span>
+                  <span fg={activityColor(session.activity)}>
                     {fit(title, titleWidth, "end").padEnd(titleWidth)}
                     {"  "}
                   </span>
-                  <span fg={unavailable ? color.comment : activityColor(session.activity)}>
-                    {(session.activity ?? "unknown").padEnd(9)}
+                  <span fg={activityColor(session.activity)}>
+                    {(session.activity === "waiting"
+                      ? "needs input"
+                      : session.activity === "idle"
+                        ? "ready"
+                        : (session.activity ?? "unknown")
+                    ).padEnd(12)}
                   </span>
                   <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span>
                 </text>
@@ -531,7 +520,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · cannot open this child" : ""}`,
+            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${statusHint(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}${current.place.kind === "elsewhere" ? " · outside kiln and kitty" : ""}`,
             Math.max(1, width - 2),
             "end",
           )}
@@ -539,23 +528,25 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       ) : null}
       <text wrapMode="none" fg={notice ? color.peach : color.comment}>
         {mode === "confirm"
-          ? hints(mode, pendingSession)
+          ? hints(mode, pendingSession, width)
           : notice ||
             (settings.cloud
               ? [cloudSnapshot(false).problem, settings.claudeCloud ? claudeCloudSnapshot(false).problem : ""]
                   .filter(Boolean)
                   .join(" · ")
               : "") ||
-            hints(mode, current)}
+            hints(mode, current, width)}
       </text>
     </box>
   );
 }
 
-function hints(mode: Mode, current: Session | undefined): string {
+function hints(mode: Mode, current: Session | undefined, width: number): string {
   const action = current ? sessionAction(current) : undefined;
   switch (mode) {
     case "normal":
+      if (width < 45) return "enter open · q quit";
+      if (width < 80) return "enter open · / filter · n new · q quit";
       return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · q quit`;
     case "filter":
       return "type to filter · enter keep · esc clear";

@@ -5,6 +5,7 @@ import { type Session, sessionParents } from "./sessions";
 export function sessionKey(session: Session): string {
   if (session.pid !== undefined) return `pid:${session.pid}`;
   switch (session.place.kind) {
+    case "acp":
     case "cloud":
     case "background":
       return `${session.agent}:${session.place.kind}:${session.place.id}`;
@@ -41,7 +42,7 @@ export function sessionRows(
   const canShow = (session: Session): boolean => {
     const path: Session[] = [];
     let parent: Session | undefined = session;
-    while (parent && parent.place.kind === "elsewhere" && !shown.has(parent)) {
+    while (parent && parent.place.kind === "elsewhere" && parent.activity !== "waiting" && !shown.has(parent)) {
       path.push(parent);
       parent = allParents.get(parent);
     }
@@ -62,7 +63,7 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""} ${session.activity === "waiting" ? "needs input" : session.activity === "idle" ? "ready" : ""} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
   const matching = new Set(eligible.filter(matches));

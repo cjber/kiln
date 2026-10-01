@@ -19,6 +19,7 @@ fun MachinesScreen(
     selected: String,
     machines: List<String>,
     status: String,
+    selectedIndex: Int,
     select: (Int) -> Unit,
     reconnect: () -> Unit,
     pair: () -> Unit,
@@ -43,7 +44,7 @@ fun MachinesScreen(
             )
         }
         itemsIndexed(machines) { index, machine ->
-            val active = machine == selected
+            val active = index == selectedIndex
             Card(
                 onClick = { select(index) },
                 colors =

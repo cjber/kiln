@@ -13,6 +13,10 @@ verbatim.
 
 - **Return from sessions without the detach flash.** Kiln suppresses tmux's exit message, batches attachment settings and reports attachment failures inside the list.
 
+- **ACP sessions replace native discovery.** Kiln owns local Claude, Codex and Pi sessions through ACP. Terminal and phone clients share conversation, progress, prompt and approval controls. External native sessions are no longer listed. Old default agent commands migrate automatically; custom commands must launch ACP adapters. Update the Android app alongside kiln.
+
+- **Input requests are visible.** Directory headings use orange, input requests use yellow, ready titles use muted green, and working titles are subdued. Desktop notifications identify input requests and completed turns.
+
 ## [0.5.0] - 2026-09-30
 
 - **Android uses a compact session list.** Two-line rows show agent logos, activity, project and relative age. Search and named filters sit in the toolbar; pairing, machine management and Pi conversations use the same light and dark themes.

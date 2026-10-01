@@ -4,7 +4,7 @@ import { defaults, parseSettings } from "./settings";
 
 test("a partial file overrides only what it names", () => {
   const settings = parseSettings(
-    `status_bar = false\ncloud = false\nnotifications = false\n[agents]\nclaude = ["claude", "--dangerously-skip-permissions"]\npi = []\n`,
+    `status_bar = false\ncloud = false\nnotifications = false\n[agents]\nclaude = ["claude-agent-acp", "--model"]\npi = []\n`,
     "config.toml",
   );
   expect(settings.cloud).toBe(false);
@@ -14,7 +14,7 @@ test("a partial file overrides only what it names", () => {
   expect(settings.statusBar).toBe(false);
   expect(settings.remoteControl).toBe(true);
   expect(settings.detachKey).toBe(defaults.detachKey);
-  expect(settings.agents.claude).toEqual(["claude", "--dangerously-skip-permissions"]);
+  expect(settings.agents.claude).toEqual(["claude-agent-acp", "--model"]);
   expect(settings.agents.codex).toEqual(defaults.agents.codex);
   expect(settings.agents.pi).toEqual([]);
 });

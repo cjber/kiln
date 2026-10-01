@@ -22,23 +22,26 @@ class ScreenshotActivity : ComponentActivity() {
         setContent {
             KilnTheme {
                 if (screen == "pi")
-                    PiConversation(
+                    ConversationView(
                         "Demo",
                         "Review the release",
-                        PiSnapshot(
+                        ConversationSnapshot(
                             "fixture",
                             1,
                             "Review the release",
                             "idle",
                             listOf(
-                                PiMessage("user", "Check the release notes and package assets."),
-                                PiMessage(
+                                ConversationMessage(
+                                    "user",
+                                    "Check the release notes and package assets.",
+                                ),
+                                ConversationMessage(
                                     "assistant",
                                     "Both Linux binaries and the signed Android APK are ready. The package checks passed.",
                                 ),
                             ),
                             false,
-                            "Extension dialogs must be answered in the local terminal",
+                            "Approvals appear here when the agent needs input",
                             demoNow,
                         ),
                         true,
@@ -91,6 +94,13 @@ class ScreenshotActivity : ComponentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus)
+            WindowCompat.getInsetsController(window, window.decorView)
+                .hide(WindowInsetsCompat.Type.systemBars())
+    }
+
     companion object {
         const val READY = "KILN_SCREENSHOT_READY"
     }
@@ -118,7 +128,7 @@ private fun demo(
         cwd,
         branch,
         activity,
-        "kiln",
+        "acp",
         demoNow - started * 60_000,
         demoNow - minutes * 60_000,
         when (agent) {
@@ -129,7 +139,7 @@ private fun demo(
         "Demo",
         agent != "codex",
         parent,
-        agent == "pi",
+        true,
     )
 
 private val demoRows =

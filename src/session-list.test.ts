@@ -57,3 +57,9 @@ test("directory groups sort by name and retain latest updates inside each group"
   expect(rows.filter((row) => row.kind === "header").map((row) => row.name)).toEqual(["atlas", "blog"]);
   expect(entries(rows)).toEqual([4, 1, 5]);
 });
+
+test("input requests remain visible outside managed terminals and match their displayed status", () => {
+  const orphan: Session = { ...child, pid: 3, parentSessionPid: undefined, activity: "waiting" };
+  expect(entries(sessionRows([orphan], "project", "needs input", new Set()))).toEqual([3]);
+  expect(entries(sessionRows([{ ...orphan, activity: "idle" }], "project", "", new Set()))).toEqual([]);
+});

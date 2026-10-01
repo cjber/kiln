@@ -101,7 +101,7 @@ fun SessionCard(
     restore: (() -> Unit)? = null,
 ) {
     val row = item.row
-    val openable = row.url != null || row.piRemote
+    val openable = row.url != null || row.acpRemote
     Card(
         onClick = if (openable) open else details,
         modifier = Modifier.fillMaxWidth().padding(start = if (item.depth > 0) 16.dp else 0.dp),
@@ -120,6 +120,7 @@ fun SessionCard(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     row.title,
+                    color = activityColor(row.activity),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,

@@ -8,6 +8,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.5.1",
     "@opentui/core": "^0.5.12",
     "@opentui/react": "^0.5.12",
     "qrcode": "1.5.4",

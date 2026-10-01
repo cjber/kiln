@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
+import type { Conversation } from "./acp";
+import { acpRequest } from "./acp-host";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
-import { codexRemoteHost } from "./codex";
 import { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
-import { bridgeFor, type PiState, piRequest } from "./pi";
 import { sessionTitle } from "./session-list";
 import { listSessions, type Session, sessionParents } from "./sessions";
 import { loadSettings } from "./settings";
@@ -14,7 +14,7 @@ function phoneId(session: Session): string {
   return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
 }
 
-export function phoneSession(session: Session, parent?: Session, codexHost?: string) {
+export function phoneSession(session: Session, parent?: Session) {
   return {
     id: phoneId(session),
     parentId: parent ? phoneId(parent) : undefined,
@@ -26,8 +26,8 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: session.place.kind,
-    piRemote: session.piRemote === true,
-    handoff: phoneHandoff(session, codexHost),
+    acpRemote: session.place.kind === "acp",
+    handoff: phoneHandoff(session),
   };
 }
 
@@ -36,9 +36,6 @@ export function startServer({
   pairing = new Pairing(),
   load = () => listSessions(loadSettings()),
   interval = 2_000,
-  readCodexHost = codexRemoteHost,
-  controlPi = (session: Session, command: object, requestId?: string) =>
-    piRequest<PiState>(bridgeFor(session.pid), command, 500, requestId),
 } = {}) {
   const instance = randomUUID();
   let snapshot = {
@@ -95,42 +92,58 @@ export function startServer({
       const token = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
       const device = token ? pairing.authenticate(token) : null;
       if (!token || !device) return response({ error: "Device is not paired" }, 401);
-      const piRoute = path.match(/^\/v1\/pi\/([A-Za-z0-9_-]{1,128})$/);
-      if (piRoute) {
-        const session = liveSessions.find((row) => row.agent === "pi" && row.id === piRoute[1] && row.piRemote);
-        if (!session) return response({ error: "Pi remote session is unavailable" }, 404);
+      const acpRoute = path.match(/^\/v1\/acp\/([A-Za-z0-9-]{1,128})$/);
+      if (acpRoute) {
+        const session = liveSessions.find((row) => row.place.kind === "acp" && row.id === acpRoute[1]);
+        if (!session) return response({ error: "ACP session is unavailable" }, 404);
         try {
           if (request.method === "GET") {
-            const state = await controlPi(session, {
-              type: "get_state",
-              sessionId: session.id,
-              transcript: true,
-              writer: device.id,
+            const conversation = await acpRequest<Conversation>(`/sessions/${session.id}`);
+            return response({
+              instance,
+              sequence: conversation.session.lastActiveAt ?? conversation.session.startedAt,
+              title: conversation.session.title,
+              activity: conversation.session.activity ?? "unknown",
+              messages: conversation.messages
+                .slice(-40)
+                .map((message) => ({ ...message, text: message.text.slice(-4000) })),
+              localAction: conversation.problem ?? "",
+              approvals: conversation.approvals,
+              updatedAt: conversation.session.lastActiveAt,
             });
-            return response({ ...state, ownWriter: state.writer === device.id });
           }
           if (request.method !== "POST") return response({ error: "Method not supported" }, 405);
           if (!request.headers.get("Content-Type")?.startsWith("application/json"))
             return response({ error: "Expected JSON" }, 415);
-          const body = (await request.json()) as { type?: string; message?: string; id?: string };
-          if (
-            !body ||
-            !["prompt", "abort"].includes(body.type ?? "") ||
-            typeof body.id !== "string" ||
-            !/^[0-9a-f-]{36}$/.test(body.id) ||
-            (body.type === "prompt" &&
-              (typeof body.message !== "string" || !body.message.trim() || Buffer.byteLength(body.message) > 3500))
-          )
-            return response({ error: "Expected a prompt or abort command with a request ID" }, 400);
-          await controlPi(
-            session,
-            { type: body.type, message: body.message, sessionId: session.id, writer: device.id },
-            body.id,
-          );
+          const body = (await request.json()) as {
+            type?: string;
+            message?: string;
+            approvalId?: string;
+            optionId?: string;
+          };
+          switch (body.type) {
+            case "prompt":
+              if (typeof body.message !== "string" || Buffer.byteLength(body.message) > 3500)
+                return response({ error: "Invalid prompt" }, 400);
+              await acpRequest(`/sessions/${session.id}/prompt`, { text: body.message });
+              break;
+            case "abort":
+              await acpRequest(`/sessions/${session.id}/cancel`, {});
+              break;
+            case "approve":
+              if (typeof body.approvalId !== "string" || typeof body.optionId !== "string")
+                return response({ error: "Invalid approval" }, 400);
+              await acpRequest(`/sessions/${session.id}/approve`, {
+                approvalId: body.approvalId,
+                optionId: body.optionId,
+              });
+              break;
+            default:
+              return response({ error: "Invalid command" }, 400);
+          }
           return response({ success: true });
         } catch (error) {
-          if (error instanceof SyntaxError) return response({ error: "Invalid Pi command JSON" }, 400);
-          return response({ error: error instanceof Error ? error.message : "Pi command failed" }, 409);
+          return response({ error: error instanceof Error ? error.message : "ACP request failed" }, 409);
         }
       }
       if (request.method === "GET" && path === "/v1/sessions") return response(snapshot);
@@ -167,7 +180,7 @@ export function startServer({
     if (refreshing) return;
     refreshing = true;
     try {
-      const [sessions, codexHost] = await Promise.all([load(), readCodexHost()]);
+      const sessions = await load();
       liveSessions = sessions;
       const parents = sessionParents(sessions);
       snapshot = {
@@ -177,20 +190,21 @@ export function startServer({
         sessions: [
           ...new Map(
             sessions.map((session) => {
-              const row = phoneSession(session, parents.get(session), codexHost.id);
+              const row = phoneSession(session, parents.get(session));
               return [row.id, row] as const;
             }),
           ).values(),
         ],
-        problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem, codexHost.problem]
-          .filter(Boolean)
-          .join("; "),
+        problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem].filter(Boolean).join("; "),
       };
     } catch {
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
-        problem: "Session discovery failed; showing the last successful list",
+        problem: "Session host unavailable; showing the last successful list",
+        sessions: snapshot.sessions.map((session) =>
+          session.where === "acp" ? { ...session, activity: undefined } : session,
+        ),
       };
     } finally {
       refreshing = false;

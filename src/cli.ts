@@ -9,23 +9,27 @@ const usage = `usage: kiln            open the session list
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
        kiln skills list|share|sync    manage shared skills
-       kiln pi install            enable remote control for future Pi sessions
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */
 export async function runCli(args: string[]): Promise<number | undefined> {
   const [command] = args;
   if (command === undefined) return undefined;
-  if (command === "pi") {
-    try {
-      if (args.length !== 2 || args[1] !== "install") throw new Error("usage: kiln pi install");
-      const { installPiExtension } = await import("./pi-install");
-      console.log(`Installed ${installPiExtension()}; restart Pi sessions to enable remote control`);
+  if (command === "acp-host") {
+    const { ensureAcpHost, startAcpHost } = await import("./acp-host");
+    if (args.length === 1) {
+      await ensureAcpHost();
       return 0;
-    } catch (error) {
-      console.error(`kiln: ${error instanceof Error ? error.message : "Pi extension installation failed"}`);
-      return 2;
     }
+    if (args.length !== 2 || args[1] !== "--locked") throw new Error("Invalid ACP host invocation");
+    const host = startAcpHost({ locked: true });
+    const stop = () => {
+      host.stop();
+      process.exit(0);
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    await new Promise(() => {});
   }
   if (command === "skills") {
     try {
@@ -46,6 +50,8 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         const port = args[2] ? Number(args[2]) : 7437;
         if (port < 1 || port > 65535) throw new Error("port must be between 1 and 65535");
         loadSettings();
+        const { ensureAcpHost } = await import("./acp-host");
+        await ensureAcpHost();
         const { startServer } = await import("./server");
         const pairing = new Pairing();
         const server = startServer({ port, pairing });
@@ -102,7 +108,9 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     return 0;
   }
   if (command === "status") {
-    console.log(summarise(await listSessions({ kitty: false })));
+    const { ensureAcpHost } = await import("./acp-host");
+    await ensureAcpHost();
+    console.log(summarise(await listSessions()));
     return 0;
   }
   if (command === "--help" || command === "-h") {

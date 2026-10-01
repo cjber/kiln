@@ -1,6 +1,6 @@
 ---
 name: kiln-config
-description: Change kiln's session list, agent launch commands, cloud discovery and tmux settings using its strict TOML configuration.
+description: Change kiln's session list, ACP adapter commands, cloud discovery and tmux settings using its strict TOML configuration.
 ---
 
 # Configure kiln
@@ -15,13 +15,13 @@ Supported top-level settings:
   `directory` (full paths), `last_active`, `age` (oldest first), or `harness`.
 - `detach_key`: tmux key syntax, default `C-q`.
 - `status_bar`, `zoxide`, `remote_control`, `cloud`, `notifications`: booleans, default `true`.
-- `notifications` uses `notify-send` when an observed working turn reaches idle.
+- `notifications` uses `notify-send` for input requests and completed observed turns.
   It requires a desktop notification service; approval pauses are not completion.
 - `claude_cloud`: boolean, default `false`; uses Claude's internal cloud API and
   existing login. Enable alongside `cloud` for Claude cloud rows.
 - `[agents]`: `claude`, `codex` and `pi` are arrays of command arguments. An empty
   array hides that harness from new-session choices. Keep arguments separate;
-  these are executed directly, not through a shell.
+  these are executed directly, not through a shell. Commands must speak ACP over stdio; defaults are `claude-agent-acp`, `codex-acp` and `pi-acp`. Native `claude`, `codex` and `pi` commands are rejected.
 
 `kiln status` loads and validates the file without taking the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
@@ -36,6 +36,7 @@ The bundled skill is maintained by kiln. `kiln skills sync` refreshes it from th
 installed executable; TUI startup does the same. To customise these instructions,
 copy them into a separately named user or project skill.
 
-For Pi phone control, run `kiln pi install` and restart Pi. This is separate from
-the remote_control setting. Paired users can read recent text, send prompts and
-stop turns; dialogs still require the local terminal.
+Local sessions are owned by kiln's ACP host. The TUI and paired phone share prompts,
+progress, turn cancellation and exact permission choices for all three agents.
+External native sessions are not discovered. `remote_control` is a legacy accepted
+key; control now uses ACP. `detach_key` and `status_bar` apply to the Codex Cloud viewer.

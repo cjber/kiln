@@ -1,6 +1,6 @@
+import { ensureAcpHost } from "./acp-host";
 import { syncBundledSkills } from "./bundled-skills";
 import { runCli } from "./cli";
-import { installPiExtension } from "./pi-install";
 import { loadSettings, type Settings } from "./settings";
 
 const cliExitCode = await runCli(process.argv.slice(2));
@@ -17,9 +17,10 @@ try {
 
 const skillProblems = syncBundledSkills();
 try {
-  installPiExtension(undefined, true);
+  await ensureAcpHost();
 } catch (error) {
-  skillProblems.push(error instanceof Error ? error.message : "Cannot update the Pi extension");
+  console.error(`kiln: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
 }
 const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
   import("@opentui/core"),
