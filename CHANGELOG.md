@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-01
+
 - **Fix Android conversation crashes.** Closing a conversation cleans up HTTPS connections off the UI thread.
 
 - **Prepare Android for Google Play.** Releases include a signed app bundle. An offline demo shows sample sessions and approval controls without pairing; the privacy policy is readable before connecting.
