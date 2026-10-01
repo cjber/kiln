@@ -22,10 +22,10 @@ test("ACP directories refresh their current branch without discovering external 
   const server = Bun.serve({ unix: socket, fetch: () => Response.json([session]) });
   Bun.env.KILN_ACP_SOCKET = socket;
   try {
-    expect((await listSessions())[0]?.branch).toBe("initial");
+    expect((await listSessions({ native: false }))[0]?.branch).toBe("initial");
     writeFileSync(join(git, "HEAD"), "ref: refs/heads/changed\n");
-    expect((await listSessions())[0]?.branch).toBe("changed");
-    expect(await listSessions()).toHaveLength(1);
+    expect((await listSessions({ native: false }))[0]?.branch).toBe("changed");
+    expect(await listSessions({ native: false })).toHaveLength(1);
   } finally {
     server.stop(true);
     if (before === undefined) delete Bun.env.KILN_ACP_SOCKET;

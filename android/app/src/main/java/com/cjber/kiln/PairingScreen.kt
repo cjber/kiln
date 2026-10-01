@@ -135,7 +135,7 @@ fun PairingScreen(
                     ) {
                         Text("First time setting up?", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Create a pairing invitation on your computer. It expires after five minutes and works once.",
+                            "Run kiln serve on your computer, then scan its QR code. The invitation expires after five minutes and works once.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -144,30 +144,28 @@ fun PairingScreen(
                         }
                         if (instructions) {
                             Text(
-                                "1. Start the phone server",
+                                "1. Connect your computer and phone to Tailscale",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            Text(
+                                "Sign in to the same Tailscale network on both devices.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "2. Start phone access on your computer",
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             Text(
                                 "kiln serve",
                                 fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Text(
-                                "2. Expose it over your Tailscale connection",
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            Text(
-                                "tailscale serve --bg http://127.0.0.1:7437",
-                                fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
-                                "3. Create your invitation using the HTTPS URL from Tailscale",
+                                "3. Scan the QR code shown on your computer",
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             Text(
-                                "kiln pair <https-url> --qr",
-                                fontFamily = FontFamily.Monospace,
+                                "Keep kiln serve running while using your phone. You can also paste its invitation above.",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }

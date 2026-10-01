@@ -28,7 +28,7 @@ jobs:
       - run: bun scripts/build.ts
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Check session navigation and terminal handoffs
-        run: bun scripts/list-tui-e2e.ts && bun scripts/acp-tui-e2e.ts && bun scripts/acp-host-e2e.ts
+        run: bun scripts/list-tui-e2e.ts && bun scripts/acp-tui-e2e.ts && bun scripts/acp-host-e2e.ts && bun scripts/native-tui-e2e.ts
       - name: Exercise the native executable outside the checkout
         env:
           ARCH: ${{ matrix.arch }}

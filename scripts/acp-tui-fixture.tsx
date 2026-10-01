@@ -16,4 +16,6 @@ const quit = () => {
   process.exit(0);
 };
 process.once("SIGTERM", quit);
-createRoot(renderer).render(<App initialSettings={loadSettings()} onQuit={quit} />);
+createRoot(renderer).render(
+  <App initialSettings={loadSettings()} onQuit={quit} loadSessions={() => acpRequest<Session[]>("/sessions")} />,
+);

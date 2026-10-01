@@ -7,7 +7,14 @@ export function sessionKey(session: Session): string {
   switch (session.place.kind) {
     case "acp":
     case "cloud":
+    case "background":
       return `${session.agent}:${session.place.kind}:${session.place.id}`;
+    case "kiln":
+      return `kiln:${session.place.name}`;
+    case "kitty":
+      return `kitty:${session.place.socket}:${session.place.windowId}`;
+    case "elsewhere":
+      return `${session.agent}:${session.id ?? session.startedAt}`;
   }
 }
 

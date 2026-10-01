@@ -57,7 +57,7 @@ try:
     device("shell", "settings", "put", "global", "transition_animation_scale", "0")
     device("shell", "settings", "put", "global", "animator_duration_scale", "0")
     device("install", "-r", str(root / "android/app/build/outputs/apk/debug/app-debug.apk"))
-    for screen, marker in [("list", "Cache map tiles"), ("pair", "Pairing invitation"), ("pi", "Check the changelog next")]:
+    for screen, marker in [("list", "Cache map tiles"), ("pair", "Pairing invitation"), ("handoff", "Open in Claude")]:
         device("shell", "am", "force-stop", "com.cjber.kiln")
         device("shell", "am", "start", "-W", "-n", "com.cjber.kiln/.ScreenshotActivity", "--es", "screen", screen)
         for _ in range(15):
@@ -74,7 +74,7 @@ try:
             print(device("shell", "cat", "/sdcard/kiln-screenshot.xml"))
             print(device("logcat", "-d", "-s", "AndroidRuntime:E", "KilnScreenshot:I"))
             raise RuntimeError(f"Seeded {screen} screen never became visible")
-        output = root / "assets" / {"list": "android-list.png", "pair": "android-pairing.png", "pi": "android-pi.png"}[screen]
+        output = root / "assets" / {"list": "android-list.png", "pair": "android-pairing.png", "handoff": "android-handoff.png"}[screen]
         output.write_bytes(subprocess.check_output([adb, "-s", serial, "exec-out", "screencap", "-p"]))
         print(output.relative_to(root))
 finally:

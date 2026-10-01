@@ -21,36 +21,8 @@ class ScreenshotActivity : ComponentActivity() {
         val screen = intent.getStringExtra("screen")
         setContent {
             KilnTheme {
-                if (screen == "pi")
-                    ConversationView(
-                        "Demo",
-                        "Review the release",
-                        ConversationSnapshot(
-                            "fixture",
-                            1,
-                            "Review the release",
-                            "idle",
-                            listOf(
-                                ConversationMessage(
-                                    "user",
-                                    "Check the release notes and package assets.",
-                                ),
-                                ConversationMessage(
-                                    "assistant",
-                                    "Both Linux binaries and the signed Android APK are ready. The package checks passed.",
-                                ),
-                            ),
-                            "Approvals appear here when the agent needs input",
-                            demoNow,
-                        ),
-                        true,
-                        "",
-                        "Check the changelog next",
-                        {},
-                        false,
-                        {},
-                        {},
-                    )
+                if (screen == "handoff")
+                    SessionDetails(demoRows.first(), demoNow, {}, {}, {}, false, {})
                 else if (screen == "pair")
                     PairingScreen(
                         error = "",
@@ -127,7 +99,7 @@ private fun demo(
         cwd,
         branch,
         activity,
-        "acp",
+        if (agent == "pi") "acp" else "kiln",
         demoNow - started * 60_000,
         demoNow - minutes * 60_000,
         when (agent) {
@@ -138,7 +110,6 @@ private fun demo(
         "Demo",
         agent != "codex",
         parent,
-        true,
     )
 
 private val demoRows =

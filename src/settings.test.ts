@@ -4,7 +4,7 @@ import { defaults, parseSettings } from "./settings";
 
 test("a partial file overrides only what it names", () => {
   const settings = parseSettings(
-    `status_bar = false\ncloud = false\nnotifications = false\n[agents]\nclaude = ["claude-agent-acp", "--model"]\npi = []\n`,
+    `status_bar = false\ncloud = false\nnotifications = false\n[agents]\nclaude = ["claude", "--model"]\npi = []\n`,
     "config.toml",
   );
   expect(settings.cloud).toBe(false);
@@ -14,7 +14,7 @@ test("a partial file overrides only what it names", () => {
   expect(settings.statusBar).toBe(false);
   expect(settings.remoteControl).toBe(true);
   expect(settings.detachKey).toBe(defaults.detachKey);
-  expect(settings.agents.claude).toEqual(["claude-agent-acp", "--model"]);
+  expect(settings.agents.claude).toEqual(["claude", "--model"]);
   expect(settings.agents.codex).toEqual(defaults.agents.codex);
   expect(settings.agents.pi).toEqual([]);
 });
@@ -35,9 +35,14 @@ test("the README settings example matches the shipped defaults", async () => {
   expect(parseSettings(example?.[1] ?? "", "README.md")).toEqual(defaults);
 });
 
-test("old generated agent defaults migrate while custom native commands fail clearly", () => {
-  expect(parseSettings('[agents]\nclaude = ["claude"]\ncodex = ["codex"]\npi = ["pi"]').agents).toEqual(
+test("generated ACP defaults migrate while custom native arguments remain intact", () => {
+  expect(parseSettings('[agents]\nclaude = ["claude-agent-acp"]\ncodex = ["codex-acp"]\npi = ["pi"]').agents).toEqual(
     defaults.agents,
   );
-  expect(() => parseSettings('[agents]\ncodex = ["codex", "--model", "custom"]')).toThrow("ACP adapter");
+  expect(parseSettings('[agents]\ncodex = ["codex", "--model", "custom"]').agents.codex).toEqual([
+    "codex",
+    "--model",
+    "custom",
+  ]);
+  expect(() => parseSettings('[agents]\ncodex = ["codex-acp", "--model", "custom"]')).toThrow("native TUI");
 });

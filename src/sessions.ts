@@ -10,7 +10,13 @@ export const agents: readonly Agent[] = ["claude", "codex", "pi"];
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
 
-type Place = { kind: "acp"; id: string } | { kind: "cloud"; id: string; title: string; url?: string };
+export type Place =
+  | { kind: "acp"; id: string }
+  | { kind: "kiln"; name: string }
+  | { kind: "kitty"; socket: string; windowId: number }
+  | { kind: "background"; id: string; attach: string[]; stop?: string[] }
+  | { kind: "elsewhere"; source?: string }
+  | { kind: "cloud"; id: string; title: string; url?: string };
 
 export type Session = {
   /** Provider identity and display name, when reported. */
@@ -33,7 +39,7 @@ export type Session = {
   place: Place;
 };
 
-function gitBranch(cwd: string): string | undefined {
+export function gitBranch(cwd: string): string | undefined {
   try {
     for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
       const dotGit = join(dir, ".git");
@@ -56,12 +62,22 @@ function gitBranch(cwd: string): string | undefined {
   return undefined;
 }
 
-export async function listSessions({ cloud = false, claudeCloud = false } = {}): Promise<Session[]> {
+export async function listSessions({
+  cloud = false,
+  claudeCloud = false,
+  native = true,
+  kitty = true,
+} = {}): Promise<Session[]> {
   const { acpRequest } = await import("./acp-host");
+  const { listNativeSessions } = await import("./native-sessions");
   const owned = await acpRequest<Session[]>("/sessions");
+  const observed = native
+    ? await listNativeSessions({ kitty, excludedPids: owned.flatMap((row) => (row.pid ? [row.pid] : [])) })
+    : [];
   return nestSessions(
     [
       ...owned.map((session) => ({ ...session, branch: gitBranch(session.cwd) })),
+      ...observed,
       ...(cloud ? cloudSnapshot().sessions : []),
       ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
     ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),

@@ -81,7 +81,6 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
-        var conversationSession by remember { mutableStateOf<Row?>(null) }
         var state by remember { mutableStateOf("Connecting") }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
         var retry by remember { mutableIntStateOf(0) }
@@ -133,7 +132,6 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(host?.origin) {
             snapshot = null
-            conversationSession = null
             details = null
             handoff = null
         }
@@ -165,14 +163,8 @@ class MainActivity : ComponentActivity() {
                 retry++
             }
         }
-        if (conversationSession != null && host != null && !pairing) {
-            ConversationScreen(host, conversationSession!!, foreground) {
-                conversationSession = null
-            }
-            return
-        }
         fun launch(row: Row) {
-            if (row.acpRemote) conversationSession = row
+            if (row.url == null) details = row
             else if (row.exact) openSession(row) { error = it } else handoff = row
         }
         details?.let { original ->

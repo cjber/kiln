@@ -1,7 +1,6 @@
 # AGENTS.md
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that runs kiln-owned Claude,
-Codex and Pi sessions through ACP, plus read-only cloud discovery. Arch users install it
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude and Codex TUIs and runs Pi through ACP, plus read-only cloud discovery. Arch users install it
 from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
@@ -16,6 +15,7 @@ bun scripts/perf.ts
 bun scripts/list-tui-e2e.ts
 bun scripts/acp-tui-e2e.ts
 bun scripts/acp-host-e2e.ts
+bun scripts/native-tui-e2e.ts
 python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
 ```
@@ -32,8 +32,9 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 ## Layout
 
-- `src/acp.ts`, `src/acp-host.ts` - one owner-only host owns ACP stdio sessions; TUI and phone share its status, progress and approvals. Saved kiln identities are restored through ACP session loading. External native sessions are not discovered.
-- `src/sessions.ts` - owned ACP plus cached cloud rows, branches and provider parent relationships.
+- `src/acp.ts`, `src/acp-host.ts` - one owner-only host preserves Pi and saved ACP sessions. Native Claude/Codex use provider observation, not ACP ownership.
+- `src/sessions.ts` - native sessions, saved ACP plus cached cloud rows, branches and provider parent relationships.
+- `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status.
 - `src/conversation-view.tsx` - OpenTUI conversation, prompt entry and exact approval choices.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
@@ -44,7 +45,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/actions.ts` - close/archive capabilities and execution for each session type.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
-  Paired phones control owned conversations through `/v1/acp/:id`; cloud handoffs use verified provider HTTPS links.
+  Paired phones open provider apps through verified HTTPS links. `/v1/acp/:id` remains for older clients and saved ACP sessions.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.

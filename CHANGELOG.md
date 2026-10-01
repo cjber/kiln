@@ -9,6 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
+- **Desktop sessions use native Claude and Codex TUIs.** Enter attaches or focuses the provider terminal. Kiln observes provider status; existing ACP conversations and Pi keep their shared controls.
+
+- **One command pairs the phone.** `kiln serve` configures Tailscale Serve and prints a pairing QR without replacing another service. Use `--origin` with another HTTPS tunnel or `--local` for localhost only.
+
+- **Phone sessions open provider apps.** Verified Claude and ChatGPT links open the installed app or browser. The phone no longer maintains a separate conversation feed.
+
 ## [0.6.0] - 2026-10-01
 
 - **The kiln icon includes a terminal prompt.** A keystone arch surrounds the prompt in the shared README and Android launcher mark, keeping the oxide and ember colours.

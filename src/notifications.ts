@@ -1,5 +1,21 @@
 import type { Session } from "./sessions";
 
+/** Notify only observed native transitions; missing sessions and unknown states reset tracking. */
+export function nativeNotifications(send = notifySessionEvent) {
+  let previous = new Map<string, Session["activity"]>();
+  return (sessions: readonly Session[], enabled: boolean) => {
+    const next = new Map<string, Session["activity"]>();
+    for (const session of sessions) {
+      if (session.place.kind === "cloud" || session.place.kind === "acp") continue;
+      const key = `${session.agent}:${session.id ?? `${session.pid}:${session.startedAt}`}`;
+      if (enabled && previous.get(key) === "working" && (session.activity === "idle" || session.activity === "waiting"))
+        send(session);
+      next.set(key, session.activity);
+    }
+    previous = enabled ? next : new Map();
+  };
+}
+
 export function notifySessionEvent(session: Session): void {
   const command = Bun.which("notify-send");
   if (!command) return;

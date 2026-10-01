@@ -7,11 +7,11 @@ import configText from "../tmux.conf" with { type: "text" };
 import type { Settings } from "./settings";
 
 /**
- * Kiln's read-only Codex Cloud viewer uses a private tmux server.
- * Ctrl+Q returns to the list without closing that viewer.
+ * Native sessions and the Codex Cloud viewer outlive attachment in a private server.
+ * Ctrl+Q returns to the list without closing the agent.
  */
 const kiln = import.meta.dir.startsWith("/$bunfs/") ? process.execPath : join(import.meta.dir, "..", "bin", "kiln");
-const tmux = ["tmux", "-L", "kiln"];
+const tmux = ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
 let config: string | undefined;
 
 /** tmux reads a real file, including when the configuration is embedded in a standalone executable. */
@@ -27,6 +27,22 @@ function configPath(): string {
 
 function run(...args: string[]): boolean {
   return Bun.spawnSync([...tmux, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+}
+
+export async function panes(): Promise<{ name: string; pid: number }[]> {
+  const format = "#{session_name}\t#{pane_pid}";
+  const process = Bun.spawn([...tmux, "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
+  const timeout = setTimeout(() => process.kill(), 2_000);
+  const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
+  clearTimeout(timeout);
+  if (code) return [];
+  return source
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [name = "", pid] = line.split("\t");
+      return { name, pid: Number(pid) };
+    });
 }
 
 export function exists(name: string): boolean {
@@ -88,4 +104,7 @@ export async function attach(name: string, settings: Settings): Promise<void> {
   });
   const [problem, code] = await Promise.all([new Response(client.stderr).text(), client.exited]);
   if (code) throw new Error(problem.trim() || `tmux attach-session exited with status ${code}`);
+}
+export function kill(name: string): boolean {
+  return run("kill-session", "-t", name);
 }
