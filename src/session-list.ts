@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { type SessionSort, sortSessions } from "./session-sort";
-import { type Session, sessionParent } from "./sessions";
+import { type Session, sessionParents } from "./sessions";
 
 export function sessionKey(session: Session): string {
   if (session.pid !== undefined) return `pid:${session.pid}`;
@@ -36,16 +36,29 @@ export function sessionRows(
   expanded: ReadonlySet<string>,
 ): ListRow[] {
   const ordered = sortSessions(sessions, order);
-  const canShow = (session: Session, seen = new Set<Session>()): boolean => {
-    if (session.place.kind !== "elsewhere") return true;
-    if (seen.has(session)) return false;
-    seen.add(session);
-    const parent = sessionParent(session, ordered);
-    return parent !== undefined && canShow(parent, seen);
+  const allParents = sessionParents(ordered);
+  const shown = new Map<Session, boolean>();
+  const canShow = (session: Session): boolean => {
+    const path: Session[] = [];
+    let parent: Session | undefined = session;
+    while (parent && parent.place.kind === "elsewhere" && !shown.has(parent)) {
+      path.push(parent);
+      parent = allParents.get(parent);
+    }
+    const visible = parent !== undefined && (shown.get(parent) ?? true);
+    for (const child of path) shown.set(child, visible);
+    return visible;
   };
-  const eligible = ordered.filter((session) => canShow(session));
-  const parents = new Map(eligible.map((session) => [session, sessionParent(session, eligible)]));
-  const children = (session: Session) => eligible.filter((child) => parents.get(child) === session);
+  const eligible = ordered.filter(canShow);
+  const parents = sessionParents(eligible);
+  const children = new Map<Session, Session[]>();
+  for (const session of eligible) {
+    const parent = parents.get(session);
+    if (!parent) continue;
+    const group = children.get(parent) ?? [];
+    group.push(session);
+    children.set(parent, group);
+  }
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
@@ -53,13 +66,12 @@ export function sessionRows(
       .toLowerCase()
       .includes(needle);
   const matching = new Set(eligible.filter(matches));
-  for (const session of [...matching]) {
-    const seen = new Set<Session>();
-    for (let parent = parents.get(session); parent && !seen.has(parent); parent = parents.get(parent)) {
-      seen.add(parent);
-      matching.add(parent);
+  if (needle)
+    for (const session of [...matching]) {
+      for (let parent = parents.get(session); parent && !matching.has(parent); parent = parents.get(parent)) {
+        matching.add(parent);
+      }
     }
-  }
   const roots = eligible.filter((session) => !parents.get(session) && matching.has(session));
   const grouped = order === "project" || order === "directory";
   const groups = new Map<string, Session[]>();
@@ -75,12 +87,23 @@ export function sessionRows(
   }
   const rows: ListRow[] = [];
   const seen = new Set<Session>();
-  const append = (session: Session, depth: number) => {
-    if (seen.has(session) || !matching.has(session)) return;
-    seen.add(session);
-    const descendants = children(session).filter((child) => matching.has(child));
-    rows.push({ kind: "session", key: sessionKey(session), session, depth, children: descendants.length });
-    if (expanded.has(sessionKey(session)) || needle) for (const child of descendants) append(child, depth + 1);
+  const append = (root: Session) => {
+    const pending = [{ session: root, depth: 0 }];
+    while (pending.length) {
+      const item = pending.pop();
+      if (!item) continue;
+      const { session, depth } = item;
+      if (seen.has(session) || !matching.has(session)) continue;
+      seen.add(session);
+      const descendants = (children.get(session) ?? []).filter((child) => matching.has(child));
+      const key = sessionKey(session);
+      rows.push({ kind: "session", key, session, depth, children: descendants.length });
+      if (!expanded.has(key) && !needle) continue;
+      for (let index = descendants.length - 1; index >= 0; index--) {
+        const child = descendants[index];
+        if (child) pending.push({ session: child, depth: depth + 1 });
+      }
+    }
   };
   for (const [key, group] of groups) {
     const first = group[0];
@@ -92,7 +115,7 @@ export function sessionRows(
         name: first.place.kind === "cloud" ? first.place.title : basename(first.cwd) || first.cwd,
         directory: first.place.kind === "cloud" ? undefined : first.cwd,
       });
-    for (const session of group) append(session, 0);
+    for (const session of group) append(session);
   }
   return rows;
 }

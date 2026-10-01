@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,11 @@ function owned(path: string, kind: "directory" | "socket" | "file", mode: number
 
 /** Only private descriptors belonging to the same live process may identify a bridge. */
 export function piBridges(root = Bun.env.XDG_RUNTIME_DIR || tmpdir()): PiBridge[] {
-  return readdirSync(root)
+  return verifiedBridges(root, readdirSync(root));
+}
+
+function verifiedBridges(root: string, names: readonly string[]): PiBridge[] {
+  return names
     .filter((name) => name.startsWith("kiln-pi-"))
     .slice(0, 64)
     .flatMap((name) => {
@@ -102,7 +107,9 @@ export function piRequest<T>(
 }
 
 export async function piStates(pids: readonly number[]): Promise<Map<number, PiState>> {
-  const bridges = piBridges().filter((bridge) => pids.includes(bridge.pid));
+  if (!pids.length) return new Map();
+  const root = Bun.env.XDG_RUNTIME_DIR || tmpdir();
+  const bridges = verifiedBridges(root, await readdir(root)).filter((bridge) => pids.includes(bridge.pid));
   const states = await Promise.all(
     bridges.map(async (bridge) => {
       try {
