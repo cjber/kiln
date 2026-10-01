@@ -165,7 +165,17 @@ async function shoot(name: string, keys: string[]): Promise<void> {
     name === "skills" ? (
       <SkillsView project={code("atlas")} onBack={() => {}} edit={async () => {}} loadSkills={() => demoSkills} />
     ) : (
-      <App initialSettings={defaults} onQuit={() => {}} loadSessions={async () => nestSessions(demo)} />
+      <App
+        initialSettings={defaults}
+        onQuit={() => {}}
+        loadSessions={async () =>
+          nestSessions(
+            name === "unavailable"
+              ? demo.map((session, index) => (index ? session : { ...session, activity: undefined }))
+              : demo,
+          )
+        }
+      />
     ),
     {
       width: cols,
@@ -186,7 +196,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 await shoot("list", ["j"]);
-await shoot("unavailable", ["j", "TAB", "j"]);
+await shoot("unavailable", []);
 await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
