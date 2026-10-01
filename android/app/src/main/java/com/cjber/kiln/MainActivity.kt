@@ -60,6 +60,16 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun Kiln() {
+        var demo by rememberSaveable { mutableStateOf(false) }
+        var privacy by rememberSaveable { mutableStateOf(false) }
+        if (privacy) {
+            PrivacyScreen { privacy = false }
+            return
+        }
+        if (demo) {
+            DemoScreen { demo = false }
+            return
+        }
         val credentials = remember { Credentials(this) }
         var error by remember { mutableStateOf("") }
         var hosts by remember {
@@ -266,6 +276,8 @@ class MainActivity : ComponentActivity() {
                     pairing = false
                     invitation = ""
                 },
+                demo = { demo = true },
+                privacy = { privacy = true },
             )
         } else {
             screenState.SaveableStateProvider(host?.origin ?: "unpaired") {
@@ -274,6 +286,7 @@ class MainActivity : ComponentActivity() {
                         host?.name ?: "Choose machine",
                         hosts.map { it.name },
                         selectedMachine = hosts.indexOf(host),
+                        privacy = { privacy = true },
                         onMachine = { selected = hosts[it].origin },
                         onReconnect = { retry++ },
                         onPairAnother = { pairing = true },

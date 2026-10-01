@@ -65,6 +65,7 @@ fun SessionScreen(
     hiddenIds: Set<String> = emptySet(),
     changeHidden: (Set<String>) -> Boolean = { false },
     selectedMachine: Int = 0,
+    privacy: (() -> Unit)? = null,
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -192,6 +193,7 @@ fun SessionScreen(
                     reconnect = onReconnect,
                     pair = onPairAnother,
                     forget = { forget = true },
+                    privacy = privacy,
                 )
             else
                 SessionListView(

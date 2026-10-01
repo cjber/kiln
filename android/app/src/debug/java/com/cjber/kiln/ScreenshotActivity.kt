@@ -21,7 +21,9 @@ class ScreenshotActivity : ComponentActivity() {
         val screen = intent.getStringExtra("screen")
         setContent {
             KilnTheme {
-                if (screen == "pi")
+                if (screen == "demo") DemoScreen {}
+                else if (screen == "privacy") PrivacyScreen {}
+                else if (screen == "pi")
                     ConversationView(
                         "Demo",
                         "Review the release",
@@ -62,6 +64,8 @@ class ScreenshotActivity : ComponentActivity() {
                         pair = {},
                         scan = {},
                         cancel = {},
+                        demo = {},
+                        privacy = {},
                     )
                 else
                     SessionScreen(

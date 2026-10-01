@@ -24,6 +24,7 @@ fun MachinesScreen(
     reconnect: () -> Unit,
     pair: () -> Unit,
     forget: () -> Unit,
+    privacy: (() -> Unit)? = null,
 ) {
     LazyColumn(
         Modifier.widthIn(max = 720.dp).fillMaxWidth(),
@@ -82,6 +83,7 @@ fun MachinesScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(16.dp))
             Text("$selected", style = MaterialTheme.typography.titleSmall)
+            if (privacy != null) TextButton(onClick = privacy) { Text("Privacy policy") }
             TextButton(onClick = reconnect) { Text("Reconnect") }
             TextButton(onClick = forget) {
                 Text("Forget this machine", color = MaterialTheme.colorScheme.error)

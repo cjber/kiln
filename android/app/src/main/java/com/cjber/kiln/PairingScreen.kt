@@ -28,6 +28,8 @@ fun PairingScreen(
     pair: () -> Unit,
     scan: () -> Unit,
     cancel: () -> Unit,
+    demo: (() -> Unit)? = null,
+    privacy: (() -> Unit)? = null,
 ) {
     var instructions by rememberSaveable { mutableStateOf(false) }
     BackHandler(canCancel) { cancel() }
@@ -81,6 +83,8 @@ fun PairingScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (demo != null) TextButton(onClick = demo) { Text("Try an offline demo") }
+                if (privacy != null) TextButton(onClick = privacy) { Text("Privacy policy") }
                 ErrorNotice(error, onDismissError)
                 FilledTonalButton(
                     onClick = scan,

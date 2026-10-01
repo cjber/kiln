@@ -30,7 +30,7 @@ jobs:
       - name: Install Android SDK platform
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
       - name: Check and build Android release
-        run: android/gradlew -p android checkKotlinFormat testDebugUnitTest lintRelease assembleRelease --console plain
+        run: android/gradlew -p android checkKotlinFormat testDebugUnitTest lintRelease assembleRelease bundleRelease --console plain
       - name: Sign Android release
         env:
           ANDROID_RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
@@ -47,10 +47,14 @@ jobs:
           "$tools/zipalign" -P 16 -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" sign --ks "$keyfile" --ks-key-alias kiln --ks-pass env:ANDROID_RELEASE_PASSWORD --key-pass env:ANDROID_RELEASE_PASSWORD --out kiln-android.apk "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" verify --verbose kiln-android.apk
+          jarsigner -keystore "$keyfile" -storepass:env ANDROID_RELEASE_PASSWORD -keypass:env ANDROID_RELEASE_PASSWORD -signedjar kiln-android.aab android/app/build/outputs/bundle/release/app-release.aab kiln
+          jarsigner -verify kiln-android.aab
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: kiln-android-release
-          path: kiln-android.apk
+          path: |
+            kiln-android.apk
+            kiln-android.aab
           if-no-files-found: error
 
   release:
@@ -95,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           bun scripts/changelog.ts "$VERSION" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
+          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk dist/kiln-android.aab --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
 
       - name: Render AUR package
         run: |

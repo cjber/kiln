@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Fix Android conversation crashes.** Closing a conversation cleans up HTTPS connections off the UI thread.
+
+- **Prepare Android for Google Play.** Releases include a signed app bundle. An offline demo shows sample sessions and approval controls without pairing; the privacy policy is readable before connecting.
+
 ## [0.6.0] - 2026-10-01
 
 - **The kiln icon includes a terminal prompt.** A keystone arch surrounds the prompt in the shared README and Android launcher mark, keeping the oxide and ember colours.

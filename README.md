@@ -137,3 +137,5 @@ bun scripts/screenshots.tsx 2>/dev/null
 ANDROID_HOME=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk python3 scripts/android-screenshots.py
 ANDROID_HOME=/opt/android-sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug
 ```
+
+Google Play preparation and signing instructions are in [docs/play-store/submission.md](docs/play-store/submission.md).

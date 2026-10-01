@@ -13,6 +13,7 @@ android {
         versionCode = 6
         versionName = "0.6.0"
     }
+    sourceSets.getByName("main").assets.directories.add("../../website")
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

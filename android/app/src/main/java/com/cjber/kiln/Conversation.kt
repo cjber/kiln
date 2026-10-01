@@ -78,7 +78,7 @@ class ConversationConnection {
 
     fun close() {
         client.dispatcher.cancelAll()
-        client.connectionPool.evictAll()
+        client.dispatcher.executorService.execute { client.connectionPool.evictAll() }
     }
 
     suspend fun request(host: Host, row: Row, body: JSONObject? = null): String =
