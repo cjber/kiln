@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-01
+
 - **Closing a resumed session removes its recovery row.** Private backups stay on disk without bringing an explicitly closed session back into the list.
 
 ## [0.7.1] - 2026-10-01
