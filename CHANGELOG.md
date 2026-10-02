@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-02
+
 - **Claude sessions show their titles again.** Claude Code now records the titles it generates separately from ones you set with `/rename`, and kiln read only the latter, so sessions fell back to names like `kiln-05`. Kiln reads both; a title you set still wins.
 
 ## [0.8.0] - 2026-10-02
