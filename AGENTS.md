@@ -34,7 +34,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 - `src/acp.ts`, `src/acp-host.ts` - one owner-only host preserves Pi and saved ACP sessions. Native Claude/Codex use provider observation, not ACP ownership.
 - `src/sessions.ts` - native sessions, saved ACP plus cached cloud rows, branches and provider parent relationships.
-- `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status.
+- `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
+  `lifecycle` (`completed`, `stopped`) instead of an activity.
 - `src/conversation-view.tsx` - OpenTUI conversation, prompt entry and exact approval choices.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
@@ -46,6 +47,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
   Paired phones open provider apps through verified HTTPS links. `/v1/acp/:id` remains for older clients and saved ACP sessions.
+- `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.

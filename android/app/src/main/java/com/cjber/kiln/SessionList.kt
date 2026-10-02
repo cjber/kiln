@@ -15,7 +15,7 @@ enum class SessionScope(val label: String) {
 }
 
 fun isCurrentSession(row: Row, now: Long): Boolean =
-    row.where != "cloud" ||
+    (row.where != "cloud" && row.activity != "completed" && row.activity != "stopped") ||
         row.activity == "working" ||
         row.activity == "waiting" ||
         (row.active.takeIf { it > 0 } ?: row.started).let { it > 0 && now - it < 86_400_000 }

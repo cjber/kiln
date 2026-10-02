@@ -10,6 +10,9 @@ export const agents: readonly Agent[] = ["claude", "codex", "pi"];
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
 
+/** How a background job ended. A finished job reports no activity. */
+export type Lifecycle = "completed" | "stopped";
+
 export type Place =
   | { kind: "acp"; id: string }
   | { kind: "kiln"; name: string }
@@ -34,6 +37,7 @@ export type Session = {
   lastActiveAt?: number;
   /** Agent-reported status; terminal output never establishes activity. */
   activity?: Activity;
+  lifecycle?: Lifecycle;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
   branch?: string;
   place: Place;

@@ -24,6 +24,7 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     cwd: session.cwd,
     branch: session.branch,
     activity: session.activity,
+    lifecycle: session.lifecycle,
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: session.place.kind,

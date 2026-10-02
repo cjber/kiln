@@ -6,6 +6,8 @@ const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access and print a pairing QR
+       kiln setup [--port 7437] [--origin https://host]
+                                  keep phone access running as a user service and print a pairing QR
        kiln pair <https-origin> [--qr]   print a five-minute phone invitation
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
@@ -42,7 +44,7 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return 2;
     }
   }
-  if (["serve", "pair", "devices", "revoke"].includes(command)) {
+  if (["serve", "setup", "pair", "devices", "revoke"].includes(command)) {
     try {
       const { Pairing, serverOrigin } = await import("./pairing");
       if (command === "serve") {
@@ -75,6 +77,19 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);
         await new Promise(() => {});
+      }
+      if (command === "setup") {
+        loadSettings();
+        const { runSetup } = await import("./setup");
+        const origin = await runSetup(args.slice(1));
+        const { printInvitation } = await import("./serve");
+        const pairing = new Pairing();
+        try {
+          await printInvitation(pairing, origin);
+        } finally {
+          pairing.close();
+        }
+        return 0;
       }
       if (
         (command === "pair" && args.length !== 2 && (args.length !== 3 || args[2] !== "--qr")) ||

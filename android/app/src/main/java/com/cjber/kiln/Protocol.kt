@@ -119,7 +119,9 @@ fun parseSnapshot(source: String): Snapshot {
                 item.getString("title"),
                 item.getString("cwd"),
                 item.optString("branch"),
-                item.optString("activity", "unknown"),
+                // A finished background job reports how it ended instead of an activity.
+                item.optString("lifecycle").takeIf { it == "completed" || it == "stopped" }
+                    ?: item.optString("activity", "unknown"),
                 item.getString("where"),
                 item.getLong("startedAt"),
                 item.optLong("lastActiveAt"),

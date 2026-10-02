@@ -50,7 +50,7 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.activity ?? ""} ${session.activity === "waiting" ? "needs input" : session.activity === "idle" ? "ready" : ""} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${session.activity === "waiting" ? "needs input" : session.activity === "idle" ? "ready" : ""} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
   const matching = new Set(eligible.filter(matches));

@@ -14,7 +14,7 @@ import { releaseForNative } from "./native-resume";
 import { nativeNotifications } from "./notifications";
 import { sessionKey, sessionRows, sessionTitle } from "./session-list";
 import { sessionSorts } from "./session-sort";
-import { type Activity, type Agent, agents, listSessions, type Session } from "./sessions";
+import { type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach, exists, start } from "./tmux";
@@ -57,8 +57,16 @@ function age(time: number | undefined, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function activityColor(activity: Activity | undefined): string {
-  switch (activity) {
+function activityColor(session: Session): string {
+  switch (session.lifecycle) {
+    case "completed":
+      return color.green;
+    case "stopped":
+      return color.comment;
+    case undefined:
+      break;
+  }
+  switch (session.activity) {
     case "working":
       return color.fgDim;
     case "waiting":
@@ -70,7 +78,30 @@ function activityColor(activity: Activity | undefined): string {
   }
 }
 
+/** The list's status column. */
+function statusLabel(session: Session): string {
+  if (session.lifecycle) return session.lifecycle;
+  switch (session.activity) {
+    case "working":
+      return "working";
+    case "waiting":
+      return "needs input";
+    case "idle":
+      return "ready";
+    case undefined:
+      return "unknown";
+  }
+}
+
 function statusHint(session: Session): string {
+  switch (session.lifecycle) {
+    case "completed":
+      return "finished · Enter attaches";
+    case "stopped":
+      return "stopped · Enter resumes";
+    case undefined:
+      break;
+  }
   switch (session.activity) {
     case "working":
       return "working";
@@ -546,18 +577,11 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
                   <span fg={agentColor[session.agent]}>{session.agent.padEnd(8)}</span>
-                  <span fg={activityColor(session.activity)}>
+                  <span fg={activityColor(session)}>
                     {fit(title, titleWidth, "end").padEnd(titleWidth)}
                     {"  "}
                   </span>
-                  <span fg={activityColor(session.activity)}>
-                    {(session.activity === "waiting"
-                      ? "needs input"
-                      : session.activity === "idle"
-                        ? "ready"
-                        : (session.activity ?? "unknown")
-                    ).padEnd(12)}
-                  </span>
+                  <span fg={activityColor(session)}>{statusLabel(session).padEnd(12)}</span>
                   <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span>
                 </text>
               </box>
