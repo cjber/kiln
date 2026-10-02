@@ -23,7 +23,7 @@ Supported top-level settings:
   array hides that harness from new-session choices. Keep arguments separate;
   these are executed directly, not through a shell. Claude and Codex launch native TUIs; Pi speaks ACP. Defaults are `claude`, `codex` and `pi-acp`. Generated Claude/Codex ACP defaults migrate; custom native arguments are preserved.
 
-`kiln status` loads and validates the file without taking the terminal screen.
+Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
 change `sort` to persist it. Existing session launch arguments are not rewritten.
 

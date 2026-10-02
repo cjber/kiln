@@ -25,6 +25,21 @@ export function sessionTitle(session: Session): string {
   );
 }
 
+/** The list's status column, which the filter also matches. */
+export function statusLabel(session: Session): string {
+  if (session.lifecycle) return session.lifecycle;
+  switch (session.activity) {
+    case "working":
+      return "working";
+    case "waiting":
+      return "needs input";
+    case "idle":
+      return "ready";
+    case undefined:
+      return "unknown";
+  }
+}
+
 export type ListRow =
   | { kind: "header"; key: string; name: string; directory?: string }
   | { kind: "session"; key: string; session: Session; depth: number; children: number };
@@ -37,10 +52,9 @@ export function sessionRows(
   expanded: ReadonlySet<string>,
 ): ListRow[] {
   const ordered = sortSessions(sessions, order);
-  const eligible = ordered;
-  const parents = sessionParents(eligible);
+  const parents = sessionParents(ordered);
   const children = new Map<Session, Session[]>();
-  for (const session of eligible) {
+  for (const session of ordered) {
     const parent = parents.get(session);
     if (!parent) continue;
     const group = children.get(parent) ?? [];
@@ -50,17 +64,17 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${session.activity === "waiting" ? "needs input" : session.activity === "idle" ? "ready" : ""} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${statusLabel(session)} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
-  const matching = new Set(eligible.filter(matches));
+  const matching = new Set(ordered.filter(matches));
   if (needle)
     for (const session of [...matching]) {
       for (let parent = parents.get(session); parent && !matching.has(parent); parent = parents.get(parent)) {
         matching.add(parent);
       }
     }
-  const roots = eligible.filter((session) => !parents.get(session) && matching.has(session));
+  const roots = ordered.filter((session) => !parents.get(session) && matching.has(session));
   const grouped = order === "project" || order === "directory";
   const groups = new Map<string, Session[]>();
   for (const root of roots) {
@@ -106,4 +120,9 @@ export function sessionRows(
     for (const session of group) append(session);
   }
   return rows;
+}
+
+/** The rows a cursor can rest on; selection is an index into this. */
+export function visibleSessions(rows: readonly ListRow[]): Session[] {
+  return rows.flatMap((row) => (row.kind === "session" ? [row.session] : []));
 }

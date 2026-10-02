@@ -1,5 +1,4 @@
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useReducer, useState } from "react";
 import {
@@ -14,6 +13,7 @@ import {
   skillStore,
   unshareSkill,
 } from "./skills";
+import { color, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
 
 type Props = {
@@ -92,17 +92,14 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
       if (key.name === "return") {
         setMode("list");
         void action(async () => {
-          const path =
-            mode === "new"
-              ? createSkill(store, input)
-              : importSkill(store, resolve(input.startsWith("~/") ? join(homedir(), input.slice(2)) : input));
+          const path = mode === "new" ? createSkill(store, input) : importSkill(store, untilde(input));
           setNotice(`saved ${path}; press l to share with Claude and Pi`);
           if (mode === "new") await edit(join(path, "SKILL.md"));
         });
         return;
       }
-      if (!key.ctrl && !key.meta && key.sequence && !key.sequence.startsWith("\x1b") && key.sequence.length === 1)
-        setInput(input + key.sequence);
+      const text = typed(key);
+      if (text) setInput(input + text);
       return;
     }
     if (key.name === "escape" || key.name === "q") return onBack();
@@ -111,7 +108,8 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
       setSelected(0);
       return;
     }
-    if (key.name === "j" || key.name === "down") return setSelected(Math.min(index + 1, skills.length - 1));
+    if (key.name === "j" || key.name === "down")
+      return setSelected(Math.max(0, Math.min(index + 1, skills.length - 1)));
     if (key.name === "k" || key.name === "up") return setSelected(Math.max(index - 1, 0));
     if (key.name === "r") return refresh();
     if (key.name === "n" || key.name === "i") {
@@ -134,25 +132,25 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
   const start = Math.floor(index / pageSize) * pageSize;
   const nameWidth = Math.max(12, Math.min(40, width - 38));
   return (
-    <box flexDirection="column" backgroundColor="#121113" paddingLeft={1} paddingRight={1} flexGrow={1}>
-      <text fg="#d0d0d0" attributes={1}>
+    <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
+      <text fg={color.fgBright} attributes={1}>
         kiln skills · {scope === "user" ? "user / this machine" : "project"}
       </text>
-      <text fg="#777777">{fit(store.directory)}</text>
+      <text fg={color.fgDim}>{fit(store.directory)}</text>
       <box flexDirection="column" marginTop={1} flexGrow={1}>
-        <text fg="#555555">{`  ${"skill".padEnd(nameWidth)} Claude    Pi        source`}</text>
+        <text fg={color.comment}>{`  ${"skill".padEnd(nameWidth)} Claude    Pi        source`}</text>
         {skills.slice(start, start + pageSize).map((skill, offset) => (
-          <text key={skill.name} bg={start + offset === index ? "#222222" : undefined}>
+          <text key={skill.name} bg={start + offset === index ? color.bg2 : undefined}>
             <span
-              fg={start + offset === index ? "#fbcb97" : "#b0b0b0"}
+              fg={start + offset === index ? color.peach : color.fg}
             >{`${start + offset === index ? "› " : "  "}${skill.name.slice(0, nameWidth).padEnd(nameWidth)} `}</span>
             <span fg={colours[skill.claude]}>{skill.claude.padEnd(10)}</span>
             <span fg={colours[skill.pi]}>{skill.pi.padEnd(10)}</span>
-            <span fg="#777777">{skill.external ? "link" : "shared dir"}</span>
+            <span fg={color.fgDim}>{skill.external ? "link" : "shared dir"}</span>
           </text>
         ))}
         {!skills.length ? (
-          <text fg="#777777">no shared skills · n to create one · i to copy an existing skill</text>
+          <text fg={color.fgDim}>no shared skills · n to create one · i to copy an existing skill</text>
         ) : null}
       </box>
       <text>
@@ -162,8 +160,10 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
         {" · "}
         <span fg={colours.conflict}>conflict needs repair</span>
       </text>
-      <text fg="#777777">{fit(`Codex reads shared files · ${skills.length ? index + 1 : 0}/${skills.length}`)}</text>
-      <text fg="#fbcb97">
+      <text fg={color.fgDim}>
+        {fit(`Codex reads shared files · ${skills.length ? index + 1 : 0}/${skills.length}`)}
+      </text>
+      <text fg={color.peach}>
         {fit(
           problem ||
             notice ||
@@ -180,8 +180,8 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
                       : "l shares missing links; f backs up conflicts and shares"),
         )}
       </text>
-      <text fg="#777777">j/k move · l share · f repair · enter edit</text>
-      <text fg="#777777">u user · p project · n new · i import · x unlink · q back</text>
+      <text fg={color.fgDim}>j/k move · l share · f repair · enter edit</text>
+      <text fg={color.fgDim}>u user · p project · n new · i import · x unlink · q back</text>
     </box>
   );
 }

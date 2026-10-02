@@ -12,18 +12,22 @@ import type { Place, Session } from "./sessions";
 
 describe("isInteractiveCodex", () => {
   test("keeps a plain session, a resume, and flags that merely contain a subcommand name", () => {
-    expect(isInteractiveCodex("codex")).toBe(true);
-    expect(isInteractiveCodex("codex resume 0199c-abc")).toBe(true);
-    expect(isInteractiveCodex("codex --search --dangerously-bypass-approvals-and-sandbox")).toBe(true);
+    expect(isInteractiveCodex(["codex"])).toBe(true);
+    expect(isInteractiveCodex(["codex", "resume", "0199c-abc"])).toBe(true);
+    expect(isInteractiveCodex(["codex", "--search", "--dangerously-bypass-approvals-and-sandbox"])).toBe(true);
+  });
+
+  test("keeps a session whose opening prompt starts with a subcommand's name", () => {
+    expect(isInteractiveCodex(["codex", "review the retry change"])).toBe(true);
   });
 
   test("drops the non-session subcommands", () => {
     for (const command of [
-      "codex exec 'do a thing'",
-      "codex review",
-      "codex agents",
-      "codex app-server",
-      "codex mcp list",
+      ["codex", "exec", "do a thing"],
+      ["codex", "review"],
+      ["codex", "agents"],
+      ["codex", "app-server"],
+      ["codex", "mcp", "list"],
     ]) {
       expect(isInteractiveCodex(command)).toBe(false);
     }
@@ -94,32 +98,28 @@ describe("Codex thread matching", () => {
 });
 
 describe("session placement", () => {
-  const parentPlace: { place: Place } = {
-    place: { kind: "kiln" as const, name: "parent" },
-  };
-  const childPlace: { place: Place } = {
-    place: { kind: "kitty" as const, socket: "@kitty", windowId: 7 },
-  };
-  test("a piped child neither opens its parent's terminal nor borrows pane activity", () => {
+  const parentPlace: Place = { kind: "kiln", name: "parent" };
+  const childPlace: Place = { kind: "kitty", socket: "@kitty", windowId: 7 };
+  test("a piped child does not open its parent's terminal", () => {
     expect(sessionLocation([2, 3, 1, 4], new Map([[4, parentPlace]]), new Set([1, 2]))).toEqual({
       ancestorSessionPid: 1,
-      found: undefined,
+      place: undefined,
     });
   });
   test("a child with its own terminal stays openable", () => {
     expect(
       sessionLocation(
         [2, 3, 1, 4],
-        new Map([
+        new Map<number, Place>([
           [3, childPlace],
           [4, parentPlace],
         ]),
         new Set([1, 2]),
       ),
-    ).toEqual({ ancestorSessionPid: 1, found: childPlace });
+    ).toEqual({ ancestorSessionPid: 1, place: childPlace });
   });
   test("a shell between a top-level agent and its pane still resolves", () => {
-    expect(sessionLocation([2, 3, 4], new Map([[4, parentPlace]]), new Set([2]))).toEqual({ found: parentPlace });
+    expect(sessionLocation([2, 3, 4], new Map([[4, parentPlace]]), new Set([2]))).toEqual({ place: parentPlace });
   });
 });
 

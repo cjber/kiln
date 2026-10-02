@@ -82,7 +82,7 @@ class Connection(
     fun connect(
         host: Host,
         snapshot: (Snapshot) -> Unit,
-        state: (String) -> Unit,
+        state: (ConnectionState) -> Unit,
         revoked: () -> Unit,
     ) {
         close()
@@ -100,14 +100,14 @@ class Connection(
 
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         if (current != generation) return
-                        state("Connected")
+                        state(ConnectionState.CONNECTED)
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
                         if (current != generation) return
                         if (text.length > 2_000_000) {
                             webSocket.close(1009, "List too large")
-                            state("Invalid session list")
+                            state(ConnectionState.INVALID)
                             return
                         }
                         try {
@@ -123,7 +123,7 @@ class Connection(
                             }
                         } catch (_: Exception) {
                             webSocket.close(1008, "Invalid list")
-                            state("Invalid session list")
+                            state(ConnectionState.INVALID)
                         }
                     }
 
@@ -134,12 +134,12 @@ class Connection(
                     ) {
                         if (current != generation) return
                         if (response?.code == 401) revoked()
-                        else state("Disconnected; reconnecting")
+                        else state(ConnectionState.DISCONNECTED)
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                         if (current != generation) return
-                        if (code == 4001) revoked() else state("Disconnected; reconnecting")
+                        if (code == 4001) revoked() else state(ConnectionState.DISCONNECTED)
                     }
 
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

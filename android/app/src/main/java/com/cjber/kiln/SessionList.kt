@@ -15,10 +15,17 @@ enum class SessionScope(val label: String) {
 }
 
 fun isCurrentSession(row: Row, now: Long): Boolean =
-    (row.where != "cloud" && row.activity != "completed" && row.activity != "stopped") ||
-        row.activity == "working" ||
-        row.activity == "waiting" ||
-        (row.active.takeIf { it > 0 } ?: row.started).let { it > 0 && now - it < 86_400_000 }
+    when (row.activity) {
+        Activity.WORKING,
+        Activity.WAITING -> true
+        Activity.IDLE,
+        Activity.UNKNOWN -> row.where != Place.CLOUD || isRecent(row, now)
+        Activity.COMPLETED,
+        Activity.STOPPED -> isRecent(row, now)
+    }
+
+private fun isRecent(row: Row, now: Long): Boolean =
+    (row.active.takeIf { it > 0 } ?: row.started).let { it > 0 && now - it < 86_400_000 }
 
 sealed interface SessionItem {
     val key: String
@@ -38,13 +45,13 @@ fun sessionItems(
     expanded: Set<String>,
     scope: SessionScope? = null,
     now: Long = System.currentTimeMillis(),
-    agent: String? = null,
-    activity: String? = null,
+    agent: Agent? = null,
+    activity: Activity? = null,
     hiddenIds: Set<String> = emptySet(),
 ): List<SessionItem> {
     val byId = rows.associateBy { it.id }
     fun canShow(row: Row, seen: Set<String> = emptySet()): Boolean {
-        if (row.where != "elsewhere" || row.url != null) return true
+        if (row.where != Place.ELSEWHERE || row.url != null) return true
         if (row.id in seen) return false
         return byId[row.parent]?.let { canShow(it, seen + row.id) } ?: false
     }
@@ -66,7 +73,7 @@ fun sessionItems(
                     (activity == null || row.activity == activity)
             }
             .filter { row ->
-                listOf(row.title, row.cwd, row.agent, row.branch, row.activity).any {
+                listOf(row.title, row.cwd, row.agent.id, row.branch, row.activity.id).any {
                     it.contains(filter, ignoreCase = true)
                 }
             }
@@ -82,7 +89,7 @@ fun sessionItems(
     }
     val roots = eligible.filter { parents[it.id] == null && it.id in matching }
     fun groupName(row: Row) =
-        if (row.where == "cloud") row.title
+        if (row.where == Place.CLOUD) row.title
         else row.cwd.trimEnd('/').substringAfterLast('/').ifEmpty { row.cwd }
     val comparator =
         when (order) {
@@ -91,16 +98,17 @@ fun sessionItems(
                     .thenBy { it.cwd }
                     .thenByDescending { it.active }
             SessionOrder.DIRECTORY ->
-                compareBy<Row> { if (it.where == "cloud") it.title else it.cwd }
+                compareBy<Row> { if (it.where == Place.CLOUD) it.title else it.cwd }
                     .thenByDescending { it.active }
             SessionOrder.RECENT -> compareByDescending<Row> { it.active }
             SessionOrder.AGE -> compareBy { it.started }
-            SessionOrder.HARNESS -> compareBy<Row> { it.agent }.thenByDescending { it.active }
+            SessionOrder.HARNESS -> compareBy<Row> { it.agent.id }.thenByDescending { it.active }
         }
     val grouped = order == SessionOrder.PROJECT || order == SessionOrder.DIRECTORY
     val groups =
         roots.sortedWith(comparator).groupBy {
-            if (!grouped) "all" else if (it.where == "cloud") "task:${it.id}" else "dir:${it.cwd}"
+            if (!grouped) "all"
+            else if (it.where == Place.CLOUD) "task:${it.id}" else "dir:${it.cwd}"
         }
     val result = mutableListOf<SessionItem>()
     val seen = mutableSetOf<String>()
@@ -121,7 +129,7 @@ fun sessionItems(
                 SessionItem.Header(
                     key,
                     groupName(first),
-                    first.cwd.takeIf { first.where != "cloud" },
+                    first.cwd.takeIf { first.where != Place.CLOUD },
                 )
             )
         }

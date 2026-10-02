@@ -48,22 +48,23 @@ fun relativeTime(time: Long, now: Long): String =
 fun tildePath(path: String): String = path.replace(Regex("^/(home|Users)/[^/]+(?=/|$)"), "~")
 
 @Composable
-fun AgentMark(agent: String, modifier: Modifier = Modifier) {
+fun AgentMark(agent: Agent, modifier: Modifier = Modifier) {
     when (agent) {
-        "claude",
-        "codex" ->
+        Agent.CLAUDE,
+        Agent.CODEX ->
             Icon(
                 painter =
                     androidx.compose.ui.res.painterResource(
-                        if (agent == "claude") R.drawable.agent_claude else R.drawable.agent_codex
+                        if (agent == Agent.CLAUDE) R.drawable.agent_claude
+                        else R.drawable.agent_codex
                     ),
                 contentDescription = agentName(agent),
                 modifier = modifier.size(22.dp),
                 tint =
-                    if (agent == "claude") MaterialTheme.colorScheme.primary
+                    if (agent == Agent.CLAUDE) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
             )
-        else ->
+        Agent.PI ->
             Box(modifier.size(22.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "π",
@@ -76,7 +77,7 @@ fun AgentMark(agent: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ActivityBadge(activity: String) {
+fun ActivityBadge(activity: Activity) {
     val color = activityColor(activity)
     Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), contentColor = color) {
         Row(
@@ -98,7 +99,7 @@ fun SessionCard(
     open: () -> Unit,
     details: () -> Unit,
     toggle: () -> Unit,
-    restore: (() -> Unit)? = null,
+    restore: (() -> Unit)?,
 ) {
     val row = item.row
     val openable = row.url != null
@@ -136,7 +137,7 @@ fun SessionCard(
                         color = activityColor(row.activity),
                     )
                     Text(
-                        if (row.where == "cloud") "Cloud"
+                        if (row.where == Place.CLOUD) "Cloud"
                         else
                             listOf(
                                     row.cwd.trimEnd('/').substringAfterLast('/'),

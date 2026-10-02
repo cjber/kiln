@@ -6,10 +6,7 @@ import configText from "../tmux.conf" with { type: "text" };
 
 import type { Settings } from "./settings";
 
-/**
- * Native sessions and the Codex Cloud viewer outlive attachment in a private server.
- * Ctrl+Q returns to the list without closing the agent.
- */
+/** The executable tmux's status bar calls for `kiln status`. */
 const kiln = import.meta.dir.startsWith("/$bunfs/") ? process.execPath : join(import.meta.dir, "..", "bin", "kiln");
 const tmux = ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
 let config: string | undefined;

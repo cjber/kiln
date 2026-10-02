@@ -89,8 +89,11 @@ export function ensureSettingsFile(): string {
   return path;
 }
 
+/** A fault in the user's file, safe to show as written. */
+export class SettingsError extends Error {}
+
 function fail(path: string, message: string): never {
-  throw new Error(`${path}: ${message}`);
+  throw new SettingsError(`${path}: ${message}`);
 }
 
 function stringList(path: string, key: string, value: unknown): string[] {

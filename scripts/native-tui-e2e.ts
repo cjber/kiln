@@ -1,24 +1,12 @@
-import { strict as assert } from "node:assert";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+
+import { driver } from "./tuistory";
 
 const name = `kiln-native-e2e-${process.pid}`;
 const output = `/tmp/${name}`;
 mkdirSync(output, { recursive: true });
-async function drive(...args: string[]) {
-  const child = Bun.spawn(["bunx", "tuistory@0.11.0", "-s", name, ...args], {
-    env: { ...Bun.env, TUISTORY_PORT: "19475" },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [text, error, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  assert.equal(code, 0, error || text);
-  return text;
-}
+const drive = driver(name, 19475);
 try {
   await drive(
     "--cols",

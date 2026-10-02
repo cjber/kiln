@@ -62,3 +62,9 @@ test("input requests remain visible and match their displayed status", () => {
   expect(entries(sessionRows([orphan], "project", "needs input", new Set()))).toEqual([3]);
   expect(entries(sessionRows([{ ...orphan, activity: "idle" }], "project", "", new Set()))).toEqual([3]);
 });
+
+test("the filter matches the status column's own words", () => {
+  const waiting: Session = { ...parent, pid: 3, activity: "waiting" };
+  expect(entries(sessionRows([parent, waiting], "age", "unknown", new Set()))).toEqual([1]);
+  expect(entries(sessionRows([parent, waiting], "age", "needs input", new Set()))).toEqual([3]);
+});

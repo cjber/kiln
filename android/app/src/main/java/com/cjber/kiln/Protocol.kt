@@ -5,14 +5,48 @@ import org.json.JSONObject
 
 data class Host(val origin: String, val name: String, val token: String)
 
+enum class Agent(val id: String) {
+    CLAUDE("claude"),
+    CODEX("codex"),
+    PI("pi"),
+}
+
+/** OTHER is a place kind this version does not know; it renders as a native terminal. */
+enum class Place(val id: String) {
+    CLOUD("cloud"),
+    ACP("acp"),
+    KILN("kiln"),
+    BACKGROUND("background"),
+    KITTY("kitty"),
+    ELSEWHERE("elsewhere"),
+    OTHER(""),
+}
+
+enum class Activity(val id: String) {
+    WORKING("working"),
+    WAITING("waiting"),
+    IDLE("idle"),
+    COMPLETED("completed"),
+    STOPPED("stopped"),
+    UNKNOWN("unknown"),
+}
+
+enum class ConnectionState {
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTED,
+    INVALID,
+    REVOKED,
+}
+
 data class Row(
     val id: String,
-    val agent: String,
+    val agent: Agent,
     val title: String,
     val cwd: String,
     val branch: String,
-    val activity: String,
-    val where: String,
+    val activity: Activity,
+    val where: Place,
     val started: Long,
     val active: Long,
     val url: String?,
@@ -28,6 +62,14 @@ data class Snapshot(
     val problem: String,
     val rows: List<Row>,
 )
+
+/**
+ * When the phone last received a successful load. The machine leaves `updatedAt` unchanged after a
+ * failed refresh, so a changed value marks a new load; the phone times it with its own clock
+ * because the two clocks need not agree.
+ */
+fun receivedAt(previous: Snapshot?, next: Snapshot, received: Long, now: Long): Long =
+    if (previous?.updated != next.updated) now else received
 
 fun httpsOrigin(value: String): String {
     val uri = URI(value)
@@ -61,7 +103,7 @@ fun invitation(value: String): Pair<String, String> {
     return httpsOrigin(parts["server"].orEmpty()) to code
 }
 
-fun safeLink(agent: String, value: String): String? {
+fun safeLink(agent: Agent, value: String): String? {
     val uri =
         try {
             URI(value)
@@ -76,13 +118,13 @@ fun safeLink(agent: String, value: String): String? {
     )
         return null
     return when (agent) {
-        "claude" ->
+        Agent.CLAUDE ->
             value.takeIf {
                 uri.host == "claude.ai" &&
                     uri.rawQuery == null &&
                     uri.rawPath.matches(Regex("/code/(session|cse)_[A-Za-z0-9_-]+"))
             }
-        "codex" ->
+        Agent.CODEX ->
             value.takeIf {
                 uri.host == "chatgpt.com" &&
                     ((uri.rawQuery == null &&
@@ -97,7 +139,7 @@ fun safeLink(agent: String, value: String): String? {
                                 Regex("hostId=slingshot%3Aenv_[A-Za-z0-9_-]+%3A8765")
                             ) == true))
             }
-        else -> null
+        Agent.PI -> null
     }
 }
 
@@ -109,8 +151,7 @@ fun parseSnapshot(source: String): Snapshot {
     val rows =
         (0 until array.length()).map { index ->
             val item = array.getJSONObject(index)
-            val agent = item.getString("agent")
-            require(agent in listOf("claude", "codex", "pi"))
+            val agent = item.getString("agent").let { id -> Agent.entries.first { it.id == id } }
             val handoff = item.getJSONObject("handoff")
             val url = if (handoff.has("url")) safeLink(agent, handoff.getString("url")) else null
             Row(
@@ -120,9 +161,12 @@ fun parseSnapshot(source: String): Snapshot {
                 item.getString("cwd"),
                 item.optString("branch"),
                 // A finished background job reports how it ended instead of an activity.
-                item.optString("lifecycle").takeIf { it == "completed" || it == "stopped" }
-                    ?: item.optString("activity", "unknown"),
-                item.getString("where"),
+                (item.optString("lifecycle").takeIf { it == "completed" || it == "stopped" }
+                        ?: item.optString("activity"))
+                    .let { id -> Activity.entries.find { it.id == id } ?: Activity.UNKNOWN },
+                item.getString("where").let { id ->
+                    Place.entries.find { it.id == id } ?: Place.OTHER
+                },
                 item.getLong("startedAt"),
                 item.optLong("lastActiveAt"),
                 url,

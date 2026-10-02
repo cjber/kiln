@@ -4,16 +4,7 @@ import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { transcriptTitle } from "./session-titles";
-import {
-  type Activity,
-  type Agent,
-  agents,
-  gitBranch,
-  type Lifecycle,
-  nestSessions,
-  type Place,
-  type Session,
-} from "./sessions";
+import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
 
 /** Claude's own statuses, grouped; anything newer than this list shows as unknown rather than guessed. */
@@ -237,22 +228,15 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
   };
 }
 
-/** The first bare word, so a flag that merely contains a subcommand's name still counts as interactive. */
-function subcommand(command: string): string | undefined {
-  return command
-    .split(/\s+/)
-    .slice(1)
-    .find((word) => !word.startsWith("-"));
-}
-
-export function isInteractiveCodex(command: string): boolean {
-  const word = subcommand(command);
+/** Decided on argv, so a quoted prompt that begins with a subcommand's name is still one argument. */
+export function isInteractiveCodex(args: readonly string[]): boolean {
+  const word = args.slice(1).find((arg) => !arg.startsWith("-"));
   return !word || !["exec", "e", "review", "agents", "app-server", "exec-server", "mcp", "cloud"].includes(word);
 }
 
-/** Codex and pi have no scriptable session listing, so their live sessions are found by process. */
-async function processesNamed(agent: Agent, isInteractive: (command: string) => boolean): Promise<AgentProcess[]> {
-  const listed = Bun.spawn(["pgrep", "-a", "-x", agent], { stdout: "pipe", stderr: "ignore" });
+/** Codex has no scriptable session listing, so its live terminal sessions are found by process. */
+async function codexProcesses(): Promise<AgentProcess[]> {
+  const listed = Bun.spawn(["pgrep", "-x", "codex"], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => listed.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(listed.stdout).text(), listed.exited]);
   clearTimeout(timeout);
@@ -261,12 +245,21 @@ async function processesNamed(agent: Agent, isInteractive: (command: string) => 
     .split("\n")
     .filter(Boolean)
     .flatMap((line) => {
-      const [rawPid, ...rest] = line.split(" ");
-      const pid = Number(rawPid);
+      const pid = Number(line);
       const cwd = processCwd(pid);
-      if (!cwd || !isInteractive(rest.join(" ")) || isDaemon(pid)) return [];
-      return [{ pid, agent, cwd, startedAt: startedAt(pid) }];
+      const args = processArgs(pid);
+      if (!cwd || !args || !isInteractiveCodex(args) || isDaemon(pid)) return [];
+      return [{ pid, agent: "codex" as const, cwd, startedAt: startedAt(pid) }];
     });
+}
+
+function processArgs(pid: number): string[] | undefined {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+  } catch {
+    // The process may have exited.
+    return undefined;
+  }
 }
 
 /** Open transcript files establish recent activity without reading conversation contents. */
@@ -366,9 +359,9 @@ export function withCodexThreads(
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
-export async function listNativeSessions({ kitty = true, excludedPids = [] as number[] } = {}): Promise<Session[]> {
+export async function listNativeSessions({ kitty = true } = {}): Promise<Session[]> {
   const readCodex = async () => {
-    const processes = (await processesNamed("codex", isInteractiveCodex)).map((process) => ({
+    const processes = (await codexProcesses()).map((process) => ({
       ...process,
       threadId: codexThreadId(process.pid),
     }));
@@ -381,30 +374,21 @@ export async function listNativeSessions({ kitty = true, excludedPids = [] as nu
     kitty ? kittyWindows() : [],
     readCodex(),
   ]);
-  const running = [...claude.processes, ...codex.processes].filter((session) => {
-    for (let pid: number | undefined = session.pid; pid; pid = parentPid(pid))
-      if (excludedPids.includes(pid)) return false;
-    return true;
-  });
+  const running = [...claude.processes, ...codex.processes];
 
-  const places = new Map<number, { place: Place }>();
+  const places = new Map<number, Place>();
   for (const window of windows) {
-    for (const pid of window.pids)
-      places.set(pid, { place: { kind: "kitty", socket: window.socket, windowId: window.id } });
+    for (const pid of window.pids) places.set(pid, { kind: "kitty", socket: window.socket, windowId: window.id });
   }
   // A kiln pane wins over a kitty window: the window only holds the tmux client, never the agent.
-  for (const pane of owned) places.set(pane.pid, { place: { kind: "kiln", name: pane.name } });
+  for (const pane of owned) places.set(pane.pid, { kind: "kiln", name: pane.name });
 
   const runningPids = new Set(running.map((process) => process.pid));
   const located = running.map(({ background, ...process }) => {
     const lineage: number[] = [];
     for (let pid: number | undefined = process.pid; pid; pid = parentPid(pid)) lineage.push(pid);
-    const { ancestorSessionPid, found } = sessionLocation(lineage, places, runningPids);
-    const place = background ??
-      found?.place ?? {
-        kind: "elsewhere" as const,
-        source: processSource(process.pid),
-      };
+    const { ancestorSessionPid, place: found } = sessionLocation(lineage, places, runningPids);
+    const place = background ?? found ?? { kind: "elsewhere" as const, source: processSource(process.pid) };
     return {
       ...process,
       lastActiveAt: process.lastActiveAt ?? transcriptActivity(process.pid),
@@ -419,11 +403,7 @@ export async function listNativeSessions({ kitty = true, excludedPids = [] as nu
       parentSessionPid: ancestorSessionPid,
     })),
   );
-  return nestSessions(
-    [...sessions, ...codex.headless, ...claude.finished].sort(
-      (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
-    ),
-  );
+  return [...sessions, ...codex.headless, ...claude.finished];
 }
 
 /** Keep one client per confirmed Codex task, preferring a terminal kiln can open. */
@@ -449,13 +429,13 @@ export function deduplicateSessions(sessions: readonly Session[]): Session[] {
 /** A child can own a terminal, but cannot inherit one through another live agent. */
 export function sessionLocation(
   lineage: readonly number[],
-  places: ReadonlyMap<number, { place: Place }>,
+  places: ReadonlyMap<number, Place>,
   runningPids: ReadonlySet<number>,
-): { ancestorSessionPid?: number; found?: { place: Place } } {
-  let found: { place: Place } | undefined;
+): { ancestorSessionPid?: number; place?: Place } {
+  let place: Place | undefined;
   for (const [index, pid] of lineage.entries()) {
-    if (index > 0 && runningPids.has(pid)) return { ancestorSessionPid: pid, found };
-    found ??= places.get(pid);
+    if (index > 0 && runningPids.has(pid)) return { ancestorSessionPid: pid, place };
+    place ??= places.get(pid);
   }
-  return { found };
+  return { place };
 }

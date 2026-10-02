@@ -5,11 +5,11 @@ import { acpRequest } from "./acp-host";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import { codexRemoteHost } from "./codex";
-import { Pairing } from "./pairing";
+import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
 import { listSessions, type Session, sessionParents } from "./sessions";
-import { loadSettings } from "./settings";
+import { loadSettings, SettingsError } from "./settings";
 
 function phoneId(session: Session): string {
   return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
@@ -34,11 +34,16 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
 }
 
 export function startServer({
-  port = 7437,
-  pairing = new Pairing(),
+  port,
+  pairing,
   load = () => listSessions(loadSettings()),
   interval = 2_000,
-} = {}) {
+}: {
+  port: number;
+  pairing: Pairing;
+  load?: () => Promise<Session[]>;
+  interval?: number;
+}) {
   const instance = randomUUID();
   let snapshot = {
     version: 1,
@@ -117,12 +122,13 @@ export function startServer({
           if (request.method !== "POST") return response({ error: "Method not supported" }, 405);
           if (!request.headers.get("Content-Type")?.startsWith("application/json"))
             return response({ error: "Expected JSON" }, 415);
-          const body = (await request.json()) as {
-            type?: string;
-            message?: string;
-            approvalId?: string;
-            optionId?: string;
-          };
+          let body: { type?: unknown; message?: unknown; approvalId?: unknown; optionId?: unknown } | null;
+          try {
+            body = (await request.json()) as typeof body;
+          } catch {
+            body = null;
+          }
+          if (!body || typeof body !== "object") return response({ error: "Invalid command" }, 400);
           switch (body.type) {
             case "prompt":
               if (typeof body.message !== "string" || Buffer.byteLength(body.message) > 3500)
@@ -204,11 +210,12 @@ export function startServer({
         ],
         problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem].filter(Boolean).join("; "),
       };
-    } catch {
+    } catch (error) {
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
-        problem: "Session host unavailable; showing the last successful list",
+        // A settings file edited while serving names its own fault; other failures stay generic.
+        problem: `${error instanceof SettingsError ? error.message : "Session host unavailable"}; showing the last successful list`,
         sessions: snapshot.sessions.map((session) =>
           session.where !== "cloud" ? { ...session, activity: undefined } : session,
         ),

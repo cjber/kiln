@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSetup, serveUnit } from "./setup";
@@ -62,6 +62,9 @@ test("setup installs and starts the service once, then changes nothing", async (
     symlinkSync(managed, join(unitDirectory, "kiln-serve.service"));
     await expect(runSetup([], dependencies)).rejects.toThrow("is a symlink");
     expect(readFileSync(managed, "utf8")).toContain("ExecStart=/usr/bin/kiln serve\n");
+    rmSync(managed);
+    await expect(runSetup([], dependencies)).rejects.toThrow("is a symlink");
+    expect(existsSync(managed)).toBe(false);
   } finally {
     rmSync(unitDirectory, { recursive: true, force: true });
   }

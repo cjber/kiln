@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nestSessions, type Session, sessionParent } from "./sessions";
+import { nestSessions, type Session, sessionParents } from "./sessions";
 
 describe("nested sessions", () => {
   const parent: Session = { pid: 1, agent: "codex", cwd: "/z", startedAt: 1, place: { kind: "acp", id: "parent" } };
@@ -15,11 +15,11 @@ describe("nested sessions", () => {
   test("provider ancestry takes precedence and cycles stay visible", () => {
     const provider = { ...other, agent: "codex" as const, id: "provider" };
     const nested = { ...parent, id: "nested", parentSessionId: "provider", parentSessionPid: 2 };
-    expect(sessionParent(nested, [child, nested, provider])).toBe(provider);
+    expect(sessionParents([child, nested, provider]).get(nested)).toBe(provider);
     const a = { ...parent, id: "a", parentSessionId: "b" };
     const b = { ...provider, id: "b", parentSessionId: "a" };
     expect(nestSessions([a, b])).toHaveLength(2);
-    expect(sessionParent(a, [a, b])).toBeUndefined();
+    expect(sessionParents([a, b]).get(a)).toBeUndefined();
   });
   test("a child sorts beneath its parent even when its directory sorts first", () => {
     expect(nestSessions([child, other, parent])).toEqual([other, parent, child]);

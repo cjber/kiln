@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { sessionKey, sessionRows } from "./session-list";
-import { nestSessions, type Session, sessionParent, sessionParents } from "./sessions";
+import { nestSessions, type Session, sessionParents } from "./sessions";
 
 const session = (id: string, parentSessionId?: string): Session => ({
   agent: "codex",
@@ -25,9 +25,6 @@ test("indexed ancestry preserves first-match precedence, PID fallback and cycle 
   expect(parents.get(pidChild)).toBe(duplicate);
   for (const member of [a, b, cycleChild]) expect(parents.get(member)).toBeUndefined();
   expect(nestSessions(sessions)).toEqual([first, providerChild, duplicate, pidChild, a, b, cycleChild]);
-  const outside = session("outside", "referencing-outside");
-  const referencing = session("referencing-outside", "outside");
-  expect(sessionParent(outside, [referencing])).toBe(referencing);
   providerChild.parentSessionId = "missing";
   expect(sessionParents(sessions).get(providerChild)).toBe(duplicate);
 });
@@ -55,8 +52,7 @@ test("500 shallow or deeply nested tasks stay within an interactive refresh budg
     expect(elapsed).toBeLessThan(500);
     if (shape === "chain") {
       expect(rows.at(-1)).toMatchObject({ depth: 499 });
-      const hidden = sessions;
-      expect(sessionRows(hidden, "project", "499", new Set()).filter((row) => row.kind === "session")).toHaveLength(
+      expect(sessionRows(sessions, "project", "499", new Set()).filter((row) => row.kind === "session")).toHaveLength(
         500,
       );
     }

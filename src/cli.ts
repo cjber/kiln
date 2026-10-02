@@ -129,7 +129,8 @@ export async function runCli(args: string[]): Promise<number | undefined> {
   if (command === "status") {
     const { ensureAcpHost } = await import("./acp-host");
     await ensureAcpHost();
-    console.log(summarise(await listSessions()));
+    // The counts need no terminal ownership, and tmux asks every few seconds.
+    console.log(summarise(await listSessions({ kitty: false })));
     return 0;
   }
   if (command === "--help" || command === "-h") {

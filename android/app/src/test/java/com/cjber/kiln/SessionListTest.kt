@@ -7,12 +7,12 @@ class SessionListTest {
     private val parent =
         Row(
             "parent",
-            "codex",
+            Agent.CODEX,
             "Fix retry",
             "/z/atlas",
             "main",
-            "idle",
-            "kiln",
+            Activity.IDLE,
+            Place.KILN,
             1,
             20,
             "https://chatgpt.com/codex",
@@ -24,7 +24,7 @@ class SessionListTest {
             id = "child",
             title = "Review retry",
             url = null,
-            where = "elsewhere",
+            where = Place.ELSEWHERE,
             parent = "parent",
         )
 
@@ -50,7 +50,7 @@ class SessionListTest {
 
     @Test
     fun localPiTasksStayVisibleWithoutHandoffLinks() {
-        val pi = parent.copy(id = "pi", agent = "pi", url = null)
+        val pi = parent.copy(id = "pi", agent = Agent.PI, url = null)
         assertEquals(
             listOf("pi"),
             ids(sessionItems(listOf(pi), SessionOrder.PROJECT, "", emptySet())),
@@ -96,11 +96,11 @@ class SessionListTest {
     @Test
     fun liveKeepsLocalAndBusyCloudSessionsButSeparatesOlderHistory() {
         val now = 10 * 86_400_000L
-        val recent = parent.copy(id = "recent", where = "cloud", active = now - 1000)
+        val recent = parent.copy(id = "recent", where = Place.CLOUD, active = now - 1000)
         val boundary = recent.copy(id = "boundary", active = now - 86_400_000)
-        val working = boundary.copy(id = "working", activity = "working")
-        val waiting = boundary.copy(id = "waiting", activity = "waiting")
-        val unknown = boundary.copy(id = "unknown", activity = "unknown")
+        val working = boundary.copy(id = "working", activity = Activity.WORKING)
+        val waiting = boundary.copy(id = "waiting", activity = Activity.WAITING)
+        val unknown = boundary.copy(id = "unknown", activity = Activity.UNKNOWN)
         val noTimestamp = boundary.copy(id = "undated", active = 0, started = 0)
         val created = boundary.copy(id = "created", active = 0, started = now - 1000)
         val rows = listOf(parent, recent, boundary, working, waiting, unknown, noTimestamp, created)
@@ -118,7 +118,7 @@ class SessionListTest {
 
     @Test
     fun activityAndAgentFiltersRevealMatchingChildrenWithTheirParent() {
-        val waitingChild = child.copy(activity = "waiting", agent = "claude")
+        val waitingChild = child.copy(activity = Activity.WAITING, agent = Agent.CLAUDE)
         assertEquals(
             listOf("parent", "child"),
             ids(
@@ -129,8 +129,8 @@ class SessionListTest {
                     emptySet(),
                     SessionScope.LIVE,
                     100,
-                    "claude",
-                    "waiting",
+                    Agent.CLAUDE,
+                    Activity.WAITING,
                 )
             ),
         )
@@ -144,8 +144,8 @@ class SessionListTest {
                     emptySet(),
                     SessionScope.LIVE,
                     100,
-                    "pi",
-                    "waiting",
+                    Agent.PI,
+                    Activity.WAITING,
                 )
             ),
         )

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { driver } from "./tuistory";
+
 const scratch = mkdtempSync(join(tmpdir(), "kiln-acp-e2e-"));
 const config = join(scratch, "config");
 mkdirSync(join(config, "kiln"), { recursive: true });
@@ -14,20 +16,7 @@ writeFileSync(
 const name = `kiln-acp-e2e-${process.pid}`;
 const output = resolve(Bun.env.KILN_E2E_OUTPUT ?? join(tmpdir(), "kiln-tui-e2e-evidence"));
 mkdirSync(output, { recursive: true });
-async function drive(...args: string[]) {
-  const child = Bun.spawn(["bunx", "tuistory@0.11.0", "-s", name, ...args], {
-    env: { ...Bun.env, TUISTORY_PORT: "19474" },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [text, error, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  assert.equal(code, 0, `${args.join(" ")}: ${error || text}`);
-  return text;
-}
+const drive = driver(name, 19474);
 try {
   await drive(
     "--cols",

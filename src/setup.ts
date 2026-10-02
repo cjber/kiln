@@ -90,11 +90,11 @@ export async function runSetup(
   try {
     existing = readFileSync(unitPath, "utf8");
   } catch {
-    // No unit yet.
+    // No unit yet, or a link whose target is missing.
   }
   const changed = existing !== unit;
   // A linked unit belongs to whoever manages its target, such as a dotfiles repository.
-  if (changed && existing !== undefined && lstatSync(unitPath).isSymbolicLink())
+  if (changed && lstatSync(unitPath, { throwIfNoEntry: false })?.isSymbolicLink())
     throw new Error(`${unitPath} is a symlink kiln did not create; remove it, then run kiln setup again`);
   const active = (await run(["systemctl", "--user", "is-active", "--quiet", unitName])).code === 0;
   if (!active && (await isListening(options.port)))

@@ -17,7 +17,7 @@ export type Place =
   | { kind: "acp"; id: string }
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
-  | { kind: "background"; id: string; attach: string[]; stop?: string[]; acpId?: string }
+  | { kind: "background"; id: string; attach: string[]; stop?: string[]; acpId?: string; recovery?: boolean }
   | { kind: "elsewhere"; source?: string }
   | { kind: "cloud"; id: string; title: string; url?: string };
 
@@ -77,9 +77,7 @@ export async function listSessions({
   const owned = await acpRequest<Session[]>("/sessions");
   const { nativeSavedSessions } = await import("./native-resume");
   const saved = native ? nativeSavedSessions(owned) : owned;
-  const observed = native
-    ? await listNativeSessions({ kitty, excludedPids: owned.flatMap((row) => (row.pid ? [row.pid] : [])) })
-    : [];
+  const observed = native ? await listNativeSessions({ kitty }) : [];
   return nestSessions(
     [
       ...saved
@@ -92,8 +90,8 @@ export async function listSessions({
   );
 }
 
-export function sessionParents(sessions: readonly Session[], queried?: Session): Map<Session, Session | undefined> {
-  const candidates = queried && !sessions.includes(queried) ? [...sessions, queried] : sessions;
+/** Provider relationships survive daemon execution, where children have no terminal PID. */
+export function sessionParents(sessions: readonly Session[]): Map<Session, Session | undefined> {
   const ids = new Map<string, Session[]>();
   const pids = new Map<number, Session[]>();
   for (const session of sessions) {
@@ -110,7 +108,7 @@ export function sessionParents(sessions: readonly Session[], queried?: Session):
     }
   }
   const parents = new Map<Session, Session | undefined>();
-  for (const session of candidates) {
+  for (const session of sessions) {
     const provider =
       session.parentSessionId === undefined
         ? undefined
@@ -122,7 +120,7 @@ export function sessionParents(sessions: readonly Session[], queried?: Session):
     parents.set(session, provider ?? process);
   }
   const valid = new Map<Session, boolean>();
-  for (const session of candidates) {
+  for (const session of sessions) {
     const path = new Set<Session>();
     let ancestor: Session | undefined = session;
     while (ancestor && !valid.has(ancestor) && !path.has(ancestor)) {
@@ -132,13 +130,8 @@ export function sessionParents(sessions: readonly Session[], queried?: Session):
     const accepted = ancestor === undefined || valid.get(ancestor) === true;
     for (const member of path) valid.set(member, accepted);
   }
-  for (const session of candidates) if (!valid.get(session)) parents.set(session, undefined);
+  for (const session of sessions) if (!valid.get(session)) parents.set(session, undefined);
   return parents;
-}
-
-/** Provider relationships survive daemon execution, where children have no terminal PID. */
-export function sessionParent(session: Session, sessions: readonly Session[]): Session | undefined {
-  return sessionParents(sessions, session).get(session);
 }
 
 /** Keep children directly beneath their parent, preserving the order within each group. */

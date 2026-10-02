@@ -75,33 +75,33 @@ fun KilnTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> 
 }
 
 @Composable
-fun activityColor(activity: String): Color =
+fun activityColor(activity: Activity): Color =
     when (activity) {
-        "working" -> MaterialTheme.colorScheme.onSurfaceVariant
-        "waiting" ->
+        Activity.WORKING,
+        Activity.STOPPED,
+        Activity.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+        Activity.WAITING ->
             if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFFE5C46B)
             else Color(0xFF806000)
-        "idle",
-        "completed" ->
+        Activity.IDLE,
+        Activity.COMPLETED ->
             if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF6A9955)
             else Color(0xFF48634F)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-fun agentName(agent: String): String =
+fun agentName(agent: Agent): String =
     when (agent) {
-        "claude" -> "Claude"
-        "codex" -> "Codex"
-        "pi" -> "Pi"
-        else -> agent
+        Agent.CLAUDE -> "Claude"
+        Agent.CODEX -> "Codex"
+        Agent.PI -> "Pi"
     }
 
-fun activityName(activity: String): String =
+fun activityName(activity: Activity): String =
     when (activity) {
-        "working" -> "Working"
-        "waiting" -> "Needs input"
-        "idle" -> "Ready"
-        "completed" -> "Completed"
-        "stopped" -> "Stopped"
-        else -> "Unknown"
+        Activity.WORKING -> "Working"
+        Activity.WAITING -> "Needs input"
+        Activity.IDLE -> "Ready"
+        Activity.COMPLETED -> "Completed"
+        Activity.STOPPED -> "Stopped"
+        Activity.UNKNOWN -> "Unknown"
     }

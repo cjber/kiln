@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Session } from "../src/sessions";
 
+import { driver } from "./tuistory";
+
 // Pin the external PTY driver without adding it to kiln's runtime or binary.
 const scratch = mkdtempSync(join(tmpdir(), "kiln-tui-e2e-"));
 const name = `kiln-e2e-${process.pid}`;
@@ -54,20 +56,7 @@ const rows: Session[] = [
     place: { kind: "background", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
   },
 ];
-async function drive(...args: string[]): Promise<string> {
-  const child = Bun.spawn(["bunx", "tuistory@0.11.0", "-s", name, ...args], {
-    env: { ...Bun.env, TUISTORY_PORT: "19474" },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [text, error, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  assert.equal(code, 0, `${args.join(" ")}: ${error || text}`);
-  return text;
-}
+const drive = driver(name, 19474);
 const screen = () => drive("snapshot", "--trim");
 async function press(key: string, expected: string) {
   await drive("press", key);

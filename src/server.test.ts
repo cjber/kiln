@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
 import { phoneSession, startServer } from "./server";
-import { type Session, sessionParent } from "./sessions";
+import { type Session, sessionParents } from "./sessions";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -130,13 +130,11 @@ test("phone projection retains provider ancestry without terminal PIDs", () => {
     place: { kind: "acp", id: "parent" },
   };
   const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
-  expect(phoneSession(child, sessionParent(child, [child, parent])).parentId).toBe(phoneSession(parent).id);
+  expect(phoneSession(child, sessionParents([child, parent]).get(child)).parentId).toBe(phoneSession(parent).id);
 });
 
 test("paired phone reads the same ACP prompt, approval and completion as the local client", async () => {
   const { directory, pairing } = fixture();
-  const { mkdirSync, writeFileSync } = await import("node:fs");
-  const { resolve } = await import("node:path");
   const { startAcpHost, acpRequest } = await import("./acp-host");
   const previousSocket = Bun.env.KILN_ACP_SOCKET;
   const previousConfig = Bun.env.XDG_CONFIG_HOME;
@@ -159,6 +157,8 @@ test("paired phone reads the same ACP prompt, approval and completion as the loc
   try {
     await Bun.sleep(30);
     expect((await fetch(route)).status).toBe(401);
+    for (const body of ["{not json", "null"])
+      expect((await fetch(route, { headers, method: "POST", body })).status).toBe(400);
     expect((await command({ type: "prompt", message: "approve this" })).status).toBe(200);
     let snapshot:
       | { activity: string; approvals: { id: string; options: { optionId: string }[] }[]; messages: { text: string }[] }

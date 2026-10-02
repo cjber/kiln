@@ -9,9 +9,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 /**
- * Debug-only host for README screenshots: `--es screen list` (default) or `--es screen pair`. It
- * renders the production composables from seeded rows and a fixed clock; nothing touches the
- * network or saved credentials.
+ * Debug-only host for README screenshots: `--es screen list` (default), `--es screen pair` or `--es
+ * screen handoff`. It renders the production composables from seeded rows and a fixed clock;
+ * nothing touches the network or saved credentials.
  */
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,7 +45,7 @@ class ScreenshotActivity : ComponentActivity() {
                         onForget = {},
                         error = "",
                         onDismissError = {},
-                        state = "Ready",
+                        state = ConnectionState.CONNECTED,
                         updated = demoNow,
                         problem = "",
                         filter = "",
@@ -83,10 +83,10 @@ private const val claude = "https://claude.ai/code"
 
 private fun demo(
     id: String,
-    agent: String,
+    agent: Agent,
     title: String,
     cwd: String,
-    activity: String,
+    activity: Activity,
     minutes: Long,
     started: Long,
     branch: String = "main",
@@ -99,16 +99,20 @@ private fun demo(
         cwd,
         branch,
         activity,
-        if (agent == "pi") "acp" else "kiln",
+        if (agent == Agent.PI) Place.ACP else Place.KILN,
         demoNow - started * 60_000,
         demoNow - minutes * 60_000,
         when (agent) {
-            "codex" -> chatgpt
-            "claude" -> claude
-            else -> null
+            Agent.CODEX -> chatgpt
+            Agent.CLAUDE -> claude
+            Agent.PI -> null
         },
-        "Demo",
-        agent != "codex",
+        when (agent) {
+            Agent.CODEX -> "Open ChatGPT, then choose this thread"
+            Agent.CLAUDE -> "Open in Claude"
+            Agent.PI -> "Open this Pi session in kiln on your PC"
+        },
+        agent != Agent.CODEX,
         parent,
     )
 
@@ -116,53 +120,65 @@ private val demoRows =
     listOf(
         demo(
             "claude:101",
-            "claude",
+            Agent.CLAUDE,
             "Cache map tiles",
             "/home/demo/code/atlas",
-            "working",
+            Activity.WORKING,
             2,
             42,
             "feat/tile-cache",
         ),
         demo(
             "codex:102",
-            "codex",
+            Agent.CODEX,
             "Fix retry backoff",
             "/home/demo/code/atlas",
-            "waiting",
+            Activity.WAITING,
             2,
             18,
             "fix/retry-backoff",
         ),
         demo(
             "claude:105",
-            "claude",
+            Agent.CLAUDE,
             "Review the retry fix",
             "/home/demo/code/kiln",
-            "waiting",
+            Activity.WAITING,
             2,
             64,
             parent = "codex:102",
         ),
-        demo("pi:103", "pi", "Update shell bindings", "/home/demo/code/dotfiles", "working", 2, 7),
+        demo(
+            "pi:103",
+            Agent.PI,
+            "Update shell bindings",
+            "/home/demo/code/dotfiles",
+            Activity.WORKING,
+            2,
+            7,
+        ),
         demo(
             "claude:104",
-            "claude",
+            Agent.CLAUDE,
             "Draft terminal tools post",
             "/home/demo/code/blog",
-            "idle",
+            Activity.IDLE,
             130,
             190,
             "draft/terminal-tools",
         ),
         demo(
                 "claude:106",
-                "claude",
+                Agent.CLAUDE,
                 "Summarise release notes",
                 "/home/demo/code/kiln",
-                "completed",
+                Activity.COMPLETED,
                 300,
                 320,
             )
-            .copy(where = "background", url = null, label = "Attach in kiln on your PC"),
+            .copy(
+                where = Place.BACKGROUND,
+                url = null,
+                label = "This job has finished; attach to it in kiln on your PC",
+            ),
     )
