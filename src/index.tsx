@@ -1,4 +1,3 @@
-import { ensureAcpHost } from "./acp-host";
 import { syncBundledSkills } from "./bundled-skills";
 import { runCli } from "./cli";
 import { loadSettings, type Settings } from "./settings";
@@ -16,12 +15,6 @@ try {
 }
 
 const skillProblems = syncBundledSkills();
-try {
-  await ensureAcpHost();
-} catch (error) {
-  console.error(`kiln: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-}
 const [{ createCliRenderer }, { createRoot }, { App }] = await Promise.all([
   import("@opentui/core"),
   import("@opentui/react"),

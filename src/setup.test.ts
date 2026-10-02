@@ -8,7 +8,6 @@ test("the unit serves localhost only and escapes systemd specifiers", () => {
   const unit = serveUnit(["/opt/my kiln/kiln"], 7437, "/usr/bin:/home/a%b/$bin");
   expect(unit).toContain('ExecStart="/opt/my kiln/kiln" "serve" "--local" "--port" "7437"');
   expect(unit).toContain('Environment="PATH=/usr/bin:/home/a%%b/$$bin"');
-  expect(unit).toContain("KillMode=process");
 });
 
 test("setup installs and starts the service once, then changes nothing", async () => {

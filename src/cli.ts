@@ -18,22 +18,6 @@ const usage = `usage: kiln            open the session list
 export async function runCli(args: string[]): Promise<number | undefined> {
   const [command] = args;
   if (command === undefined) return undefined;
-  if (command === "acp-host") {
-    const { ensureAcpHost, startAcpHost } = await import("./acp-host");
-    if (args.length === 1) {
-      await ensureAcpHost();
-      return 0;
-    }
-    if (args.length !== 2 || args[1] !== "--locked") throw new Error("Invalid ACP host invocation");
-    const host = startAcpHost({ locked: true });
-    const stop = () => {
-      host.stop();
-      process.exit(0);
-    };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
-    await new Promise(() => {});
-  }
   if (command === "skills") {
     try {
       const { runSkillsCli } = await import("./skills-cli");
@@ -51,8 +35,6 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         const { serveOptions, setupTailscale, printInvitation } = await import("./serve");
         const options = serveOptions(args.slice(1));
         loadSettings();
-        const { ensureAcpHost } = await import("./acp-host");
-        await ensureAcpHost();
         const { startServer } = await import("./server");
         const pairing = new Pairing();
         let server: ReturnType<typeof startServer> | undefined;
@@ -127,8 +109,6 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     return 0;
   }
   if (command === "status") {
-    const { ensureAcpHost } = await import("./acp-host");
-    await ensureAcpHost();
     // The counts need no terminal ownership, and tmux asks every few seconds.
     console.log(summarise(await listSessions({ kitty: false })));
     return 0;

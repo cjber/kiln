@@ -243,23 +243,42 @@ export function isInteractiveCodex(args: readonly string[]): boolean {
   return !word || !["exec", "e", "review", "agents", "app-server", "exec-server", "mcp", "cloud"].includes(word);
 }
 
-/** Codex has no scriptable session listing, so its live terminal sessions are found by process. */
-async function codexProcesses(): Promise<AgentProcess[]> {
-  const listed = Bun.spawn(["pgrep", "-x", "codex"], { stdout: "pipe", stderr: "ignore" });
+async function pidsNamed(name: string): Promise<number[]> {
+  const listed = Bun.spawn(["pgrep", "-x", name], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => listed.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(listed.stdout).text(), listed.exited]);
   clearTimeout(timeout);
-  if (code !== 0) return [];
-  return source
-    .split("\n")
-    .filter(Boolean)
-    .flatMap((line) => {
-      const pid = Number(line);
-      const cwd = processCwd(pid);
-      const args = processArgs(pid);
-      if (!cwd || !args || !isInteractiveCodex(args) || isDaemon(pid)) return [];
-      return [{ pid, agent: "codex" as const, cwd, startedAt: startedAt(pid) }];
-    });
+  return code === 0 ? source.split("\n").filter(Boolean).map(Number) : [];
+}
+
+/** Codex has no scriptable session listing, so its live terminal sessions are found by process. */
+async function codexProcesses(): Promise<AgentProcess[]> {
+  return (await pidsNamed("codex")).flatMap((pid) => {
+    const cwd = processCwd(pid);
+    const args = processArgs(pid);
+    if (!cwd || !args || !isInteractiveCodex(args) || isDaemon(pid)) return [];
+    return [{ pid, agent: "codex" as const, cwd, startedAt: startedAt(pid) }];
+  });
+}
+
+function hasTerminal(pid: number): boolean {
+  try {
+    return /^\/dev\/(pts\/|tty)/.test(readlinkSync(`/proc/${pid}/fd/0`));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pi replaces its argv with its name and reports no status, so a terminal on stdin is what separates
+ * its TUI from the print and RPC modes other programs drive. Its activity stays unknown.
+ */
+async function piProcesses(): Promise<AgentProcess[]> {
+  return (await pidsNamed("pi")).flatMap((pid) => {
+    const cwd = processCwd(pid);
+    if (!cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
+    return [{ pid, agent: "pi" as const, cwd, startedAt: startedAt(pid) }];
+  });
 }
 
 function processArgs(pid: number): string[] | undefined {
@@ -377,13 +396,14 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
     return withCodexThreads(processes, threads);
   };
-  const [claude, owned, windows, codex] = await Promise.all([
+  const [claude, owned, windows, codex, pi] = await Promise.all([
     claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
+    piProcesses(),
   ]);
-  const running = [...claude.processes, ...codex.processes];
+  const running = [...claude.processes, ...codex.processes, ...pi];
 
   const places = new Map<number, Place>();
   for (const window of windows) {

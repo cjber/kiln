@@ -1,6 +1,6 @@
 # AGENTS.md
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude and Codex TUIs and runs Pi through ACP, plus read-only cloud discovery. Arch users install it
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex and Pi TUIs, plus read-only cloud discovery. Arch users install it
 from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
@@ -13,8 +13,6 @@ bun test
 bun scripts/changelog.ts --check
 bun scripts/perf.ts
 bun scripts/list-tui-e2e.ts
-bun scripts/acp-tui-e2e.ts
-bun scripts/acp-host-e2e.ts
 bun scripts/native-tui-e2e.ts
 python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
@@ -32,12 +30,10 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 ## Layout
 
-- `src/acp.ts`, `src/acp-host.ts` - one owner-only host preserves Pi and saved ACP sessions. Native Claude/Codex use provider observation, not ACP ownership.
-- `src/sessions.ts` - `discovery()` merges saved ACP, native and cached cloud rows; each source keeps its last rows while it fails.
+- `src/sessions.ts` - `discovery()` merges native and cached cloud rows; each source keeps its last rows while it fails.
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
-  `lifecycle` (`completed`, `stopped`) instead of an activity.
-- `src/conversation-view.tsx` - OpenTUI conversation, prompt entry and exact approval choices.
+  `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process and reports no activity.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering, directory/task groups with collapsed children, status wording and the cursor.
@@ -48,7 +44,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
-  Paired phones open provider apps through verified HTTPS links. `/v1/acp/:id` remains for older clients and saved ACP sessions.
+  Paired phones open provider apps through verified HTTPS links.
 - `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.

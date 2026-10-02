@@ -1,6 +1,5 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConversationView } from "./conversation-view";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { nativeNotifications } from "./notifications";
 import {
@@ -82,7 +81,6 @@ type AppProps = {
 };
 
 export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" }: AppProps) {
-  const [conversationId, getConversationId, setConversationId] = useLatest<string | undefined>(undefined);
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -172,9 +170,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const follow = useCallback(
     async (outcome: Outcome) => {
       switch (outcome.kind) {
-        case "conversation":
-          setConversationId(outcome.id);
-          return refresh();
         case "attach":
           await handOver(outcome.name);
           if (outcome.notice) setNotice(outcome.notice);
@@ -185,7 +180,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           return;
       }
     },
-    [handOver, refresh, setConversationId],
+    [handOver],
   );
 
   const create = useCallback(
@@ -230,7 +225,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   );
 
   useKeyboard((key) => {
-    if (getSkillsProject() !== undefined || getConversationId() !== undefined) return;
+    if (getSkillsProject() !== undefined) return;
     // Shadow the render values with the latest ones; see useLatest.
     const mode = getMode();
     const agentIndex = getAgentIndex();
@@ -321,8 +316,6 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       return setMode("agent");
     }
   });
-
-  if (conversationId) return <ConversationView id={conversationId} onBack={() => setConversationId(undefined)} />;
 
   if (skillsProject !== undefined)
     return (

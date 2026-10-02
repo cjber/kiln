@@ -29,11 +29,7 @@ export function sessionStatus(session: Session): { label: string; hint: string; 
     case "idle":
       return { label: "ready", hint: "ready for a prompt", tone: "done" };
     case undefined:
-      return {
-        label: "unknown",
-        hint: session.place.kind === "acp" ? "ACP connection lost" : "status unavailable from provider",
-        tone: "muted",
-      };
+      return { label: "unknown", hint: "status unavailable from provider", tone: "muted" };
   }
 }
 

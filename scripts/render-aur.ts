@@ -14,12 +14,10 @@ import { parseArgs } from "node:util";
 const pkgname = "kiln-agents";
 const pkgdesc = "Native Claude and Codex session launcher with a paired phone client";
 const url = "https://github.com/cjber/kiln";
-const depends = ["bun", "tmux", "fzf", "util-linux"];
+const depends = ["bun", "tmux", "fzf"];
 const optdepends = [
   "libnotify: desktop notifications for input requests and completed turns",
   "zoxide: rank the directories offered for new sessions",
-  "nodejs: run the Pi ACP adapter",
-  "npm: install the Pi ACP adapter",
   "openai-codex: native Codex sessions and cloud discovery",
 ];
 

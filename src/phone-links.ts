@@ -28,7 +28,6 @@ export function phoneHandoff(session: Session, codexHost?: string): Handoff {
       ? { url: session.place.url, label: "Open task", exact: true }
       : { reason: "This task has no verified link" };
   }
-  if (session.place.kind === "acp") return { reason: "Open this saved ACP session in kiln on your PC" };
   if (session.lifecycle) return { reason: "This job has finished; attach to it in kiln on your PC" };
   switch (session.agent) {
     case "claude": {

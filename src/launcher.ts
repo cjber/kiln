@@ -1,9 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { acpRequest } from "./acp-host";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
-import { closeNativeRecovery, releaseForNative } from "./native-resume";
 import { sessionTitle } from "./session-list";
 import type { Agent, Session } from "./sessions";
 import type { Settings } from "./settings";
@@ -11,9 +9,8 @@ import { exists, kill, start } from "./tmux";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
 
-/** What the view does next: show a conversation, hand the terminal to a tmux session, or only say something. */
+/** What the view does next: hand the terminal to a tmux session, or only say something. */
 export type Outcome =
-  | { kind: "conversation"; id: string }
   | { kind: "attach"; name: string; notice?: string }
   | { kind: "notice"; text: string }
   | { kind: "done" };
@@ -25,16 +22,11 @@ function isDirectory(path: string): boolean {
 }
 
 /** Give a session with no terminal one of kiln's, reusing the pane from an earlier open. */
-async function attachNative(session: Session, id: string, attach: string[]): Promise<Outcome> {
+function attachNative(session: Session, id: string, attach: string[]): Outcome {
   const name = `${session.agent}-bg-${id.slice(0, 16)}`;
   if (!exists(name)) {
     if (!attach[0] || !Bun.which(attach[0])) return notice(`${session.agent} is not on PATH`);
     if (!isDirectory(session.cwd)) return notice(`${tilde(session.cwd)} is not a directory`);
-    try {
-      await releaseForNative(session);
-    } catch (error) {
-      return notice(error instanceof Error ? error.message : "Could not resume the saved session");
-    }
     if (!start(name, session.cwd, attach, sessionTitle(session))) return notice(`could not attach to ${session.agent}`);
   }
   return { kind: "attach", name };
@@ -43,17 +35,12 @@ async function attachNative(session: Session, id: string, attach: string[]): Pro
 export async function openSession(session: Session): Promise<Outcome> {
   const place = session.place;
   switch (place.kind) {
-    case "acp":
-      return session.agent === "pi"
-        ? { kind: "conversation", id: place.id }
-        : notice("This saved session has no native provider identity; open it in the provider's resume picker");
     case "kiln":
       return { kind: "attach", name: place.name };
     case "kitty":
       return focus(place.socket, place.windowId) ? { kind: "done" } : notice("kitty could not focus this session");
     case "job":
     case "thread":
-    case "saved":
       return attachNative(session, place.id, place.attach);
     case "elsewhere":
       return notice(`Open this session in its terminal · ${place.source ?? session.id ?? "unknown"}`);
@@ -96,11 +83,6 @@ async function startCodexRemoteControl(): Promise<string | undefined> {
 export async function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
-    if (agent === "pi") {
-      const session = await acpRequest<Session>("/sessions", { agent, cwd });
-      if (settings.zoxide) recordDirectory(cwd);
-      return session.id ? { kind: "conversation", id: session.id } : { kind: "done" };
-    }
     const command = settings.agents[agent];
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agent} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
@@ -122,9 +104,7 @@ export type SessionAction = { verb: "close" | "archive" | "delete" } | { reason:
 export function sessionAction(session: Session): SessionAction {
   const place = session.place;
   switch (place.kind) {
-    case "acp":
     case "kiln":
-    case "saved":
       return { verb: "close" };
     case "thread":
       return { verb: "archive" };
@@ -147,15 +127,8 @@ export async function closeSession(session: Session): Promise<true | string> {
   const place = session.place;
   try {
     switch (place.kind) {
-      case "acp":
-        await acpRequest(`/sessions/${place.id}/close`, {});
-        break;
       case "kiln":
         if (!kill(place.name)) throw new Error("tmux could not close this session");
-        break;
-      case "saved":
-        // A recovery record has no live adapter; closing it only retires the record below.
-        if (place.acpId) await acpRequest(`/sessions/${place.acpId}/close`, {});
         break;
       case "thread":
         await archiveCodexThread(place.id);
@@ -182,7 +155,6 @@ export async function closeSession(session: Session): Promise<true | string> {
       default:
         return place satisfies never;
     }
-    closeNativeRecovery(session);
     return true;
   } catch (error) {
     return `could not ${action.verb} ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;

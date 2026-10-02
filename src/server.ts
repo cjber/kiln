@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
-import type { Conversation } from "./acp";
-import { acpRequest } from "./acp-host";
 import { codexRemoteHost } from "./codex";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
@@ -10,13 +8,11 @@ import { type Discovered, discovery, type Place, type Session, sessionIdentity, 
 import { loadSettings, SettingsError } from "./settings";
 
 /** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
-function wireKind(place: Place): "acp" | "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
+function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
   switch (place.kind) {
     case "job":
     case "thread":
-    case "saved":
       return "background";
-    case "acp":
     case "kiln":
     case "kitty":
     case "elsewhere":
@@ -38,7 +34,6 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: wireKind(session.place),
-    acpRemote: session.place.kind === "acp",
     handoff: phoneHandoff(session, codexHost),
   };
 }
@@ -70,7 +65,6 @@ export function startServer({
     problem: "Loading sessions",
     sessions: [] as ReturnType<typeof phoneSession>[],
   };
-  let liveSessions: Session[] = [];
   let refreshing = false;
   let attempts = 0;
   let windowStart = Date.now();
@@ -115,61 +109,6 @@ export function startServer({
       const token = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
       const device = token ? pairing.authenticate(token) : null;
       if (!token || !device) return response({ error: "Device is not paired" }, 401);
-      const acpRoute = path.match(/^\/v1\/acp\/([A-Za-z0-9-]{1,128})$/);
-      if (acpRoute) {
-        const session = liveSessions.find((row) => row.place.kind === "acp" && row.id === acpRoute[1]);
-        if (!session) return response({ error: "ACP session is unavailable" }, 404);
-        try {
-          if (request.method === "GET") {
-            const conversation = await acpRequest<Conversation>(`/sessions/${session.id}`);
-            return response({
-              instance,
-              sequence: conversation.session.lastActiveAt ?? conversation.session.startedAt,
-              title: conversation.session.title,
-              activity: conversation.session.activity ?? "unknown",
-              messages: conversation.messages
-                .slice(-40)
-                .map((message) => ({ ...message, text: message.text.slice(-4000) })),
-              localAction: conversation.problem ?? "",
-              approvals: conversation.approvals,
-              updatedAt: conversation.session.lastActiveAt,
-            });
-          }
-          if (request.method !== "POST") return response({ error: "Method not supported" }, 405);
-          if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-            return response({ error: "Expected JSON" }, 415);
-          let body: { type?: unknown; message?: unknown; approvalId?: unknown; optionId?: unknown } | null;
-          try {
-            body = (await request.json()) as typeof body;
-          } catch {
-            body = null;
-          }
-          if (!body || typeof body !== "object") return response({ error: "Invalid command" }, 400);
-          switch (body.type) {
-            case "prompt":
-              if (typeof body.message !== "string" || Buffer.byteLength(body.message) > 3500)
-                return response({ error: "Invalid prompt" }, 400);
-              await acpRequest(`/sessions/${session.id}/prompt`, { text: body.message });
-              break;
-            case "abort":
-              await acpRequest(`/sessions/${session.id}/cancel`, {});
-              break;
-            case "approve":
-              if (typeof body.approvalId !== "string" || typeof body.optionId !== "string")
-                return response({ error: "Invalid approval" }, 400);
-              await acpRequest(`/sessions/${session.id}/approve`, {
-                approvalId: body.approvalId,
-                optionId: body.optionId,
-              });
-              break;
-            default:
-              return response({ error: "Invalid command" }, 400);
-          }
-          return response({ success: true });
-        } catch (error) {
-          return response({ error: error instanceof Error ? error.message : "ACP request failed" }, 409);
-        }
-      }
       if (request.method === "GET" && path === "/v1/sessions") return response(snapshot);
       if (request.method === "GET" && path === "/v1/events") {
         if (server.upgrade(request, { data: { token } })) return;
@@ -205,12 +144,9 @@ export function startServer({
     refreshing = true;
     try {
       const { sessions, problem, stale } = await discover();
-      const codexHost = sessions.some(
-        (row) => row.agent === "codex" && row.place.kind !== "cloud" && row.place.kind !== "acp",
-      )
+      const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
-      liveSessions = sessions;
       const parents = sessionParents(sessions);
       snapshot = {
         ...snapshot,

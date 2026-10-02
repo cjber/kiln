@@ -20,7 +20,7 @@ const rows: Session[] = [
     cwd: "/tmp/atlas",
     activity: "waiting",
     startedAt: 1,
-    place: { kind: "acp", id: "parent" },
+    place: { kind: "kiln", name: "parent" },
   },
   {
     agent: "codex",
@@ -30,7 +30,7 @@ const rows: Session[] = [
     cwd: "/tmp/atlas",
     activity: "waiting",
     startedAt: 2,
-    place: { kind: "acp", id: "child" },
+    place: { kind: "kiln", name: "child" },
   },
   {
     agent: "claude",
@@ -38,14 +38,14 @@ const rows: Session[] = [
     cwd: "/tmp/blog",
     activity: "idle",
     startedAt: 3,
-    place: { kind: "acp", id: "finished" },
+    place: { kind: "kiln", name: "finished" },
   },
   {
     agent: "pi",
-    title: "Unavailable adapter",
+    title: "Unknown status",
     cwd: "/tmp/dotfiles",
     startedAt: 4,
-    place: { kind: "acp", id: "pi" },
+    place: { kind: "kiln", name: "pi" },
   },
   {
     agent: "claude",
@@ -91,8 +91,8 @@ try {
   await press("x", "close");
   await press("esc", "q quit");
   await press("/", "type to filter");
-  await drive("type", "Unavailable adapter");
-  assert.ok((await screen()).includes("ACP connection lost"));
+  await drive("type", "Unknown status");
+  assert.ok((await screen()).includes("status unavailable from provider"));
   await press("esc", "Review changes");
   for (const order of ["last active", "age", "harness", "directory", "directory / task"]) await press("o", order);
   await press("n", "[claude]");

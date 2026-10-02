@@ -14,8 +14,7 @@ function quote(value: string): string {
 
 /**
  * The service serves localhost only: setup owns the tunnel and the invitation, so a restart
- * never writes a pairing code to the journal. `KillMode=process` leaves the ACP host and its
- * sessions running when the service stops.
+ * never writes a pairing code to the journal.
  */
 export function serveUnit(command: readonly string[], port: number, path: string): string {
   return `[Unit]
@@ -27,7 +26,6 @@ Environment=${quote(`PATH=${path}`)}
 ExecStart=${[...command, "serve", "--local", "--port", String(port)].map(quote).join(" ")}
 Restart=always
 RestartSec=5
-KillMode=process
 
 [Install]
 WantedBy=default.target
