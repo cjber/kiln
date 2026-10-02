@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-02
+
 - **Finished Claude background jobs stay in the list.** Jobs that have completed or been stopped appear with that status instead of disappearing, on the terminal and the phone. Enter attaches with `claude attach`. On the phone they move to History after a day. Kiln does not delete them; use `claude rm`.
 - **`kiln setup` keeps phone access running.** It installs and enables a systemd user service for the phone server, configures Tailscale Serve and prints a pairing QR. Each step reports what it changed, and a repeated run changes nothing. The service listens on localhost only and does not write pairing codes to the journal.
 - **The README explains phone updates through Obtainium.** Releases already attach a signed APK, so no store is needed.
