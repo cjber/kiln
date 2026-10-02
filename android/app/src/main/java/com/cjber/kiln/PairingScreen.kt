@@ -71,7 +71,7 @@ fun PairingScreen(
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Bring your sessions\nwith you.",
+                        "Pair with kiln",
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.SemiBold,
                     )

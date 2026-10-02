@@ -38,7 +38,7 @@ fun MachinesScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Your sessions, wherever you are.",
+                "Computers paired with this phone.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

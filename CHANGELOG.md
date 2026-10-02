@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Codex status survives a large archive.** Listing archived threads took one pass per refresh inside a 1.5 second budget, so several thousand archived threads made every Codex row lose its status. A long scan now continues across refreshes; a short one still runs in full each time.
+- **Plainer phone copy.** The pairing screen is titled "Pair with kiln" and the machines screen says "Computers paired with this phone."
+- **The skills view uses the list's colours** for shared, missing and conflict.
+
 ## [0.8.1] - 2026-10-02
 
 - **Claude sessions show their titles again.** Claude Code now records the titles it generates separately from ones you set with `/rename`, and kiln read only the latter, so sessions fell back to names like `kiln-05`. Kiln reads both; a title you set still wins.

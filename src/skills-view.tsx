@@ -127,7 +127,7 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
   });
 
   const pageSize = Math.max(1, height - 9);
-  const colours: Record<LinkState, string> = { shared: "#98bc80", missing: "#aaa0db", conflict: "#e6b673" };
+  const colours: Record<LinkState, string> = { shared: color.green, missing: color.purple, conflict: color.yellow };
   const fit = (text: string) => (text.length > width - 2 ? `${text.slice(0, Math.max(0, width - 3))}…` : text);
   const start = Math.floor(index / pageSize) * pageSize;
   const nameWidth = Math.max(12, Math.min(40, width - 38));
