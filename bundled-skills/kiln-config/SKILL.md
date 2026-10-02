@@ -21,7 +21,7 @@ Supported top-level settings:
   existing login. Enable alongside `cloud` for Claude cloud rows.
 - `[agents]`: `claude`, `codex` and `pi` are arrays of command arguments. An empty
   array hides that harness from new-session choices. Keep arguments separate;
-  these are executed directly, not through a shell. Claude and Codex launch native TUIs; Pi speaks ACP. Defaults are `claude`, `codex` and `pi-acp`. Generated Claude/Codex ACP defaults migrate; custom native arguments are preserved.
+  these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex` and `pi`. Generated ACP adapter defaults migrate; custom native arguments are preserved.
 
 Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
@@ -38,8 +38,8 @@ The bundled skill is maintained by kiln. `kiln skills sync` refreshes it from th
 installed executable; TUI startup does the same. To customise these instructions,
 copy them into a separately named user or project skill.
 
-Claude and Codex use their native desktop TUIs. Kiln observes provider
+Claude, Codex and Pi use their native desktop TUIs. Kiln observes provider
 status updates without starting a second agent. Phone sessions open verified
-provider app links, with a browser fallback. Pi and saved ACP sessions open on the PC.
+provider app links, with a browser fallback. Pi sessions open on the PC.
 `remote_control` enables provider-native remote access for new sessions;
 `detach_key` and `status_bar` apply to native tmux sessions and the cloud viewer.

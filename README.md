@@ -2,7 +2,7 @@
 
 # kiln
 
-kiln opens native Claude and Codex terminal sessions and pairs with an Android client. Pi uses an [ACP](https://agentclientprotocol.com) conversation view. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+kiln opens native Claude, Codex and Pi terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 
 Claude and Codex keep their own TUIs for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity.
 
@@ -22,17 +22,14 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Install Claude Code and Codex CLI, and sign in through each provider's own CLI. For Pi's conversation view, install `pi-acp`. Native commands and their arguments can be overridden in settings.
+Install Claude Code, Codex CLI or Pi, and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
 
 ## Terminal
 
 | Key | Action |
 | --- | --- |
 | `j` `k`, arrows | Select a session |
-| `Enter` | Open a conversation or cloud task |
-| `Esc` in a conversation | Return to the list; the session keeps running |
-| `Enter` in a conversation | Send a prompt or confirm the selected permission option |
-| `Ctrl+C` in a conversation | Stop the current turn |
+| `Enter` | Open a session or cloud task |
 | `n` | Choose an agent, then a directory through fzf |
 | `/` | Filter titles, directories, agent names and status |
 | `Tab` | Expand children |
@@ -43,13 +40,13 @@ Install Claude Code and Codex CLI, and sign in through each provider's own CLI. 
 | `r` | Refresh |
 | `q` | Quit the list |
 
-Directory headings are orange. Sessions needing permission are yellow, ready sessions are muted green, and working sessions use subdued text. The header counts input requests even when children are collapsed. Open a yellow native session to answer in the provider TUI. Pi shows the adapter's exact choices.
+Directory headings are orange. Sessions needing permission are yellow, ready sessions are muted green, and working sessions use subdued text. The header counts input requests even when children are collapsed. Open a yellow session to answer in the provider TUI.
 
-New Claude and Codex sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
+New sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
 Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes a background job, running or finished, with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
 
-An owner-only ACP host keeps Pi and previously saved ACP conversations alive when the list closes. Saved Claude and Codex ACP conversations resume in their native terminal, with a private recovery copy of the old kiln history. Pi retains its prompt and approval controls. Native sessions do not run through ACP adapters. Unknown provider activity stays unknown.
+Kiln observes each provider's own status and never guesses from terminal output, so unknown activity stays unknown. Pi reports no status: its sessions are found by process and always show `unknown`.
 
 Desktop notifications identify the session when it needs input or finishes an observed turn. Enable `notify-send` and a desktop notification service to receive them.
 
@@ -57,7 +54,7 @@ Cloud tasks retain their provider status and verified HTTPS links. Claude cloud 
 
 ## Settings
 
-Press `s` to edit `~/.config/kiln/config.toml` (`$XDG_CONFIG_HOME` when set). Unknown keys are errors. Claude and Codex commands launch their native TUIs; the Pi command speaks ACP over stdio.
+Press `s` to edit `~/.config/kiln/config.toml` (`$XDG_CONFIG_HOME` when set). Unknown keys are errors. Each agent command launches that agent's native TUI.
 
 ```toml
 sort = "project"
@@ -72,10 +69,10 @@ remote_control = true
 [agents]
 claude = ["claude"]
 codex = ["codex"]
-pi = ["pi-acp"]
+pi = ["pi"]
 ```
 
-Set an agent command to `[]` to hide it from the new-session picker. Generated `claude-agent-acp` and `codex-acp` defaults migrate to native commands. Custom native arguments are preserved. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
+Set an agent command to `[]` to hide it from the new-session picker. Generated `claude-agent-acp`, `codex-acp` and `pi-acp` defaults migrate to native commands. Custom native arguments are preserved. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
 
 `sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. Directories are grouped by name and sessions by their most recent provider update. Branches are reread from the session directory on refresh.
 
@@ -85,7 +82,7 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 <img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
-Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions, saved ACP sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. Sessions without mobile access explain how to open them on the PC.
+Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. Sessions without mobile access explain how to open them on the PC.
 
 ```sh
 kiln setup # installs a user service that survives reboots, configures Tailscale Serve and prints a pairing QR
@@ -134,12 +131,10 @@ python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
 bun scripts/list-tui-e2e.ts
 bun scripts/perf.ts
-bun scripts/acp-tui-e2e.ts
-bun scripts/acp-host-e2e.ts
 bun scripts/native-tui-e2e.ts
 ```
 
-The PTY tests use [Tuistory](https://github.com/remorses/tuistory) against OpenTUI, with isolated fixtures and screenshot evidence. Native handoff tests exercise direct terminal input, detach, reattach and resizing. ACP protocol tests launch a real stdio fixture and verify working, input, approval and completion transitions.
+The PTY tests use [Tuistory](https://github.com/remorses/tuistory) against OpenTUI, with isolated fixtures and screenshot evidence. Native handoff tests exercise direct terminal input, detach, reattach and resizing.
 
 After visible changes, regenerate and inspect terminal and dedicated-emulator screenshots:
 

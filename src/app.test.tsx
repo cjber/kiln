@@ -15,7 +15,7 @@ test("the compact task list advances elapsed update time while discovery is stal
       startedAt: now,
       lastActiveAt: now - 8_000,
       activity: "working",
-      place: { kind: "acp", id: "task" },
+      place: { kind: "kiln", name: "task" },
     },
   ];
   const clock = spyOn(Date, "now").mockReturnValue(now);

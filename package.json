@@ -1,6 +1,6 @@
 {
   "name": "kiln",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.5.1",
     "@opentui/core": "^0.5.12",
     "@opentui/react": "^0.5.12",
     "qrcode": "1.5.4",

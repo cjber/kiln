@@ -5,7 +5,7 @@ description: "Project skill for sift in kiln: the exact quality-gate and evidenc
 
 # sift project skill: kiln
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude/Codex TUIs and runs Pi through ACP and lists cached cloud tasks. It runs from source under
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex and Pi TUIs and lists cached cloud tasks. It runs from source under
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
 with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
@@ -66,13 +66,12 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
   `scripts/build.ts` runs in releases; `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
 - `App`'s `loadSessions` prop exists for `scripts/screenshots.tsx`, which passes demo sessions.
 - `src/native-sessions.ts`, `src/codex.ts` and `src/kitty.ts` discover native sessions and observe provider status. Do not infer activity from terminal output or transcript timestamps.
-- `src/acp-host.ts` owns a private Unix socket and persisted ACP identities. Never infer live status from stored conversations or terminal output. ACP session update and permission callbacks are live roots.
 - Persisted data: `~/.config/kiln/config.toml` (`src/settings.ts`); every key is user-facing.
 
 ## Model-read text
 
 `bundled-skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
-harnesses. Keep its CLI commands and settings aligned with the implementation. Phones hand sessions off through verified provider HTTPS links; older ACP clients retain their saved-session endpoints.
+harnesses. Keep its CLI commands and settings aligned with the implementation. Phones hand sessions off through verified provider HTTPS links.
 
 ## Zones
 
@@ -105,7 +104,7 @@ Audit slices from lowest to highest risk:
 2. `src/zoxide.ts`, `src/cli.ts`: small adapters.
 3. `src/settings.ts`: user config parsing; errors are the contract.
 4. `src/tmux.ts`, `tmux.conf`: kiln's private tmux server.
-5. `src/acp.ts`, `src/acp-host.ts`, `src/sessions.ts`: protocol sessions and cached provider discovery.
+5. `src/sessions.ts`: cached provider discovery.
 6. `src/app.tsx`, `src/index.tsx`: the whole UI and key handling.
 
 ## Settled
@@ -125,8 +124,8 @@ ledger checks against these names. An entry leaves when a rule enforces it or it
 two audits.
 
 - **second copy**: a helper, palette, path, label or closed-set mapping restated in a second module
-  instead of imported from the first (parallel-implementations, stringly-typed), e.g. the palette in
-  `src/conversation-view.tsx` before `src/tui.ts`, phone button copy rebuilt in `SessionDetails.kt`.
+  instead of imported from the first (parallel-implementations, stringly-typed), e.g. a palette restated
+  beside `src/tui.ts`, phone button copy rebuilt in `SessionDetails.kt`.
 - **option nobody varies**: a parameter, default, wrapper type or export that every caller passes the
   same way or never reaches (speculative-abstraction, dead-code), e.g. `excludedPids` in
   `src/native-sessions.ts`, `startServer` defaults.

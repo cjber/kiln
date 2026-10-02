@@ -23,7 +23,7 @@ export type Settings = {
   notifications: boolean;
   /** Opt into Claude Code's internal cloud-listing API using its existing login. */
   claudeCloud: boolean;
-  /** Native Claude/Codex TUI or Pi ACP command; [] hides an agent from the picker. */
+  /** The native TUI command for each agent; [] hides an agent from the picker. */
   agents: Record<Agent, string[]>;
 };
 
@@ -36,8 +36,10 @@ export const defaults: Settings = {
   cloud: true,
   notifications: true,
   claudeCloud: false,
-  agents: { claude: ["claude"], codex: ["codex"], pi: ["pi-acp"] },
+  agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
 };
+
+const generatedAdapters: Record<Agent, string> = { claude: "claude-agent-acp", codex: "codex-acp", pi: "pi-acp" };
 
 const template = `# kiln settings. Delete a line to use its default.
 
@@ -71,7 +73,7 @@ claude_cloud = false
 [agents]
 claude = ["claude"]
 codex = ["codex"]
-pi = ["pi-acp"]
+pi = ["pi"]
 `;
 
 function settingsPath(): string {
@@ -140,15 +142,9 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
           const argv = stringList(path, `agents.${agent}`, command);
-          if (
-            argv.length === 1 &&
-            ((agent === "claude" && argv[0] === "claude-agent-acp") ||
-              (agent === "codex" && argv[0] === "codex-acp") ||
-              (agent === "pi" && argv[0] === "pi"))
-          )
-            continue;
-          if (agent !== "pi" && argv[0]?.includes("acp"))
-            fail(path, `agents.${agent} must launch the native TUI; use ${agent}`);
+          // Settings files written when kiln spoke ACP name the adapters; those lines mean the default.
+          if (argv.length === 1 && argv[0] === generatedAdapters[agent as Agent]) continue;
+          if (argv[0]?.includes("acp")) fail(path, `agents.${agent} must launch the native TUI; use ${agent}`);
           settings.agents[agent as Agent] = argv;
         }
         break;

@@ -14,15 +14,12 @@ export type Activity = "working" | "waiting" | "idle";
 export type Lifecycle = "completed" | "stopped";
 
 export type Place =
-  | { kind: "acp"; id: string }
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
   /** A Claude background job, running or finished; `attach` gives it a terminal. */
   | { kind: "job"; id: string; attach: string[]; stop?: string[] }
   /** A Codex daemon thread with no terminal of its own. */
   | { kind: "thread"; id: string; attach: string[] }
-  /** A conversation kiln's ACP host held; `acpId` while it still does, otherwise a recovery record. */
-  | { kind: "saved"; id: string; attach: string[]; acpId?: string }
   | { kind: "elsewhere"; source?: string }
   | { kind: "cloud"; id: string; title: string; url?: string };
 
@@ -109,34 +106,20 @@ export function keepLast<A extends unknown[]>(
  * live, and the failed one keeps its last rows. The TUI and the phone server each hold one.
  */
 export function discovery() {
-  const saved = keepLast(async (native: boolean) => {
-    const { acpRequest } = await import("./acp-host");
-    const owned = await acpRequest<Session[]>("/sessions");
-    if (!native) return owned;
-    const { nativeSavedSessions } = await import("./native-resume");
-    return nativeSavedSessions(owned);
-  }, "ACP host");
   const observed = keepLast(async (kitty: boolean) => {
     const { listNativeSessions } = await import("./native-sessions");
     return listNativeSessions({ kitty });
   }, "Native session discovery");
-  return async ({ cloud = false, claudeCloud = false, native = true, kitty = true } = {}): Promise<Discovered> => {
-    const [held, seen] = await Promise.all([
-      saved(native),
-      native ? observed(kitty) : { sessions: [], problem: "", stale: false },
-    ]);
+  return async ({ cloud = false, claudeCloud = false, kitty = true } = {}): Promise<Discovered> => {
+    const seen = await observed(kitty);
     const clouds = [...(cloud ? [cloudSnapshot()] : []), ...(cloud && claudeCloud ? [claudeCloudSnapshot()] : [])];
-    const merged = [
-      ...held.sessions
-        .filter((session) => !seen.sessions.some((row) => row.agent === session.agent && row.id === session.id))
-        .map((session) => ({ ...session, branch: gitBranch(session.cwd) })),
-      ...seen.sessions,
-      ...clouds.flatMap((snapshot) => snapshot.sessions),
-    ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt);
+    const merged = [...seen.sessions, ...clouds.flatMap((snapshot) => snapshot.sessions)].sort(
+      (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
+    );
     return {
       sessions: nestSessions([...new Map(merged.map((session) => [sessionIdentity(session), session])).values()]),
-      problem: [held.problem, seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
-      stale: held.stale || seen.stale,
+      problem: [seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
+      stale: seen.stale,
     };
   };
 }

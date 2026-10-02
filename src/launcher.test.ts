@@ -2,13 +2,13 @@ import { expect, spyOn, test } from "bun:test";
 import { closeSession, openSession, sessionAction } from "./launcher";
 import type { Session } from "./sessions";
 
-test("only kiln-owned ACP sessions can be closed", () => {
+test("only kiln-owned sessions can be closed", () => {
   const session: Session = {
     agent: "codex",
     id: "owned",
     cwd: "/repo",
     startedAt: 1,
-    place: { kind: "acp", id: "owned" },
+    place: { kind: "kiln", name: "owned" },
   };
   expect(sessionAction(session)).toEqual({ verb: "close" });
   expect(sessionAction({ ...session, place: { kind: "cloud", id: "task", title: "task" } })).toHaveProperty("reason");
@@ -26,17 +26,11 @@ test("each terminal-less place has its own close rule", () => {
   expect(sessionAction({ ...session, agent: "codex", place: { kind: "thread", id: "1", attach: [] } })).toEqual({
     verb: "archive",
   });
-  expect(sessionAction({ ...session, place: { kind: "saved", id: "1", attach: [] } })).toEqual({ verb: "close" });
 });
 
 test("opening reports what the view should do without touching the terminal", async () => {
-  const session: Session = { agent: "pi", id: "a", cwd: "/repo", startedAt: 1, place: { kind: "acp", id: "a" } };
-  expect(await openSession(session)).toEqual({ kind: "conversation", id: "a" });
-  expect(await openSession({ ...session, agent: "claude" })).toHaveProperty("kind", "notice");
-  expect(await openSession({ ...session, place: { kind: "kiln", name: "claude-1" } })).toEqual({
-    kind: "attach",
-    name: "claude-1",
-  });
+  const session: Session = { agent: "pi", cwd: "/repo", startedAt: 1, place: { kind: "kiln", name: "pi-1" } };
+  expect(await openSession(session)).toEqual({ kind: "attach", name: "pi-1" });
   expect(await openSession({ ...session, place: { kind: "elsewhere", source: "tmux main" } })).toEqual({
     kind: "notice",
     text: "Open this session in its terminal · tmux main",

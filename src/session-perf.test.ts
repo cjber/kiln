@@ -8,7 +8,7 @@ const session = (id: string, parentSessionId?: string): Session => ({
   parentSessionId,
   cwd: "/tmp/perf",
   startedAt: 1,
-  place: { kind: "acp", id: id },
+  place: { kind: "kiln", name: id },
 });
 
 test("indexed ancestry preserves first-match precedence, PID fallback and cycle rejection", () => {

@@ -9,7 +9,7 @@ const parent: Session = {
   cwd: "/z/atlas",
   startedAt: 1,
   lastActiveAt: 20,
-  place: { kind: "acp", id: "parent" },
+  place: { kind: "kiln", name: "parent" },
 };
 const child: Session = {
   pid: 2,
@@ -18,7 +18,7 @@ const child: Session = {
   title: "Review retry",
   cwd: "/a/other",
   startedAt: 2,
-  place: { kind: "acp", id: "child" },
+  place: { kind: "kiln", name: "child" },
 };
 const entries = (rows: ReturnType<typeof sessionRows>) =>
   rows.flatMap((row) => (row.kind === "session" ? [row.session.pid] : []));
@@ -30,7 +30,7 @@ test("daemon children nest by provider thread identity without process ancestry"
     pid: undefined,
     id: "child",
     parentSessionId: "root",
-    place: { kind: "acp", id: "child" },
+    place: { kind: "kiln", name: "child" },
   };
   expect(sessionRows([nested, root], "project", "", new Set()).filter((row) => row.kind === "session")).toHaveLength(1);
   expect(

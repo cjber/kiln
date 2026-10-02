@@ -6,7 +6,7 @@ export function nativeNotifications(send = notifySessionEvent) {
   return (sessions: readonly Session[], enabled: boolean) => {
     const next = new Map<string, Session["activity"]>();
     for (const session of sessions) {
-      if (session.place.kind === "cloud" || session.place.kind === "acp") continue;
+      if (session.place.kind === "cloud") continue;
       const key = sessionIdentity(session);
       if (enabled && previous.get(key) === "working" && (session.activity === "idle" || session.activity === "waiting"))
         send(session);
