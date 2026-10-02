@@ -39,8 +39,6 @@ export const defaults: Settings = {
   agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
 };
 
-const generatedAdapters: Record<Agent, string> = { claude: "claude-agent-acp", codex: "codex-acp", pi: "pi-acp" };
-
 const template = `# kiln settings. Delete a line to use its default.
 
 # List order: project (directory/task groups), directory (full paths),
@@ -141,11 +139,7 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
         for (const [agent, command] of Object.entries(value)) {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
-          const argv = stringList(path, `agents.${agent}`, command);
-          // Settings files written when kiln spoke ACP name the adapters; those lines mean the default.
-          if (argv.length === 1 && argv[0] === generatedAdapters[agent as Agent]) continue;
-          if (argv[0]?.includes("acp")) fail(path, `agents.${agent} must launch the native TUI; use ${agent}`);
-          settings.agents[agent as Agent] = argv;
+          settings.agents[agent as Agent] = stringList(path, `agents.${agent}`, command);
         }
         break;
       default:

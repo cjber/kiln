@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
+import { piStatus } from "./pi-status";
 import { transcriptTitle } from "./session-titles";
 import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
@@ -270,14 +271,15 @@ function hasTerminal(pid: number): boolean {
 }
 
 /**
- * Pi replaces its argv with its name and reports no status, so a terminal on stdin is what separates
- * its TUI from the print and RPC modes other programs drive. Its activity stays unknown.
+ * Pi replaces its argv with its name, so a terminal on stdin is what separates its TUI from the print
+ * and RPC modes other programs drive. Only a Pi that kiln started reports its identity and activity.
  */
 async function piProcesses(): Promise<AgentProcess[]> {
   return (await pidsNamed("pi")).flatMap((pid) => {
     const cwd = processCwd(pid);
     if (!cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
-    return [{ pid, agent: "pi" as const, cwd, startedAt: startedAt(pid) }];
+    const started = startedAt(pid);
+    return [{ pid, agent: "pi" as const, cwd, startedAt: started, ...piStatus(pid, started) }];
   });
 }
 

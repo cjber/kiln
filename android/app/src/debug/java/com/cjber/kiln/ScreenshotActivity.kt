@@ -99,7 +99,7 @@ private fun demo(
         cwd,
         branch,
         activity,
-        if (agent == Agent.PI) Place.ACP else Place.KILN,
+        Place.KILN,
         demoNow - started * 60_000,
         demoNow - minutes * 60_000,
         when (agent) {

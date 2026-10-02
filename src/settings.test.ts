@@ -34,16 +34,3 @@ test("the README settings example matches the shipped defaults", async () => {
   expect(example).not.toBeNull();
   expect(parseSettings(example?.[1] ?? "", "README.md")).toEqual(defaults);
 });
-
-test("generated ACP defaults migrate while custom native arguments remain intact", () => {
-  expect(
-    parseSettings('[agents]\nclaude = ["claude-agent-acp"]\ncodex = ["codex-acp"]\npi = ["pi-acp"]').agents,
-  ).toEqual(defaults.agents);
-  expect(parseSettings('[agents]\ncodex = ["codex", "--model", "custom"]').agents.codex).toEqual([
-    "codex",
-    "--model",
-    "custom",
-  ]);
-  expect(() => parseSettings('[agents]\ncodex = ["codex-acp", "--model", "custom"]')).toThrow("native TUI");
-  expect(() => parseSettings('[agents]\npi = ["pi-acp", "--verbose"]')).toThrow("native TUI");
-});

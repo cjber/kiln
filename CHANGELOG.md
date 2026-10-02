@@ -9,6 +9,11 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-02
+
+- **Pi sessions show their status and title.** Kiln starts Pi with a small extension that reports whether the session is working, waiting on a prompt or ready, along with its name or first prompt. The list, the phone and turn-finished notifications use it like Claude's and Codex's own status. A Pi started outside kiln still shows `unknown`.
+- **ACP adapter names in settings are no longer rewritten.** `claude-agent-acp`, `codex-acp` and `pi-acp` in `[agents]` were read as the native commands. They are now run as written, so set them to `claude`, `codex` and `pi`.
+
 ## [0.9.0] - 2026-10-02
 
 - **Pi opens in its own terminal UI.** Kiln ran Pi through an ACP adapter and drew the conversation itself. New Pi sessions now start `pi` in kiln's tmux server like Claude and Codex, `Ctrl+Q` returns to the list, and running Pi terminals appear in the list with their status shown as unknown, because Pi reports none. A settings file that still says `pi = ["pi-acp"]` uses `pi`.
