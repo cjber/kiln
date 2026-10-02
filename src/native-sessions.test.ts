@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sessionAction } from "./launcher";
 import {
+  claudeListing,
   deduplicateSessions,
   finishedClaudeJobs,
   isInteractiveCodex,
@@ -179,4 +180,12 @@ describe("finished Claude jobs", () => {
       ]),
     ).toEqual([]);
   });
+});
+
+test("a failed Claude listing keeps the last rows with their status unknown", () => {
+  const source = JSON.stringify([{ pid: 1, cwd: "/repo", name: "one", status: "busy" }]);
+  expect(claudeListing(source)).toEqual([{ pid: 1, cwd: "/repo", name: "one", status: "busy" }]);
+  expect(claudeListing(undefined)).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
+  expect(claudeListing('[{"pid": 1')).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
+  expect(claudeListing("[]")).toEqual([]);
 });

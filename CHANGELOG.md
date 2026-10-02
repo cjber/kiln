@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-02
+
+- **Claude rows stay put when `claude agents` is slow.** A listing that timed out or failed emptied every Claude row until the next refresh. The last rows now stay, with their status shown as unknown, until a listing succeeds.
+
 ## [0.8.3] - 2026-10-02
 
 - **`x` deletes a running Claude background job in one step.** It stopped the job and left a `stopped` row that needed a second `x`. It now stops the job and removes it with `claude rm`, after the same confirmation.

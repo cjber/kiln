@@ -166,22 +166,31 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
   });
 }
 
+let lastClaude: ClaudeAgent[] = [];
+
+/** A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list. */
+export function claudeListing(source: string | undefined): ClaudeAgent[] {
+  try {
+    const listed: unknown = source === undefined ? undefined : JSON.parse(source);
+    if (Array.isArray(listed)) {
+      lastClaude = listed;
+      return lastClaude;
+    }
+  } catch {
+    // Output cut short by the timeout is a failed listing.
+  }
+  lastClaude = lastClaude.map(({ status, ...item }) => item);
+  return lastClaude;
+}
+
 async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: Session[] }> {
-  const none = { processes: [], finished: [] };
-  if (!Bun.which("claude")) return none;
+  if (!Bun.which("claude")) return { processes: [], finished: [] };
   const process = Bun.spawn(["claude", "agents", "--json", "--all"], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   clearTimeout(timeout);
-  if (code) return none;
-  let listed: unknown;
-  try {
-    listed = JSON.parse(source);
-  } catch {
-    return none;
-  }
-  if (!Array.isArray(listed)) return none;
-  const processes = (listed as ClaudeAgent[])
+  const listed = claudeListing(code ? undefined : source);
+  const processes = listed
     .flatMap((item) =>
       typeof item.pid === "number" && typeof item.cwd === "string" ? [{ ...item, pid: item.pid }] : [],
     )
@@ -224,7 +233,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
   const live = new Set(processes.map((session) => session.id));
   return {
     processes,
-    finished: finishedClaudeJobs(listed as ClaudeAgent[]).filter((job) => !job.id || !live.has(job.id)),
+    finished: finishedClaudeJobs(listed).filter((job) => !job.id || !live.has(job.id)),
   };
 }
 
