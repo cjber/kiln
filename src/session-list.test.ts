@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { sessionRows } from "./session-list";
-import type { Session } from "./sessions";
+import { resolveSelection, selectionAt, sessionRows } from "./session-list";
+import { type Session, sessionIdentity } from "./sessions";
 
 const parent: Session = {
   pid: 1,
@@ -34,7 +34,7 @@ test("daemon children nest by provider thread identity without process ancestry"
   };
   expect(sessionRows([nested, root], "project", "", new Set()).filter((row) => row.kind === "session")).toHaveLength(1);
   expect(
-    sessionRows([nested, root], "project", "", new Set(["pid:1"]))
+    sessionRows([nested, root], "project", "", new Set([sessionIdentity(root)]))
       .filter((row) => row.kind === "session")
       .map((row) => row.depth),
   ).toEqual([0, 1]);
@@ -45,7 +45,7 @@ test("children expand or match with their parent", () => {
   const collapsed = sessionRows(sessions, "project", "", new Set());
   expect(entries(collapsed)).toEqual([1]);
   expect(collapsed.find((row) => row.kind === "session")).toMatchObject({ children: 1, depth: 0 });
-  expect(entries(sessionRows(sessions, "project", "", new Set(["pid:1"])))).toEqual([1, 2]);
+  expect(entries(sessionRows(sessions, "project", "", new Set([sessionIdentity(parent)])))).toEqual([1, 2]);
   expect(entries(sessionRows(sessions, "project", "Review", new Set()))).toEqual([1, 2]);
 });
 
@@ -67,4 +67,12 @@ test("the filter matches the status column's own words", () => {
   const waiting: Session = { ...parent, pid: 3, activity: "waiting" };
   expect(entries(sessionRows([parent, waiting], "age", "unknown", new Set()))).toEqual([1]);
   expect(entries(sessionRows([parent, waiting], "age", "needs input", new Set()))).toEqual([3]);
+});
+
+test("the cursor follows its session and rests in place when the session goes", () => {
+  const other: Session = { ...parent, pid: 3 };
+  const at = selectionAt([parent, other], 1);
+  expect(resolveSelection([other, parent], at).index).toBe(0);
+  expect(resolveSelection([parent], at).index).toBe(0);
+  expect(resolveSelection([], at)).toEqual({ key: undefined, index: 0 });
 });

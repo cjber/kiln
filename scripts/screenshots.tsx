@@ -126,7 +126,7 @@ const demo: Session[] = [
     lastActiveAt: minutes(300),
     startedAt: minutes(320),
     lifecycle: "completed",
-    place: { kind: "background", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
+    place: { kind: "job", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
   },
 ];
 

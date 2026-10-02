@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedSession } from "./acp";
-import { sessionAction } from "./actions";
+import { sessionAction } from "./launcher";
 import { closeNativeRecovery, nativeSavedSessions, releaseForNative } from "./native-resume";
 import type { Session } from "./sessions";
 
@@ -41,7 +41,7 @@ test("saved ACP sessions open the exact native provider identity and retain reco
     const native = nativeSavedSessions([session])[0];
     if (!native) throw new Error("Missing native session");
     expect(native.place).toEqual({
-      kind: "background",
+      kind: "saved",
       id: record.providerId,
       attach: ["codex", "resume", record.providerId],
       acpId: "kiln-id",
@@ -55,7 +55,6 @@ test("saved ACP sessions open the exact native provider identity and retain reco
     expect(recovery?.place).toMatchObject({
       attach: ["codex", "resume", record.providerId],
       acpId: undefined,
-      recovery: true,
     });
     if (!recovery) throw new Error("Missing recovery row");
     expect(sessionAction({ ...recovery, agent: "claude" })).toEqual({ verb: "close" });

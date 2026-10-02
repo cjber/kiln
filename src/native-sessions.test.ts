@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionAction } from "./actions";
+import { sessionAction } from "./launcher";
 import {
   deduplicateSessions,
   finishedClaudeJobs,
@@ -71,7 +71,7 @@ describe("Codex thread matching", () => {
   test("unidentified terminals defer to attachable daemon tasks", () => {
     const result = withCodexThreads([process(1), process(2)], threads);
     expect(result.processes).toHaveLength(0);
-    expect(result.headless.map((item) => item.place.kind)).toEqual(["background", "background"]);
+    expect(result.headless.map((item) => item.place.kind)).toEqual(["thread", "thread"]);
   });
 
   test("unidentified terminals stay visible when daemon inventory is unavailable", () => {
@@ -159,7 +159,7 @@ describe("finished Claude jobs", () => {
       title: "Finished",
       startedAt: 5,
       lifecycle: "completed",
-      place: { kind: "background", id: "82f7d7c3", attach: ["claude", "attach", "82f7d7c3"] },
+      place: { kind: "job", id: "82f7d7c3", attach: ["claude", "attach", "82f7d7c3"] },
     });
     expect(done?.activity).toBeUndefined();
     expect(done?.pid).toBeUndefined();

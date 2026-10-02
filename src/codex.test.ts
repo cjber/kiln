@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { runSessionAction } from "./actions";
 import { archiveCodexThread, codexActivity, codexRemoteHost, codexThreads } from "./codex";
+import { closeSession } from "./launcher";
 
 let root: string;
 let server: ReturnType<typeof Bun.serve>;
@@ -117,11 +116,11 @@ describe("Codex archive", () => {
 
   test("failed archive returns the daemon error and leaves the thread visible", async () => {
     rejectArchive = true;
-    const result = await runSessionAction({
+    const result = await closeSession({
       agent: "codex",
       cwd: "/repo",
       startedAt: 1,
-      place: { kind: "background", id: "active", attach: [] },
+      place: { kind: "thread", id: "active", attach: [] },
     });
     expect(result).toContain("archive refused");
     const threads = await codexThreads();

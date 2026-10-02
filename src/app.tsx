@@ -1,35 +1,32 @@
-import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { acpRequest } from "./acp-host";
-import { runSessionAction, sessionAction } from "./actions";
-import { claudeCloudSnapshot } from "./claude-cloud";
-import { cloudSnapshot } from "./cloud";
 import { ConversationView } from "./conversation-view";
-import { focus } from "./kitty";
-import { releaseForNative } from "./native-resume";
+import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { nativeNotifications } from "./notifications";
-import { sessionKey, sessionRows, sessionTitle, statusLabel, visibleSessions } from "./session-list";
+import {
+  resolveSelection,
+  type Selection,
+  selectionAt,
+  sessionRows,
+  sessionStatus,
+  sessionTitle,
+  type Tone,
+  visibleSessions,
+} from "./session-list";
 import { sessionSorts } from "./session-sort";
-import { type Agent, agents, listSessions, type Session } from "./sessions";
+import { type Agent, agents, discovery, keepLast, type Session, sessionIdentity } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
-import { attach, exists, start } from "./tmux";
-import { color, openInEditor, typed, untilde } from "./tui";
+import { attach } from "./tmux";
+import { color, openInEditor, tilde, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
-import { rankedDirectories, recordDirectory } from "./zoxide";
+import { rankedDirectories } from "./zoxide";
 
 const agentColor: Record<Agent, string> = { claude: color.orange, codex: color.teal, pi: color.purple };
 
 type Mode = "normal" | "filter" | "agent" | "confirm";
 
 const refreshMs = 2_000;
-
-function tilde(path: string): string {
-  const home = homedir();
-  return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-}
 
 function age(time: number | undefined, now: number): string {
   if (!time) return "unknown";
@@ -40,47 +37,12 @@ function age(time: number | undefined, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-function activityColor(session: Session): string {
-  switch (session.lifecycle) {
-    case "completed":
-      return color.green;
-    case "stopped":
-      return color.comment;
-    case undefined:
-      break;
-  }
-  switch (session.activity) {
-    case "working":
-      return color.fgDim;
-    case "waiting":
-      return color.yellow;
-    case "idle":
-      return color.green;
-    case undefined:
-      return color.comment;
-  }
-}
-
-function statusHint(session: Session): string {
-  switch (session.lifecycle) {
-    case "completed":
-      return "finished · Enter attaches";
-    case "stopped":
-      return "stopped · Enter resumes";
-    case undefined:
-      break;
-  }
-  switch (session.activity) {
-    case "working":
-      return "working";
-    case "waiting":
-      return "needs your input";
-    case "idle":
-      return "ready for a prompt";
-    case undefined:
-      return session.place.kind === "acp" ? "ACP connection lost" : "status unavailable from provider";
-  }
-}
+const toneColor: Record<Tone, string> = {
+  active: color.fgDim,
+  attention: color.yellow,
+  done: color.green,
+  muted: color.comment,
+};
 
 function label(session: Session): string {
   return session.place.kind === "cloud" ? session.place.title : tilde(session.cwd);
@@ -111,10 +73,6 @@ function pickDirectory(recent: readonly string[]): string | undefined {
   return choice ? untilde(choice) : undefined;
 }
 
-function isDirectory(path: string): boolean {
-  return existsSync(path) && statSync(path).isDirectory();
-}
-
 type AppProps = {
   initialNotice?: string;
   initialSettings: Settings;
@@ -128,7 +86,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
-  const [selected, getSelected, setSelected] = useLatest(0);
+  const [selection, getSelection, setSelection] = useLatest<Selection>({ index: 0 });
   const [mode, getMode, setMode] = useLatest<Mode>("normal");
   const [filter, getFilter, setFilter] = useLatest("");
   const [agentIndex, getAgentIndex, setAgentIndex] = useLatest(0);
@@ -137,46 +95,37 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const [now, setNow] = useState(Date.now());
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState(initialNotice);
+  const [problem, setProblem] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
   const notifyNative = useMemo(() => nativeNotifications(), []);
+  const discover = useMemo(() => {
+    if (loadSessions) return keepLast(loadSessions, "Session discovery");
+    const find = discovery();
+    return () => find({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud });
+  }, [loadSessions, getSettings]);
+  const view = useCallback(
+    (sessions: readonly Session[] = getSessions()) =>
+      visibleSessions(sessionRows(sessions, getOrder(), getFilter(), getExpanded())),
+    [getSessions, getOrder, getFilter, getExpanded],
+  );
 
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      const loaded = await (loadSessions
-        ? loadSessions()
-        : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
-      const before = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()));
-      const current = before[Math.min(getSelected(), before.length - 1)];
-      setSessions(loaded);
-      notifyNative(loaded, getSettings().notifications);
-      const after = visibleSessions(sessionRows(loaded, getOrder(), getFilter(), getExpanded()));
-      const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
-      setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
-    } catch {
-      setSessions((last) =>
-        last.map((session) => (session.place.kind !== "cloud" ? { ...session, activity: undefined } : session)),
-      );
-      setNotice("Session discovery unavailable; showing the last successful list");
+      const found = await discover();
+      setSessions(found.sessions);
+      setProblem(found.problem);
+      if (!found.stale) notifyNative(found.sessions, getSettings().notifications);
+      // Re-anchor the cursor so it rests beside its session if that session later goes away.
+      setSelection(resolveSelection(view(found.sessions), getSelection()));
     } finally {
       refreshing.current = false;
     }
-  }, [
-    getSettings,
-    getSessions,
-    getOrder,
-    getFilter,
-    getExpanded,
-    getSelected,
-    loadSessions,
-    setSessions,
-    setSelected,
-    notifyNative,
-  ]);
+  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative]);
 
   useEffect(() => {
     void refresh();
@@ -191,7 +140,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
 
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
   const visible = visibleSessions(rows);
-  const current = visible[Math.min(selected, visible.length - 1)];
+  const current = visible[resolveSelection(visible, selection).index];
   const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
   const firstRow = Math.max(0, selectedRow - pageSize + 1);
@@ -220,66 +169,23 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     [getSettings, withTerminal],
   );
 
-  const open = useCallback(
-    async (session: Session) => {
-      switch (session.place.kind) {
-        case "acp":
-          if (session.agent !== "pi")
-            return setNotice(
-              "This saved session has no native provider identity; open it in the provider's resume picker",
-            );
-          setConversationId(session.place.id);
+  const follow = useCallback(
+    async (outcome: Outcome) => {
+      switch (outcome.kind) {
+        case "conversation":
+          setConversationId(outcome.id);
+          return refresh();
+        case "attach":
+          await handOver(outcome.name);
+          if (outcome.notice) setNotice(outcome.notice);
           return;
-        case "kiln":
-          return handOver(session.place.name);
-        case "kitty":
-          if (!focus(session.place.socket, session.place.windowId)) setNotice("kitty could not focus this session");
+        case "notice":
+          return setNotice(outcome.text);
+        case "done":
           return;
-        case "background": {
-          const name = `${session.agent}-bg-${session.place.id.slice(0, 16)}`;
-          if (!exists(name)) {
-            if (!session.place.attach[0] || !Bun.which(session.place.attach[0]))
-              return setNotice(`${session.agent} is not on PATH`);
-            if (!isDirectory(session.cwd)) return setNotice(`${tilde(session.cwd)} is not a directory`);
-            try {
-              await releaseForNative(session);
-            } catch (error) {
-              return setNotice(error instanceof Error ? error.message : "Could not resume the saved session");
-            }
-            if (!start(name, session.cwd, session.place.attach, sessionTitle(session)))
-              return setNotice(`could not attach to ${session.agent}`);
-          }
-          return handOver(name);
-        }
-        case "elsewhere":
-          return setNotice(`Open this session in its terminal · ${session.place.source ?? session.id ?? "unknown"}`);
-        case "cloud": {
-          if (session.agent === "claude") {
-            if (!session.place.url) return setNotice("this Claude cloud session has no verified link");
-            if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
-            const child = Bun.spawn(["xdg-open", session.place.url], {
-              stdin: "ignore",
-              stdout: "ignore",
-              stderr: "ignore",
-            });
-            if ((await child.exited) !== 0) setNotice("could not open this Claude cloud session in the browser");
-            return;
-          }
-          const name = `codex-cloud-${new Bun.CryptoHasher("sha256").update(session.place.id).digest("hex").slice(0, 16)}`;
-          const command = [
-            "sh",
-            "-c",
-            'codex cloud status -- "$1"; codex cloud diff -- "$1"; printf "\\nPress Enter to return to kiln "; read -r reply',
-            "sh",
-            session.place.id,
-          ];
-          if (!exists(name) && !start(name, homedir(), command, `codex cloud · ${session.place.title}`))
-            return setNotice("could not open this Codex Cloud task");
-          return handOver(name);
-        }
       }
     },
-    [handOver, setConversationId],
+    [handOver, refresh, setConversationId],
   );
 
   const create = useCallback(
@@ -287,47 +193,9 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       if (!Bun.which("fzf")) return setNotice("choosing a directory needs fzf on PATH");
       const settings = getSettings();
       const cwd = await withTerminal(() => pickDirectory(settings.zoxide ? rankedDirectories() : []));
-      if (!cwd) return;
-      if (!isDirectory(cwd)) return setNotice(`${tilde(cwd)} is not a directory`);
-      try {
-        if (agent !== "pi") {
-          const command = settings.agents[agent];
-          if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agent} is not on PATH`);
-          let remoteProblem: string | undefined;
-          if (agent === "codex" && settings.remoteControl) {
-            const child = Bun.spawn(["codex", "remote-control", "start"], {
-              stdin: "ignore",
-              stdout: "ignore",
-              stderr: "pipe",
-            });
-            const timer = setTimeout(() => child.kill(), 5000);
-            try {
-              const [problem, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-              if (code) remoteProblem = problem.trim() || "Codex Remote Control did not start";
-            } finally {
-              clearTimeout(timer);
-            }
-          }
-          const name = `${agent}-${crypto.randomUUID()}`;
-          const argv =
-            agent === "claude" && settings.remoteControl && !command.includes("--remote-control")
-              ? [...command, "--remote-control"]
-              : command;
-          if (!start(name, cwd, argv, `${agent} · ${cwd}`)) throw new Error(`could not start ${agent}`);
-          if (settings.zoxide) recordDirectory(cwd);
-          await handOver(name);
-          if (remoteProblem) setNotice(remoteProblem);
-          return;
-        }
-        const session = await acpRequest<Session>("/sessions", { agent, cwd });
-        if (settings.zoxide) recordDirectory(cwd);
-        if (session.id) setConversationId(session.id);
-        await refresh();
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Could not start session");
-      }
+      if (cwd) await follow(await createSession(agent, cwd, settings));
     },
-    [getSettings, withTerminal, refresh, setConversationId, handOver],
+    [getSettings, withTerminal, follow],
   );
 
   /** Settings are a file: open it in $EDITOR, then re-read it, keeping the old ones if the edit does not parse. */
@@ -348,7 +216,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const close = useCallback(
     async (session: Session) => {
       const action = sessionAction(session);
-      const closed = await runSessionAction(session);
+      const closed = await closeSession(session);
       setNotice(
         closed === true && "verb" in action
           ? `closed ${session.agent} in ${tilde(session.cwd)}`
@@ -367,9 +235,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     const mode = getMode();
     const agentIndex = getAgentIndex();
     const choices = agents.filter((agent) => getSettings().agents[agent].length);
-    const visible = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()));
-    const current = visible[Math.min(getSelected(), visible.length - 1)];
-    const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible.length - 1, index + delta)));
+    const visible = view();
+    const at = resolveSelection(visible, getSelection()).index;
+    const current = visible[at];
+    const move = (delta: number) => setSelection(selectionAt(visible, at + delta));
 
     if (key.ctrl && key.name === "c") return onQuit();
     setNotice("");
@@ -384,7 +253,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const text = typed(key);
       if (text) {
         setFilter((value) => value + text);
-        setSelected(0);
+        setSelection({ index: 0 });
       }
       return;
     }
@@ -415,32 +284,25 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     if (key.name === "q") return onQuit();
     if (key.name === "j" || key.name === "down") return move(1);
     if (key.name === "k" || key.name === "up") return move(-1);
-    if (key.name === "g" && !key.shift) return setSelected(0);
-    if (key.name === "g" && key.shift) return setSelected(Math.max(0, visible.length - 1));
+    if (key.name === "g" && !key.shift) return setSelection(selectionAt(visible, 0));
+    if (key.name === "g" && key.shift) return setSelection(selectionAt(visible, visible.length - 1));
     if (key.ctrl && key.name === "d") return move(10);
     if (key.ctrl && key.name === "u") return move(-10);
     if (key.name === "/") return setMode("filter");
     if (key.name === "o") {
       const next = sessionSorts[(sessionSorts.indexOf(getOrder()) + 1) % sessionSorts.length];
-      if (next) {
-        setOrder(next);
-        const reordered = visibleSessions(sessionRows(getSessions(), next, getFilter(), getExpanded()));
-        setSelected(Math.max(0, current ? reordered.indexOf(current) : 0));
-      }
+      if (next) setOrder(next);
       return;
     }
     if ((key.name === "tab" || key.name === "right" || key.name === "left") && current) {
-      const keyForCurrent = sessionKey(current);
+      const identity = sessionIdentity(current);
       const next = new Set(getExpanded());
-      if (key.name === "left" || next.has(keyForCurrent)) next.delete(keyForCurrent);
-      else next.add(keyForCurrent);
-      setExpanded(next);
-      const reordered = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), next));
-      setSelected(Math.max(0, reordered.indexOf(current)));
-      return;
+      if (key.name === "left" || next.has(identity)) next.delete(identity);
+      else next.add(identity);
+      return setExpanded(next);
     }
     if (key.name === "r") return void refresh();
-    if (key.name === "return" && current) return void open(current);
+    if (key.name === "return" && current) return void openSession(current).then(follow);
     if (key.name === "x" && current) {
       const action = sessionAction(current);
       if ("reason" in action) return setNotice(action.reason);
@@ -512,11 +374,11 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
                   <span fg={agentColor[session.agent]}>{session.agent.padEnd(8)}</span>
-                  <span fg={activityColor(session)}>
+                  <span fg={toneColor[sessionStatus(session).tone]}>
                     {fit(title, titleWidth, "end").padEnd(titleWidth)}
                     {"  "}
                   </span>
-                  <span fg={activityColor(session)}>{statusLabel(session).padEnd(12)}</span>
+                  <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
                   <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span>
                 </text>
               </box>
@@ -543,22 +405,14 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${statusHint(current)} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
+            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
             Math.max(1, width - 2),
             "end",
           )}
         </text>
       ) : null}
-      <text wrapMode="none" fg={notice ? color.peach : color.comment}>
-        {mode === "confirm"
-          ? hints(mode, pendingSession, width)
-          : notice ||
-            (settings.cloud
-              ? [cloudSnapshot(false).problem, settings.claudeCloud ? claudeCloudSnapshot(false).problem : ""]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "") ||
-            hints(mode, current, width)}
+      <text wrapMode="none" fg={notice || problem ? color.peach : color.comment}>
+        {mode === "confirm" ? hints(mode, pendingSession, width) : notice || problem || hints(mode, current, width)}
       </text>
     </box>
   );

@@ -1,0 +1,50 @@
+import { expect, test } from "bun:test";
+import { openSession, sessionAction } from "./launcher";
+import type { Session } from "./sessions";
+
+test("only kiln-owned ACP sessions can be closed", () => {
+  const session: Session = {
+    agent: "codex",
+    id: "owned",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "acp", id: "owned" },
+  };
+  expect(sessionAction(session)).toEqual({ verb: "close" });
+  expect(sessionAction({ ...session, place: { kind: "cloud", id: "task", title: "task" } })).toHaveProperty("reason");
+});
+
+test("each terminal-less place has its own close rule", () => {
+  const session: Session = { agent: "claude", cwd: "/repo", startedAt: 1, place: { kind: "job", id: "1", attach: [] } };
+  expect(sessionAction(session)).toHaveProperty("reason");
+  expect(
+    sessionAction({ ...session, place: { kind: "job", id: "1", attach: [], stop: ["claude", "stop", "1"] } }),
+  ).toEqual({
+    verb: "close",
+  });
+  expect(sessionAction({ ...session, lifecycle: "completed" })).toEqual({
+    reason: "This job has finished; delete it with claude rm 1",
+  });
+  expect(sessionAction({ ...session, agent: "codex", place: { kind: "thread", id: "1", attach: [] } })).toEqual({
+    verb: "archive",
+  });
+  expect(sessionAction({ ...session, place: { kind: "saved", id: "1", attach: [] } })).toEqual({ verb: "close" });
+});
+
+test("opening reports what the view should do without touching the terminal", async () => {
+  const session: Session = { agent: "pi", id: "a", cwd: "/repo", startedAt: 1, place: { kind: "acp", id: "a" } };
+  expect(await openSession(session)).toEqual({ kind: "conversation", id: "a" });
+  expect(await openSession({ ...session, agent: "claude" })).toHaveProperty("kind", "notice");
+  expect(await openSession({ ...session, place: { kind: "kiln", name: "claude-1" } })).toEqual({
+    kind: "attach",
+    name: "claude-1",
+  });
+  expect(await openSession({ ...session, place: { kind: "elsewhere", source: "tmux main" } })).toEqual({
+    kind: "notice",
+    text: "Open this session in its terminal · tmux main",
+  });
+  expect(await openSession({ ...session, agent: "claude", place: { kind: "cloud", id: "x", title: "task" } })).toEqual({
+    kind: "notice",
+    text: "this Claude cloud session has no verified link",
+  });
+});

@@ -160,7 +160,7 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
         lastActiveAt: claudeTranscriptActivity(item),
         lifecycle,
         branch: gitBranch(item.cwd),
-        place: { kind: "background" as const, id: item.id, attach: ["claude", "attach", item.id] },
+        place: { kind: "job" as const, id: item.id, attach: ["claude", "attach", item.id] },
       },
     ];
   });
@@ -209,7 +209,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
             {
               ...session,
               background: {
-                kind: "background" as const,
+                kind: "job" as const,
                 id: item.id,
                 attach: ["claude", "attach", item.id],
                 stop: ["claude", "stop", item.id],
@@ -350,7 +350,7 @@ export function withCodexThreads(
       activity: thread.activity,
       branch: gitBranch(thread.cwd),
       place: {
-        kind: "background" as const,
+        kind: "thread" as const,
         id: thread.id,
         attach: ["codex", "resume", thread.id, "--remote", "unix://"],
       },

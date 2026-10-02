@@ -18,6 +18,7 @@ verbatim.
 - **Smaller terminal fixes.** A connection error in a Pi conversation clears once the connection returns. Opening a Claude cloud session uses the validated link. In the skills view, `j` on an empty list no longer hides the first skill you create, and Tab is not typed into a name. kiln's tmux server no longer appends the same terminal features on every attach, and its status bar skips the kitty lookup it did every three seconds.
 - **`kiln setup` refuses a broken symlinked unit.** A `kiln-serve.service` link whose target was missing was written through; it is now reported like any other link kiln did not create.
 - **Phone fixes.** Cancelling pairing while a request is in flight no longer leaves the pairing screen disabled. "Updates delayed" is timed on the phone's own clock, so a phone a few seconds ahead of the PC no longer shows it permanently. The open button uses the PC's wording, so Codex rows read "Open in ChatGPT". A settings error made while `kiln serve` runs is named on the phone instead of "Session host unavailable". A malformed command to a saved ACP session returns 400 rather than an internal error.
+- **One failing source no longer blanks the whole list.** If the ACP host or native discovery fails, the other keeps updating and the failed one keeps its last rows with unknown status. The reason stays on the status line until it recovers, on the terminal and the phone. The filter words for sessions without a terminal are now `job`, `thread` and `saved` instead of `background`.
 
 ## [0.8.0] - 2026-10-02
 

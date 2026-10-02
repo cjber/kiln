@@ -53,7 +53,7 @@ const rows: Session[] = [
     cwd: "/tmp/dotfiles",
     lifecycle: "completed",
     startedAt: 5,
-    place: { kind: "background", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
+    place: { kind: "job", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
   },
 ];
 const drive = driver(name, 19474);

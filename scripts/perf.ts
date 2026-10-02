@@ -1,5 +1,5 @@
-import { sessionKey, sessionRows } from "../src/session-list";
-import { listSessions, nestSessions, type Session } from "../src/sessions";
+import { sessionRows } from "../src/session-list";
+import { listSessions, nestSessions, type Session, sessionIdentity } from "../src/sessions";
 
 const live = process.argv.includes("--live");
 const count = 500;
@@ -51,7 +51,7 @@ if (live) {
       startedAt: index,
       place: { kind: "acp", id: `perf-${index}` },
     }));
-    const expanded = new Set(sessions.map(sessionKey));
+    const expanded = new Set(sessions.map(sessionIdentity));
     await measure(`${count} ${shape} sessions: discovery nesting + expanded list`, () => {
       const nested = nestSessions(sessions);
       const rows = sessionRows(nested, "project", "", expanded);

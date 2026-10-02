@@ -25,6 +25,11 @@ export function typed(key: KeyEvent): string | undefined {
   return key.sequence.length === 1 && key.sequence >= " " ? key.sequence : undefined;
 }
 
+export function tilde(path: string): string {
+  const home = homedir();
+  return path === home ? "~" : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
 export function untilde(path: string): string {
   return resolve(path === "~" || path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path);
 }

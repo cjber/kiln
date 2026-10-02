@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { sessionKey, sessionRows } from "./session-list";
-import { nestSessions, type Session, sessionParents } from "./sessions";
+import { sessionRows } from "./session-list";
+import { nestSessions, type Session, sessionIdentity, sessionParents } from "./sessions";
 
 const session = (id: string, parentSessionId?: string): Session => ({
   agent: "codex",
@@ -45,7 +45,7 @@ test("500 shallow or deeply nested tasks stay within an interactive refresh budg
     );
     const start = performance.now();
     const nested = nestSessions(sessions);
-    const rows = sessionRows(nested, "project", "", new Set(sessions.map(sessionKey)));
+    const rows = sessionRows(nested, "project", "", new Set(sessions.map(sessionIdentity)));
     const elapsed = performance.now() - start;
     expect(nested).toHaveLength(500);
     expect(rows.filter((row) => row.kind === "session")).toHaveLength(500);
