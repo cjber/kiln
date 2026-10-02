@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-02
+
 - **Pi opens in its own terminal UI.** Kiln ran Pi through an ACP adapter and drew the conversation itself. New Pi sessions now start `pi` in kiln's tmux server like Claude and Codex, `Ctrl+Q` returns to the list, and running Pi terminals appear in the list with their status shown as unknown, because Pi reports none. A settings file that still says `pi = ["pi-acp"]` uses `pi`.
 - **The ACP host is gone.** Kiln no longer starts a background host process, needs `pi-acp` or `flock`, or serves `/v1/acp` to phones. Conversations saved by the host are no longer listed; a Claude or Codex one can be resumed from that provider's own resume picker.
 
