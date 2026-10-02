@@ -66,6 +66,7 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
   `scripts/build.ts` runs in releases; `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
 - `App`'s `loadSessions` prop exists for `scripts/screenshots.tsx`, which passes demo sessions.
 - `src/native-sessions.ts`, `src/codex.ts` and `src/kitty.ts` discover native sessions and observe provider status. Do not infer activity from terminal output or transcript timestamps.
+- `pi-extension/kiln-status.js` is embedded as text and run by Pi, not by kiln; its event handlers are live roots.
 - Persisted data: `~/.config/kiln/config.toml` (`src/settings.ts`); every key is user-facing.
 
 ## Model-read text

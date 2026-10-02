@@ -21,7 +21,7 @@ Supported top-level settings:
   existing login. Enable alongside `cloud` for Claude cloud rows.
 - `[agents]`: `claude`, `codex` and `pi` are arrays of command arguments. An empty
   array hides that harness from new-session choices. Keep arguments separate;
-  these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex` and `pi`. Generated ACP adapter defaults migrate; custom native arguments are preserved.
+  these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex` and `pi`.
 
 Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;

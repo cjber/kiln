@@ -33,7 +33,9 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/sessions.ts` - `discovery()` merges native and cached cloud rows; each source keeps its last rows while it fails.
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
-  `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process and reports no activity.
+  `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
+- `src/pi-status.ts`, `pi-extension/kiln-status.js` - the extension kiln loads into the Pi sessions it starts (`pi -e`) and the reader for the
+  per-process status file it writes. A Pi started elsewhere has no record and stays unknown.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering, directory/task groups with collapsed children, status wording and the cursor.

@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
+import { piExtensionPath } from "./pi-status";
 import { sessionTitle } from "./session-list";
 import type { Agent, Session } from "./sessions";
 import type { Settings } from "./settings";
@@ -90,7 +91,9 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
     const argv =
       agent === "claude" && settings.remoteControl && !command.includes("--remote-control")
         ? [...command, "--remote-control"]
-        : command;
+        : agent === "pi"
+          ? [...command, "-e", piExtensionPath()]
+          : command;
     if (!start(name, cwd, argv, `${agent} · ${cwd}`)) throw new Error(`could not start ${agent}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };

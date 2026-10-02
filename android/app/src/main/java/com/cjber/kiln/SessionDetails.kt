@@ -48,7 +48,6 @@ fun SessionDetails(
                         "Location",
                         when (row.where) {
                             Place.CLOUD -> "Cloud task"
-                            Place.ACP,
                             Place.KILN -> "Managed by kiln"
                             Place.BACKGROUND -> "Native background session"
                             Place.KITTY,

@@ -14,7 +14,6 @@ enum class Agent(val id: String) {
 /** OTHER is a place kind this version does not know; it renders as a native terminal. */
 enum class Place(val id: String) {
     CLOUD("cloud"),
-    ACP("acp"),
     KILN("kiln"),
     BACKGROUND("background"),
     KITTY("kitty"),

@@ -46,7 +46,7 @@ New sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list
 
 Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes a background job, running or finished, with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
 
-Kiln observes each provider's own status and never guesses from terminal output, so unknown activity stays unknown. Pi reports no status: its sessions are found by process and always show `unknown`.
+Kiln observes each provider's own status and never guesses from terminal output, so unknown activity stays unknown. Kiln starts Pi with a small extension that reports the session's title and whether it is working, waiting on a prompt or ready. A Pi started outside kiln is listed with `unknown` status.
 
 Desktop notifications identify the session when it needs input or finishes an observed turn. Enable `notify-send` and a desktop notification service to receive them.
 
@@ -72,7 +72,7 @@ codex = ["codex"]
 pi = ["pi"]
 ```
 
-Set an agent command to `[]` to hide it from the new-session picker. Generated `claude-agent-acp`, `codex-acp` and `pi-acp` defaults migrate to native commands. Custom native arguments are preserved. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
+Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
 
 `sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. Directories are grouped by name and sessions by their most recent provider update. Branches are reread from the session directory on refresh.
 
