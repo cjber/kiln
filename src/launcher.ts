@@ -130,8 +130,9 @@ export function sessionAction(session: Session): SessionAction {
       return { verb: "archive" };
     case "job":
       // `claude rm` removes the job and its worktree, and refuses while that worktree has unpushed work.
-      if (session.lifecycle) return { verb: "delete" };
-      return place.stop ? { verb: "close" } : { reason: "Close this session in its native terminal" };
+      return session.lifecycle || place.stop
+        ? { verb: "delete" }
+        : { reason: "Close this session in its native terminal" };
     case "kitty":
     case "elsewhere":
       return { reason: "Close this session in its native terminal" };
@@ -160,7 +161,11 @@ export async function closeSession(session: Session): Promise<true | string> {
         await archiveCodexThread(place.id);
         break;
       case "job":
-        if (session.lifecycle) {
+        if (!session.lifecycle && place.stop) {
+          const child = Bun.spawn(place.stop, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+          if (await child.exited) throw new Error("provider could not stop this session");
+        }
+        {
           const child = Bun.spawn(["claude", "rm", place.id], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
           const [output, problem, code] = await Promise.all([
             new Response(child.stdout).text(),
@@ -168,9 +173,6 @@ export async function closeSession(session: Session): Promise<true | string> {
             child.exited,
           ]);
           if (code) throw new Error((problem || output).trim().split("\n")[0] || "claude rm failed");
-        } else if (place.stop) {
-          const child = Bun.spawn(place.stop, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-          if (await child.exited) throw new Error("provider could not stop this session");
         }
         break;
       case "kitty":

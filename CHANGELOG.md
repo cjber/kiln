@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **`x` deletes a running Claude background job in one step.** It stopped the job and left a `stopped` row that needed a second `x`. It now stops the job and removes it with `claude rm`, after the same confirmation.
+
 ## [0.8.2] - 2026-10-02
 
 - **Finished Claude jobs can be deleted from the list.** `x` on a completed or stopped job asks for confirmation, then runs `claude rm`. Claude removes the job and its worktree and refuses while the worktree has unpushed commits; kiln shows its reason.

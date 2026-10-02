@@ -47,7 +47,7 @@ Directory headings are orange. Sessions needing permission are yellow, ready ses
 
 New Claude and Codex sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
-Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes one with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
+Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes a background job, running or finished, with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
 
 An owner-only ACP host keeps Pi and previously saved ACP conversations alive when the list closes. Saved Claude and Codex ACP conversations resume in their native terminal, with a private recovery copy of the old kiln history. Pi retains its prompt and approval controls. Native sessions do not run through ACP adapters. Unknown provider activity stays unknown.
 

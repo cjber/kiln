@@ -20,7 +20,7 @@ test("each terminal-less place has its own close rule", () => {
   expect(
     sessionAction({ ...session, place: { kind: "job", id: "1", attach: [], stop: ["claude", "stop", "1"] } }),
   ).toEqual({
-    verb: "close",
+    verb: "delete",
   });
   expect(sessionAction({ ...session, lifecycle: "completed" })).toEqual({ verb: "delete" });
   expect(sessionAction({ ...session, agent: "codex", place: { kind: "thread", id: "1", attach: [] } })).toEqual({
@@ -68,6 +68,17 @@ test("deleting a finished job runs claude rm and reports its refusal", async () 
   try {
     expect(await closeSession(job)).toBe(true);
     expect(commands).toEqual([["claude", "rm", "82f7d7c3"]]);
+    commands.length = 0;
+    const live: Session = {
+      ...job,
+      lifecycle: undefined,
+      place: { kind: "job", id: "82f7d7c3", attach: [], stop: ["claude", "stop", "82f7d7c3"] },
+    };
+    expect(await closeSession(live)).toBe(true);
+    expect(commands).toEqual([
+      ["claude", "stop", "82f7d7c3"],
+      ["claude", "rm", "82f7d7c3"],
+    ]);
     code = 1;
     expect(await closeSession(job)).toBe("could not delete claude: worktree has unpushed commits");
   } finally {
