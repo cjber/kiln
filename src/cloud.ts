@@ -57,6 +57,28 @@ export function parseCloudPage(source: string): { sessions: Session[]; cursor: s
   return { sessions, cursor: page.cursor };
 }
 
+/** Follows cursors to the last page, keeping one row per cloud id; a repeated cursor would never end. */
+export async function allPages(
+  provider: string,
+  load: (cursor: string | null) => Promise<{ sessions: Session[]; cursor: string | null }>,
+): Promise<Session[]> {
+  const sessions = new Map<string, Session>();
+  const cursors = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    const page = await load(cursor);
+    for (const session of page.sessions) {
+      if (session.place.kind === "cloud") sessions.set(session.place.id, session);
+    }
+    cursor = page.cursor;
+    if (cursor) {
+      if (cursors.has(cursor)) throw new Error(`${provider} repeated a pagination cursor`);
+      cursors.add(cursor);
+    }
+  } while (cursor);
+  return [...sessions.values()];
+}
+
 export async function loadCloud(): Promise<Session[]> {
   if (!Bun.which("codex")) return [];
   const directory = mkdtempSync(join(tmpdir(), "kiln-cloud-"));
@@ -67,10 +89,7 @@ export async function loadCloud(): Promise<Session[]> {
     process?.kill();
   }, 10_000);
   try {
-    const sessions = new Map<string, Session>();
-    const cursors = new Set<string>();
-    let cursor: string | null = null;
-    do {
+    return await allPages("codex cloud", async (cursor) => {
       if (expired) throw new Error("codex cloud list timed out");
       process = Bun.spawn(["codex", "cloud", "list", "--json", ...(cursor ? ["--cursor", cursor] : [])], {
         cwd: directory,
@@ -86,17 +105,8 @@ export async function loadCloud(): Promise<Session[]> {
       if (expired) throw new Error("codex cloud list timed out");
       if (code !== 0)
         throw new Error(`codex cloud list failed (exit ${code}); run codex cloud list to check the login`);
-      const page = parseCloudPage(stdout);
-      for (const session of page.sessions) {
-        if (session.place.kind === "cloud") sessions.set(session.place.id, session);
-      }
-      cursor = page.cursor;
-      if (cursor) {
-        if (cursors.has(cursor)) throw new Error("codex cloud repeated a pagination cursor");
-        cursors.add(cursor);
-      }
-    } while (cursor);
-    return [...sessions.values()];
+      return parseCloudPage(stdout);
+    });
   } finally {
     clearTimeout(timeout);
     rmSync(directory, { recursive: true, force: true });

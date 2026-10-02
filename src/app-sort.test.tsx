@@ -51,9 +51,8 @@ test("cycling sort keeps the selected session, updates the label and shows activ
     await act(async () => {
       await setup.mockInput.pressKeys(["o", "o"]);
     });
-    await setup.waitForFrame((frame) => frame.includes("harness"));
+    await setup.waitForFrame((frame) => frame.includes("tasks · harness"));
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("harness");
     expect(frame.split("\n").find((line) => line.includes("›"))).toContain("project-z");
     await act(async () => {
       await setup.mockInput.pressKeys(["r", "k"]);

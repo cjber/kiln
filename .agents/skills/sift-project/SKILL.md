@@ -50,6 +50,8 @@ Known false positives:
   workflows rather than imported. At setup it reported one candidate: the exported type `Place` in
   `src/sessions.ts`, used only inside that module (unverified).
 - jscpd: 0 clones at setup.
+- A proposed pipe deadlock from `await process.exited` before reading stdout: Bun buffers piped
+  output itself (20 MB read back in full on Bun 1.4.2), so the order is not a defect here.
 
 ## Live roots
 
@@ -113,6 +115,7 @@ finding; audits add an entry when verifiers keep dismissing the same shape for t
 
 - `useLatest` setters in hook dependency lists (`src/app.tsx`): they are memoized with an empty list
   and never change; listing them satisfies Biome's `useExhaustiveDependencies` without effect.
+- ` · ` and `…` in UI copy (TUI and Android): the house separator and progress mark, not typographic slop.
 
 ## Anti-patterns
 
@@ -120,6 +123,17 @@ Shapes this codebase has produced more than once and a reviewer confirmed. Check
 them. An audit guards a confirmed defect of one of these shapes with `settled:<name>`, which the
 ledger checks against these names. An entry leaves when a rule enforces it or it has not recurred in
 two audits.
+
+- **second copy**: a helper, palette, path, label or closed-set mapping restated in a second module
+  instead of imported from the first (parallel-implementations, stringly-typed), e.g. the palette in
+  `src/conversation-view.tsx` before `src/tui.ts`, phone button copy rebuilt in `SessionDetails.kt`.
+- **option nobody varies**: a parameter, default, wrapper type or export that every caller passes the
+  same way or never reaches (speculative-abstraction, dead-code), e.g. `excludedPids` in
+  `src/native-sessions.ts`, `startServer` defaults.
+- **stale prose**: a comment or doc naming a key, screen, command or check the code no longer has
+  (comment-narration, stale-docs), e.g. "Ctrl+Q" in `src/tmux.ts`, `kiln status` in the config skill.
+- **test leftovers**: dynamic imports beside static ones, aliases, unused fixtures and assertions that
+  cannot fail (session-residue, test-plumbing), e.g. `src/claude-cloud.test.ts`.
 
 ## Project rules and lenses
 

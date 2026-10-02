@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeCloudToken, loadClaudeCloud, parseClaudeCloudPage } from "./claude-cloud";
@@ -53,29 +53,22 @@ test("credential faults never reveal the token or invalid source", () => {
   expect(() =>
     claudeCloudToken(JSON.stringify({ claudeAiOauth: { accessToken: "test-value", expiresAt: 100 } }), 101),
   ).toThrow("credentials expired");
-  try {
-    claudeCloudToken('test-value "invalid');
-  } catch (error) {
-    expect(String(error)).toContain("credentials file is invalid");
-    expect(String(error)).not.toContain("test-value");
-  }
+  const invalid = () => claudeCloudToken('test-value "invalid');
+  expect(invalid).toThrow("credentials file is invalid");
+  expect(invalid).not.toThrow("test-value");
 });
 
 test("Claude listing follows and validates cursors, deduplicates rows and reports HTTP errors without response bodies", async () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-claude-cloud-test-"));
   const previousFetch = globalThis.fetch;
   const previousConfig = Bun.env.CLAUDE_CONFIG_DIR;
-  const previousPath = Bun.env.PATH;
-  const which = spyOn(Bun, "which").mockReturnValue(join(root, "bin", "claude"));
-  mkdirSync(join(root, "bin"));
-  writeFileSync(join(root, "bin", "claude"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const which = spyOn(Bun, "which").mockReturnValue("claude");
   writeFileSync(
     join(root, ".credentials.json"),
     JSON.stringify({ claudeAiOauth: { accessToken: "test-value", expiresAt: Date.now() + 60_000 } }),
     { mode: 0o600 },
   );
   Bun.env.CLAUDE_CONFIG_DIR = root;
-  Bun.env.PATH = `${join(root, "bin")}:${previousPath}`;
   let calls = 0;
   try {
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], options?: Parameters<typeof fetch>[1]) => {
@@ -96,8 +89,6 @@ test("Claude listing follows and validates cursors, deduplicates rows and report
     globalThis.fetch = previousFetch;
     if (previousConfig === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
     else Bun.env.CLAUDE_CONFIG_DIR = previousConfig;
-    if (previousPath === undefined) delete Bun.env.PATH;
-    else Bun.env.PATH = previousPath;
     rmSync(root, { recursive: true, force: true });
   }
 });

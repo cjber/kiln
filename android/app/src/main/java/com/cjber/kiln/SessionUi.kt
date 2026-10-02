@@ -48,7 +48,7 @@ fun SessionScreen(
     onForget: () -> Unit,
     error: String,
     onDismissError: () -> Unit,
-    state: String,
+    state: ConnectionState,
     updated: Long,
     problem: String,
     filter: String,
@@ -68,18 +68,18 @@ fun SessionScreen(
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
-    var activity by rememberSaveable { mutableStateOf<String?>(null) }
-    var agent by rememberSaveable { mutableStateOf<String?>(null) }
+    var activity by rememberSaveable { mutableStateOf<Activity?>(null) }
+    var agent by rememberSaveable { mutableStateOf<Agent?>(null) }
     var options by rememberSaveable { mutableStateOf(false) }
     var searching by rememberSaveable { mutableStateOf(false) }
     var forget by rememberSaveable { mutableStateOf(false) }
-    val live = state == "Connected" || state == "Ready"
+    val live = state == ConnectionState.CONNECTED
     val fresh = live && updated > 0 && now - updated < 15_000
     val status =
         when {
             fresh -> "Connected"
             live && updated > 0 -> "Updates delayed"
-            state == "Connecting" -> "Connecting…"
+            state == ConnectionState.CONNECTING -> "Connecting…"
             else -> "Offline"
         }
     val snackbar = remember { SnackbarHostState() }
@@ -350,14 +350,14 @@ fun SessionListView(
     open: (Row) -> Unit,
     details: (Row) -> Unit,
     toggle: (Row) -> Unit,
-    modifier: Modifier = Modifier,
-    emptyTitle: String = "No sessions",
-    emptyMessage: String = "Your sessions will appear here.",
-    clear: (() -> Unit)? = null,
-    header: @Composable () -> Unit = {},
-    hidden: Boolean = false,
-    hide: (Row) -> Unit = {},
-    restore: (Row) -> Unit = {},
+    modifier: Modifier,
+    emptyTitle: String,
+    emptyMessage: String,
+    clear: (() -> Unit)?,
+    header: @Composable () -> Unit,
+    hidden: Boolean,
+    hide: (Row) -> Unit,
+    restore: (Row) -> Unit,
 ) {
     LazyColumn(
         modifier.fillMaxSize(),

@@ -22,6 +22,13 @@ function socketPath(): string {
   );
 }
 
+/** Where saved ACP sessions persist; a test socket keeps its state beside it. */
+export function acpStatePath(): string {
+  return Bun.env.KILN_ACP_SOCKET
+    ? `${socketPath()}.json`
+    : join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "acp.json");
+}
+
 export function startAcpHost({ locked = false } = {}) {
   const socket = socketPath();
   mkdirSync(join(socket, ".."), { recursive: true, mode: 0o700 });
@@ -30,9 +37,7 @@ export function startAcpHost({ locked = false } = {}) {
     if (!stat.isSocket() || stat.uid !== process.getuid?.()) throw new Error("ACP socket path is not an owned socket");
     unlinkSync(socket);
   }
-  const statePath = Bun.env.KILN_ACP_SOCKET
-    ? `${socket}.json`
-    : join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "acp.json");
+  const statePath = acpStatePath();
   mkdirSync(join(statePath, ".."), { recursive: true, mode: 0o700 });
   let saving: ReturnType<typeof setTimeout> | undefined;
   const persist = () => {

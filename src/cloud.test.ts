@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 
-import { cloudCache, parseCloudPage } from "./cloud";
+import { cloudCache, loadCloud, parseCloudPage } from "./cloud";
 
 const task = { id: "task_123", title: "Update search", status: "ready", updated_at: "2026-09-30T09:00:00Z" };
 const page = (tasks = [task]) => JSON.stringify({ tasks, cursor: null });
@@ -70,8 +70,6 @@ test("a failed refresh retains rows, reports the fault and waits before retrying
 });
 
 test("CLI pagination deduplicates tasks, rejects repeated cursors and keeps diagnostics private", async () => {
-  const { loadCloud } = await import("./cloud");
-  const { spyOn } = await import("bun:test");
   const which = spyOn(Bun, "which").mockReturnValue("codex");
   const spawn = spyOn(Bun, "spawn");
   let calls = 0;

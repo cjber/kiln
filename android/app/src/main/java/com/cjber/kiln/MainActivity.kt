@@ -81,8 +81,9 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
-        var state by remember { mutableStateOf("Connecting") }
+        var state by remember { mutableStateOf(ConnectionState.CONNECTING) }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
+        var received by remember { mutableLongStateOf(0L) }
         var retry by remember { mutableIntStateOf(0) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         val connection = remember { Connection() }
@@ -132,20 +133,28 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(host?.origin) {
             snapshot = null
+            received = 0
             details = null
             handoff = null
         }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
+        LaunchedEffect(pairing) { if (!pairing) pairingBusy = false }
         DisposableEffect(host, retry, pairing, foreground) {
             if (host != null && !pairing && foreground) {
-                state = "Connecting"
+                state = ConnectionState.CONNECTING
                 connection.connect(
                     host,
-                    { next -> runOnUiThread { snapshot = next } },
+                    { next ->
+                        runOnUiThread {
+                            received =
+                                receivedAt(snapshot, next, received, System.currentTimeMillis())
+                            snapshot = next
+                        }
+                    },
                     { next -> runOnUiThread { state = next } },
                     {
                         runOnUiThread {
-                            state = "Pairing revoked"
+                            state = ConnectionState.REVOKED
                             if (save(hosts.filter { it.origin != host.origin })) {
                                 selected = hosts.firstOrNull()?.origin
                                 pairing = hosts.isEmpty()
@@ -158,7 +167,7 @@ class MainActivity : ComponentActivity() {
             onDispose { connection.close() }
         }
         LaunchedEffect(state, host, pairing, foreground) {
-            if (state == "Disconnected; reconnecting" && host != null && !pairing && foreground) {
+            if (state == ConnectionState.DISCONNECTED && host != null && !pairing && foreground) {
                 delay(5000)
                 retry++
             }
@@ -278,7 +287,7 @@ class MainActivity : ComponentActivity() {
                         error = error,
                         onDismissError = { error = "" },
                         state = state,
-                        updated = snapshot?.updated ?: 0,
+                        updated = received,
                         problem = snapshot?.problem.orEmpty(),
                         filter = filter,
                         onFilter = { filter = it },

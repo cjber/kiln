@@ -6,8 +6,7 @@ import { dirname, join } from "node:path";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const secret = () => randomBytes(32).toString("base64url");
-export const statePath = () =>
-  join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "devices.sqlite");
+const statePath = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "devices.sqlite");
 export type Device = { id: string; name: string; createdAt: number };
 
 export class Pairing {

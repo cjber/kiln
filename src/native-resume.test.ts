@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SavedSession } from "./acp";
+import { sessionAction } from "./actions";
 import { closeNativeRecovery, nativeSavedSessions, releaseForNative } from "./native-resume";
 import type { Session } from "./sessions";
 
@@ -50,10 +51,17 @@ test("saved ACP sessions open the exact native provider identity and retain reco
     expect(closed).toBe(true);
     expect(JSON.parse(readFileSync(join(`${socket}.json.native`, "kiln-id.json"), "utf8"))).toEqual([record]);
     expect(nativeSavedSessions([])[0]?.activity).toBeUndefined();
-    expect(nativeSavedSessions([])[0]?.place).toMatchObject({
+    const recovery = nativeSavedSessions([])[0];
+    expect(recovery?.place).toMatchObject({
       attach: ["codex", "resume", record.providerId],
       acpId: undefined,
+      recovery: true,
     });
+    if (!recovery) throw new Error("Missing recovery row");
+    expect(sessionAction({ ...recovery, agent: "claude" })).toEqual({ verb: "close" });
+    writeFileSync(join(`${socket}.json.native`, "corrupt.json"), "{garbage");
+    writeFileSync(join(`${socket}.json.native`, "no-identity.json"), JSON.stringify([{ ...record, providerId: "x" }]));
+    expect(nativeSavedSessions([])).toHaveLength(1);
     closeNativeRecovery(native);
     expect(nativeSavedSessions([])).toEqual([]);
     expect(JSON.parse(readFileSync(join(`${socket}.json.native`, "kiln-id.json.closed"), "utf8"))).toEqual([record]);

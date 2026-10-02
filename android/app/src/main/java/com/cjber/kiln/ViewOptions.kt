@@ -15,10 +15,10 @@ import androidx.compose.ui.unit.dp
 fun ViewOptions(
     sort: SessionOrder,
     onSort: (SessionOrder) -> Unit,
-    agent: String?,
-    onAgent: (String?) -> Unit,
-    activity: String?,
-    onActivity: (String?) -> Unit,
+    agent: Agent?,
+    onAgent: (Agent?) -> Unit,
+    activity: Activity?,
+    onActivity: (Activity?) -> Unit,
     dismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -37,7 +37,7 @@ fun ViewOptions(
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                listOf<String?>(null, "claude", "codex", "pi").forEach { value ->
+                (listOf(null) + Agent.entries).forEach { value ->
                     FilterChip(
                         selected = agent == value,
                         onClick = { onAgent(value) },
@@ -50,7 +50,7 @@ fun ViewOptions(
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                listOf<String?>(null, "working", "waiting", "idle").forEach { value ->
+                listOf(null, Activity.WORKING, Activity.WAITING, Activity.IDLE).forEach { value ->
                     FilterChip(
                         selected = activity == value,
                         onClick = { onActivity(value) },

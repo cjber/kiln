@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-export const pkgname = "kiln-agents";
+const pkgname = "kiln-agents";
 const pkgdesc = "Native Claude and Codex session launcher with a paired phone client";
 const url = "https://github.com/cjber/kiln";
 const depends = ["bun", "tmux", "fzf", "util-linux"];

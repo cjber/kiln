@@ -66,7 +66,7 @@ for line in sys.stdin:
     join(env.XDG_CONFIG_HOME, "kiln", "config.toml"),
     `cloud = false\nremote_control = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\npi = []\n`,
   );
-  // The directory picker returns a fixture path; the agent is sleep, so no provider is contacted.
+  // The directory picker returns a fixture path; the agent is a local echo fixture, so no provider is contacted.
   writeFileSync(join(scratch, "bin", "fzf"), `#!/bin/sh\nprintf '%s\\n' ${quote(scratch)}\n`, { mode: 0o755 });
   if (!run([executable, "--version"]).startsWith("kiln ")) throw new Error("binary version failed");
   run([executable, "status"]);

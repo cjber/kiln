@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cloudCache } from "./cloud";
+import { allPages, cloudCache } from "./cloud";
 import { cloudLink } from "./cloud-links";
 import type { Activity, Session } from "./sessions";
 
@@ -46,7 +46,6 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
     if (row.environment_kind !== "anthropic_cloud" || row.status === "archived") continue;
     if (
       typeof row.id !== "string" ||
-      !/^(?:session|cse)_[A-Za-z0-9_-]+$/.test(row.id) ||
       typeof row.title !== "string" ||
       typeof row.worker_status !== "string" ||
       typeof row.created_at !== "string" ||
@@ -60,6 +59,8 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
       row.title.startsWith("ditto:")
     )
       continue;
+    const url = cloudLink("claude", row.id);
+    if (!url) throw new Error("Claude cloud returned an invalid session");
     const status = statuses.includes(row.worker_status as CloudStatus) ? (row.worker_status as CloudStatus) : undefined;
     sessions.push({
       agent: "claude",
@@ -67,7 +68,7 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
       startedAt: Date.parse(row.created_at),
       lastActiveAt: lastActivity(row.last_event_at, row.updated_at),
       activity: activity(status),
-      place: { kind: "cloud", id: row.id, title: row.title, url: cloudLink("claude", row.id) },
+      place: { kind: "cloud", id: row.id, title: row.title, url },
     });
   }
   return { sessions, cursor: page.next_cursor ?? null };
@@ -115,10 +116,7 @@ export async function loadClaudeCloud(): Promise<Session[]> {
   const token = claudeCloudToken(source);
   if (!token) return [];
   const signal = AbortSignal.timeout(10_000);
-  const cursors = new Set<string>();
-  const sessions = new Map<string, Session>();
-  let cursor: string | null = null;
-  do {
+  return allPages("Claude cloud", async (cursor) => {
     const url = new URL("https://api.anthropic.com/v1/code/sessions");
     url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("cursor", cursor);
@@ -144,17 +142,8 @@ export async function loadClaudeCloud(): Promise<Session[]> {
     } catch {
       throw new Error("could not read Claude cloud response");
     }
-    const page = parseClaudeCloudPage(body);
-    for (const session of page.sessions) {
-      if (session.place.kind === "cloud") sessions.set(session.place.id, session);
-    }
-    cursor = page.cursor;
-    if (cursor) {
-      if (cursors.has(cursor)) throw new Error("Claude cloud repeated a pagination cursor");
-      cursors.add(cursor);
-    }
-  } while (cursor);
-  return [...sessions.values()];
+    return parseClaudeCloudPage(body);
+  });
 }
 
 export const claudeCloudSnapshot = cloudCache(loadClaudeCloud);

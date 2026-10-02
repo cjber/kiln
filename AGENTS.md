@@ -20,13 +20,13 @@ python3 .sift/gate.py --base origin/main
 python3 .sift/agents.py check
 ```
 
-CI runs the same, plus actionlint, zizmor and gitleaks over the workflows and history.
+CI runs the same except `bun scripts/perf.ts`, plus actionlint, zizmor and gitleaks over the workflows and history.
 Native x64 and arm64 CI jobs build and exercise the standalone executable and install the rendered
 binary AUR package in Arch without Bun. Release publication waits for both jobs.
 After every visible change, regenerate and inspect both terminal and mobile mock screenshots.
 `bun scripts/screenshots.tsx 2>/dev/null` renders the terminal;
 `ANDROID_HOME=/path/to/sdk JAVA_HOME=/path/to/jdk21 python3 scripts/android-screenshots.py`
-renders seeded production Android list and pairing screens on a dedicated emulator, never a real phone.
+renders seeded production Android list, pairing and handoff screens on a dedicated emulator, never a real phone.
 `assets/icon.svg` is the shared mark; `python3 scripts/icons.py` regenerates README and launcher assets.
 Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its tag.
 
@@ -41,6 +41,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering and directory/task groups with collapsed children.
 - `src/app.tsx` - the whole UI and its keys.
+- `src/tui.ts` - the shared palette, text-key test and editor hand-off every view uses.
 - `src/claude-cloud.ts` - opt-in internal Claude cloud API, existing login, cached reads and safe errors.
 
 - `src/actions.ts` - close/archive capabilities and execution for each session type.

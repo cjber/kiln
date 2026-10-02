@@ -42,16 +42,18 @@ fun SessionDetails(
             }
             SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    if (row.where != "cloud") DetailField("Directory", tildePath(row.cwd))
+                    if (row.where != Place.CLOUD) DetailField("Directory", tildePath(row.cwd))
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
                     DetailField(
                         "Location",
                         when (row.where) {
-                            "cloud" -> "Cloud task"
-                            "acp",
-                            "kiln" -> "Managed by kiln"
-                            "background" -> "Native background session"
-                            else -> "Native terminal"
+                            Place.CLOUD -> "Cloud task"
+                            Place.ACP,
+                            Place.KILN -> "Managed by kiln"
+                            Place.BACKGROUND -> "Native background session"
+                            Place.KITTY,
+                            Place.ELSEWHERE,
+                            Place.OTHER -> "Native terminal"
                         },
                     )
                     DetailField(
@@ -62,12 +64,7 @@ fun SessionDetails(
                 }
             }
             if (row.url != null)
-                Button(onClick = open, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (row.exact) "Open in ${agentName(row.agent)}"
-                        else "Find in ${agentName(row.agent)}"
-                    )
-                }
+                Button(onClick = open, modifier = Modifier.fillMaxWidth()) { Text(row.label) }
             else
                 Text(
                     row.label,

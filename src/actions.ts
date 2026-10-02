@@ -11,7 +11,7 @@ export function sessionAction(session: Session): SessionAction {
       return { verb: "close" };
     case "background":
       if (session.lifecycle) return { reason: `This job has finished; delete it with claude rm ${session.place.id}` };
-      if (session.place.acpId) return { verb: "close" };
+      if (session.place.acpId || session.place.recovery) return { verb: "close" };
       return session.agent === "codex"
         ? { verb: "archive" }
         : session.place.stop
@@ -37,14 +37,20 @@ export async function runSessionAction(session: Session): Promise<true | string>
         break;
       case "background":
         if (session.place.acpId) await acpRequest(`/sessions/${session.place.acpId}/close`, {});
+        // A recovery row has no live process; closing it only retires the saved record below.
+        else if (session.place.recovery) break;
         else if (session.agent === "codex") await archiveCodexThread(session.place.id);
         else if (session.place.stop) {
           const child = Bun.spawn(session.place.stop, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
           if (await child.exited) throw new Error("provider could not stop this session");
         }
         break;
-      default:
+      case "kitty":
+      case "elsewhere":
+      case "cloud":
         return "this session is not managed by kiln";
+      default:
+        return session.place satisfies never;
     }
     closeNativeRecovery(session);
     return true;

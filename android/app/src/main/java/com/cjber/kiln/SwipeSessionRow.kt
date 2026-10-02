@@ -76,7 +76,7 @@ fun SwipeSessionRow(
             open,
             details,
             toggle,
-            restore = if (hidden) restore else null,
+            if (hidden) restore else null,
         )
     }
 }

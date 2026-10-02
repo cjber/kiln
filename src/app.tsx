@@ -1,7 +1,5 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
-import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { acpRequest } from "./acp-host";
@@ -12,30 +10,15 @@ import { ConversationView } from "./conversation-view";
 import { focus } from "./kitty";
 import { releaseForNative } from "./native-resume";
 import { nativeNotifications } from "./notifications";
-import { sessionKey, sessionRows, sessionTitle } from "./session-list";
+import { sessionKey, sessionRows, sessionTitle, statusLabel, visibleSessions } from "./session-list";
 import { sessionSorts } from "./session-sort";
 import { type Agent, agents, listSessions, type Session } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach, exists, start } from "./tmux";
+import { color, openInEditor, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
 import { rankedDirectories, recordDirectory } from "./zoxide";
-
-const color = {
-  bg: "#121113",
-  bg2: "#222222",
-  fg: "#b0b0b0",
-  fgBright: "#d0d0d0",
-  fgDim: "#777777",
-  comment: "#555555",
-  orange: "#e78a53",
-  teal: "#5f8787",
-  peach: "#fbcb97",
-  yellow: "#e5c46b",
-  red: "#c75a5a",
-  green: "#6a9955",
-  purple: "#9d7cd8",
-};
 
 const agentColor: Record<Agent, string> = { claude: color.orange, codex: color.teal, pi: color.purple };
 
@@ -78,21 +61,6 @@ function activityColor(session: Session): string {
   }
 }
 
-/** The list's status column. */
-function statusLabel(session: Session): string {
-  if (session.lifecycle) return session.lifecycle;
-  switch (session.activity) {
-    case "working":
-      return "working";
-    case "waiting":
-      return "needs input";
-    case "idle":
-      return "ready";
-    case undefined:
-      return "unknown";
-  }
-}
-
 function statusHint(session: Session): string {
   switch (session.lifecycle) {
     case "completed":
@@ -124,10 +92,6 @@ function fit(value: string, width: number, cut: "start" | "end"): string {
   return cut === "start" ? `…${value.slice(value.length - width + 1)}` : `${value.slice(0, width - 1)}…`;
 }
 
-function untilde(path: string): string {
-  return resolve(path === "~" || path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path);
-}
-
 /**
  * Hand the terminal to fzf over zoxide's ranked directories. `--print-query` makes
  * the typed text usable when it matches no ranked directory, so any directory opens.
@@ -149,12 +113,6 @@ function pickDirectory(recent: readonly string[]): string | undefined {
 
 function isDirectory(path: string): boolean {
   return existsSync(path) && statSync(path).isDirectory();
-}
-
-/** Printable input for the modes that take text; everything else is a command key. */
-function typed(key: KeyEvent): string | undefined {
-  if (key.ctrl || key.meta || key.name === "return" || key.name === "tab" || key.name === "escape") return undefined;
-  return key.sequence.length === 1 && key.sequence >= " " ? key.sequence : undefined;
 }
 
 type AppProps = {
@@ -192,15 +150,11 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const loaded = await (loadSessions
         ? loadSessions()
         : listSessions({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud }));
-      const before = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
-        row.kind === "session" ? [row.session] : [],
-      );
+      const before = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()));
       const current = before[Math.min(getSelected(), before.length - 1)];
       setSessions(loaded);
       notifyNative(loaded, getSettings().notifications);
-      const after = sessionRows(loaded, getOrder(), getFilter(), getExpanded()).flatMap((row) =>
-        row.kind === "session" ? [row.session] : [],
-      );
+      const after = visibleSessions(sessionRows(loaded, getOrder(), getFilter(), getExpanded()));
       const index = current ? after.findIndex((session) => sessionKey(session) === sessionKey(current)) : -1;
       setSelected(index >= 0 ? index : Math.max(0, Math.min(getSelected(), after.length - 1)));
     } catch {
@@ -236,7 +190,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   }, []);
 
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
-  const visible = rows.flatMap((row) => (row.kind === "session" ? [row.session] : []));
+  const visible = visibleSessions(rows);
   const current = visible[Math.min(selected, visible.length - 1)];
   const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
@@ -301,8 +255,9 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           return setNotice(`Open this session in its terminal · ${session.place.source ?? session.id ?? "unknown"}`);
         case "cloud": {
           if (session.agent === "claude") {
+            if (!session.place.url) return setNotice("this Claude cloud session has no verified link");
             if (!Bun.which("xdg-open")) return setNotice("opening a Claude cloud session needs xdg-open on PATH");
-            const child = Bun.spawn(["xdg-open", `https://claude.ai/code/${encodeURIComponent(session.place.id)}`], {
+            const child = Bun.spawn(["xdg-open", session.place.url], {
               stdin: "ignore",
               stdout: "ignore",
               stderr: "ignore",
@@ -378,14 +333,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   /** Settings are a file: open it in $EDITOR, then re-read it, keeping the old ones if the edit does not parse. */
   const editSettings = useCallback(async () => {
     const path = ensureSettingsFile();
-    const editor = Bun.env.VISUAL || Bun.env.EDITOR || "vi";
-    await withTerminal(() =>
-      Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], {
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-      }),
-    );
+    await withTerminal(() => openInEditor(path));
     try {
       const loaded = loadSettings();
       setSettings(loaded);
@@ -419,9 +367,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     const mode = getMode();
     const agentIndex = getAgentIndex();
     const choices = agents.filter((agent) => getSettings().agents[agent].length);
-    const visible = sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()).flatMap((row) =>
-      row.kind === "session" ? [row.session] : [],
-    );
+    const visible = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), getExpanded()));
     const current = visible[Math.min(getSelected(), visible.length - 1)];
     const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible.length - 1, index + delta)));
 
@@ -478,9 +424,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const next = sessionSorts[(sessionSorts.indexOf(getOrder()) + 1) % sessionSorts.length];
       if (next) {
         setOrder(next);
-        const reordered = sessionRows(getSessions(), next, getFilter(), getExpanded()).flatMap((row) =>
-          row.kind === "session" ? [row.session] : [],
-        );
+        const reordered = visibleSessions(sessionRows(getSessions(), next, getFilter(), getExpanded()));
         setSelected(Math.max(0, current ? reordered.indexOf(current) : 0));
       }
       return;
@@ -491,9 +435,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       if (key.name === "left" || next.has(keyForCurrent)) next.delete(keyForCurrent);
       else next.add(keyForCurrent);
       setExpanded(next);
-      const reordered = sessionRows(getSessions(), getOrder(), getFilter(), next).flatMap((row) =>
-        row.kind === "session" ? [row.session] : [],
-      );
+      const reordered = visibleSessions(sessionRows(getSessions(), getOrder(), getFilter(), next));
       setSelected(Math.max(0, reordered.indexOf(current)));
       return;
     }
@@ -526,15 +468,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         project={skillsProject}
         onBack={() => setSkillsProject(undefined)}
         edit={async (path) => {
-          const editor = Bun.env.VISUAL || Bun.env.EDITOR || "vi";
-          await withTerminal(() => {
-            const result = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], {
-              stdin: "inherit",
-              stdout: "inherit",
-              stderr: "inherit",
-            });
-            if (result.exitCode !== 0) throw new Error(`editor exited with status ${result.exitCode}`);
-          });
+          const code = await withTerminal(() => openInEditor(path));
+          if (code !== 0) throw new Error(`editor exited with status ${code}`);
         }}
       />
     );
