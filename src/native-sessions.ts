@@ -4,7 +4,16 @@ import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { transcriptTitle } from "./session-titles";
-import { type Activity, type Agent, agents, gitBranch, nestSessions, type Place, type Session } from "./sessions";
+import {
+  type Activity,
+  type Agent,
+  agents,
+  gitBranch,
+  type Lifecycle,
+  nestSessions,
+  type Place,
+  type Session,
+} from "./sessions";
 import { panes } from "./tmux";
 
 /** Claude's own statuses, grouped; anything newer than this list shows as unknown rather than guessed. */
@@ -24,15 +33,28 @@ function claudeActivity(status: string | undefined): Activity | undefined {
   }
 }
 
+/** Claude's end states for a background job; any other state is not treated as finished. */
+function claudeLifecycle(state: string | undefined): Lifecycle | undefined {
+  switch (state) {
+    case "done":
+      return "completed";
+    case "stopped":
+      return "stopped";
+    default:
+      return undefined;
+  }
+}
+
 type AgentProcess = Omit<Session, "place" | "branch"> & { pid: number; background?: Place };
 
 type ClaudeAgent = {
   name?: string;
   sessionId?: string;
-  pid: number;
+  pid?: number;
   cwd: string;
   startedAt?: number;
   status?: string;
+  state?: string;
   kind?: string;
   id?: string;
 };
@@ -123,22 +145,55 @@ function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
   }
 }
 
-async function claudeProcesses(): Promise<AgentProcess[]> {
-  if (!Bun.which("claude")) return [];
-  const process = Bun.spawn(["claude", "agents", "--json"], { stdout: "pipe", stderr: "ignore" });
+/** A finished job has no process; `claude attach` reopens it by its short job id. */
+export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
+  return listed.flatMap((item) => {
+    const lifecycle = claudeLifecycle(item.state);
+    if (
+      item.kind !== "background" ||
+      item.pid !== undefined ||
+      !lifecycle ||
+      typeof item.id !== "string" ||
+      !/^[a-f0-9]{8}$/.test(item.id) ||
+      typeof item.cwd !== "string" ||
+      !item.cwd.startsWith("/")
+    )
+      return [];
+    return [
+      {
+        agent: "claude" as const,
+        id: item.sessionId,
+        title: item.name,
+        cwd: item.cwd,
+        startedAt: item.startedAt ?? 0,
+        lastActiveAt: claudeTranscriptActivity(item),
+        lifecycle,
+        branch: gitBranch(item.cwd),
+        place: { kind: "background" as const, id: item.id, attach: ["claude", "attach", item.id] },
+      },
+    ];
+  });
+}
+
+async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: Session[] }> {
+  const none = { processes: [], finished: [] };
+  if (!Bun.which("claude")) return none;
+  const process = Bun.spawn(["claude", "agents", "--json", "--all"], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   clearTimeout(timeout);
-  if (code) return [];
+  if (code) return none;
   let listed: unknown;
   try {
     listed = JSON.parse(source);
   } catch {
-    return [];
+    return none;
   }
-  if (!Array.isArray(listed)) return [];
-  return (listed as ClaudeAgent[])
-    .filter((item) => typeof item.pid === "number" && typeof item.cwd === "string")
+  if (!Array.isArray(listed)) return none;
+  const processes = (listed as ClaudeAgent[])
+    .flatMap((item) =>
+      typeof item.pid === "number" && typeof item.cwd === "string" ? [{ ...item, pid: item.pid }] : [],
+    )
     .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
     .flatMap((item) => {
       const transcript = claudeTranscriptPath(item);
@@ -174,6 +229,12 @@ async function claudeProcesses(): Promise<AgentProcess[]> {
           return [];
       }
     });
+  // A job resumed in a terminal is listed once, as the live session.
+  const live = new Set(processes.map((session) => session.id));
+  return {
+    processes,
+    finished: finishedClaudeJobs(listed as ClaudeAgent[]).filter((job) => !job.id || !live.has(job.id)),
+  };
 }
 
 /** The first bare word, so a flag that merely contains a subcommand's name still counts as interactive. */
@@ -315,12 +376,12 @@ export async function listNativeSessions({ kitty = true, excludedPids = [] as nu
     return withCodexThreads(processes, threads);
   };
   const [claude, owned, windows, codex] = await Promise.all([
-    claudeProcesses(),
+    claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
   ]);
-  const running = [...claude, ...codex.processes].filter((session) => {
+  const running = [...claude.processes, ...codex.processes].filter((session) => {
     for (let pid: number | undefined = session.pid; pid; pid = parentPid(pid))
       if (excludedPids.includes(pid)) return false;
     return true;
@@ -359,7 +420,7 @@ export async function listNativeSessions({ kitty = true, excludedPids = [] as nu
     })),
   );
   return nestSessions(
-    [...sessions, ...codex.headless].sort(
+    [...sessions, ...codex.headless, ...claude.finished].sort(
       (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
     ),
   );

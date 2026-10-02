@@ -47,6 +47,8 @@ Directory headings are orange. Sessions needing permission are yellow, ready ses
 
 New Claude and Codex sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
+Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. Kiln does not delete them; use `claude rm <id>`.
+
 An owner-only ACP host keeps Pi and previously saved ACP conversations alive when the list closes. Saved Claude and Codex ACP conversations resume in their native terminal, with a private recovery copy of the old kiln history. Pi retains its prompt and approval controls. Native sessions do not run through ACP adapters. Unknown provider activity stays unknown.
 
 Desktop notifications identify the session when it needs input or finishes an observed turn. Enable `notify-send` and a desktop notification service to receive them.
@@ -83,10 +85,12 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 <img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
-Install the APK from the repository's releases. The phone lists native sessions, saved ACP sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. Sessions without mobile access explain how to open them on the PC.
+Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions, saved ACP sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. Sessions without mobile access explain how to open them on the PC.
 
 ```sh
-kiln serve # configures Tailscale Serve and prints a pairing QR
+kiln setup # installs a user service that survives reboots, configures Tailscale Serve and prints a pairing QR
+# In the foreground instead, until the terminal closes:
+kiln serve
 # With your own HTTPS tunnel instead:
 kiln serve --origin https://your-machine.example
 # Localhost only, without tunnel setup or pairing:
@@ -98,6 +102,10 @@ kiln revoke <device-id>
 ```
 
 Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving another application is preserved; use `--origin` with a separate tunnel in that case. Keep the server running while using the phone.
+
+`kiln setup` writes `~/.config/systemd/user/kiln-serve.service`, enables it and reports each change; running it again changes nothing. A unit that is a symlink, for example into a dotfiles repository, is left alone and reported. The service listens on localhost only and never prints a pairing code to the journal. It records the current `PATH` so the agents' CLIs are found; run `kiln setup` again after moving them. To start before login, run `loginctl enable-linger`. `--port` and `--origin` work as they do for `kiln serve`.
+
+On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day.
 
 Pairing invitations expire after five minutes and work once. The phone stores its bearer token privately. The server binds to localhost, rejects browser requests and checks pairing for each request and streamed update. Keep the tunnel origin HTTPS. Revocation disconnects the phone without affecting agent sessions.
 

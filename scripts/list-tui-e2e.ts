@@ -45,6 +45,14 @@ const rows: Session[] = [
     startedAt: 4,
     place: { kind: "acp", id: "pi" },
   },
+  {
+    agent: "claude",
+    title: "Background job",
+    cwd: "/tmp/dotfiles",
+    lifecycle: "completed",
+    startedAt: 5,
+    place: { kind: "background", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
+  },
 ];
 async function drive(...args: string[]): Promise<string> {
   const child = Bun.spawn(["bunx", "tuistory@0.11.0", "-s", name, ...args], {
@@ -84,6 +92,7 @@ try {
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e5c46b")).includes("Review changes"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("/tmp/atlas"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#6a9955")).includes("Finished task"));
+  assert.match(await drive("snapshot", "--trim", "--fg", "#6a9955"), /Background job\s+completed/);
   assert.ok((await drive("snapshot", "--trim", "--fg", "#5f8787")).includes("codex"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("claude"));
   await drive("screenshot", "-o", join(output, "tui-actions.png"));

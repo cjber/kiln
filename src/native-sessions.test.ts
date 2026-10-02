@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { sessionAction } from "./actions";
 import {
   deduplicateSessions,
+  finishedClaudeJobs,
   isInteractiveCodex,
   resumedCodexThread,
   sessionLocation,
@@ -141,4 +143,42 @@ test("duplicate clients keep an openable terminal regardless of process order", 
   const inside: Session = { ...outside, pid: 2, place: { kind: "kiln", name: "task" } };
   expect(deduplicateSessions([outside, inside])).toEqual([inside]);
   expect(deduplicateSessions([inside, outside])).toEqual([inside]);
+});
+
+describe("finished Claude jobs", () => {
+  const job = { kind: "background", id: "82f7d7c3", sessionId: "provider-id", name: "Finished", cwd: "/repo" };
+
+  test("lists completed and stopped jobs without a process or an activity", () => {
+    const [done, stopped] = finishedClaudeJobs([
+      { ...job, state: "done", startedAt: 5 },
+      { ...job, id: "0b276145", state: "stopped" },
+    ]);
+    expect(done).toMatchObject({
+      agent: "claude",
+      id: "provider-id",
+      title: "Finished",
+      startedAt: 5,
+      lifecycle: "completed",
+      place: { kind: "background", id: "82f7d7c3", attach: ["claude", "attach", "82f7d7c3"] },
+    });
+    expect(done?.activity).toBeUndefined();
+    expect(done?.pid).toBeUndefined();
+    expect(stopped?.lifecycle).toBe("stopped");
+    expect(sessionAction(done as Session)).toEqual({
+      reason: "This job has finished; delete it with claude rm 82f7d7c3",
+    });
+  });
+
+  test("ignores running jobs, unknown states and ids that are not job ids", () => {
+    expect(
+      finishedClaudeJobs([
+        { ...job, state: "done", pid: 4 },
+        { ...job, state: "running" },
+        { ...job, state: "archived" },
+        { ...job, state: "done", kind: "interactive" },
+        { ...job, state: "done", id: "../escape" },
+        { ...job, state: "done", cwd: "relative" },
+      ]),
+    ).toEqual([]);
+  });
 });

@@ -10,6 +10,7 @@ export function sessionAction(session: Session): SessionAction {
     case "kiln":
       return { verb: "close" };
     case "background":
+      if (session.lifecycle) return { reason: `This job has finished; delete it with claude rm ${session.place.id}` };
       if (session.place.acpId) return { verb: "close" };
       return session.agent === "codex"
         ? { verb: "archive" }

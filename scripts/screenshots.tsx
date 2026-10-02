@@ -21,7 +21,7 @@ import type { Skill } from "../src/skills";
 import { SkillsView } from "../src/skills-view";
 
 const cols = 92;
-const rows = 13;
+const rows = 14;
 const cell = { width: 9, height: 20 };
 const pad = 20;
 const background = "#121113";
@@ -119,6 +119,15 @@ const demo: Session[] = [
     activity: "idle",
     place: { kind: "cloud", id: "cse_demo", title: "atlas: check release changes" },
   },
+  {
+    agent: "claude",
+    title: "Summarise release notes",
+    cwd: code("blog"),
+    lastActiveAt: minutes(300),
+    startedAt: minutes(320),
+    lifecycle: "completed",
+    place: { kind: "background", id: "0b276145", attach: ["claude", "attach", "0b276145"] },
+  },
 ];
 
 const hex = (color: RGBA) =>
@@ -197,7 +206,7 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 
 await shoot("list", ["j"]);
 await shoot("unavailable", []);
-await shoot("archive", ["j", "j", "j", "j", "j", "x"]);
+await shoot("archive", ["j", "j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
 rmSync(scratch, { recursive: true, force: true });

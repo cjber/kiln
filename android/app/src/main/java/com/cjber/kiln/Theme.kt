@@ -81,7 +81,8 @@ fun activityColor(activity: String): Color =
         "waiting" ->
             if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFFE5C46B)
             else Color(0xFF806000)
-        "idle" ->
+        "idle",
+        "completed" ->
             if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF6A9955)
             else Color(0xFF48634F)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -100,5 +101,7 @@ fun activityName(activity: String): String =
         "working" -> "Working"
         "waiting" -> "Needs input"
         "idle" -> "Ready"
+        "completed" -> "Completed"
+        "stopped" -> "Stopped"
         else -> "Unknown"
     }

@@ -155,4 +155,14 @@ private val demoRows =
             190,
             "draft/terminal-tools",
         ),
+        demo(
+                "claude:106",
+                "claude",
+                "Summarise release notes",
+                "/home/demo/code/kiln",
+                "completed",
+                300,
+                320,
+            )
+            .copy(where = "background", url = null, label = "Attach in kiln on your PC"),
     )

@@ -25,6 +25,27 @@ class ProtocolTest {
     }
 
     @Test
+    fun finishedBackgroundJobsShowHowTheyEndedAndLeaveTheLiveList() {
+        fun row(extra: String) =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":1,"problem":"","sessions":[
+                    {"id":"claude:bg","agent":"claude","title":"t","cwd":"/w","where":"background",
+                    "startedAt":1,"handoff":{"reason":"Attach in kiln"}$extra}]}"""
+                )
+                .rows
+                .single()
+        val done = row(""","lifecycle":"completed"""")
+        assertEquals("completed", done.activity)
+        assertEquals("Completed", activityName(done.activity))
+        assertEquals("Stopped", activityName(row(""","lifecycle":"stopped"""").activity))
+        assertEquals("idle", row(""","lifecycle":"other","activity":"idle"""").activity)
+        val day = 86_400_000L
+        assertFalse(isCurrentSession(done, 2 * day))
+        assertTrue(isCurrentSession(done.copy(active = 2 * day - 1000), 2 * day))
+        assertTrue(isCurrentSession(done.copy(activity = "idle"), 2 * day))
+    }
+
+    @Test
     fun remoteThreadLinksRequireAnExactHostAndThread() {
         val route = "https://chatgpt.com/codex/remote/thread/00000000-0000-0000-0000-000000000001"
         val url = "$route?hostId=slingshot%3Aenv_example%3A8765"

@@ -1,6 +1,9 @@
 import { type Pairing, serverOrigin } from "./pairing";
 
-export function serveOptions(args: readonly string[]) {
+export function serveOptions(
+  args: readonly string[],
+  usage = "usage: kiln serve [--port 7437] [--origin https://host | --local]",
+) {
   let port = 7437;
   let origin: string | undefined;
   let local = false;
@@ -20,7 +23,7 @@ export function serveOptions(args: readonly string[]) {
         local = true;
         break;
       default:
-        throw new Error("usage: kiln serve [--port 7437] [--origin https://host | --local]");
+        throw new Error(usage);
     }
   }
   if (local && origin) throw new Error("--local and --origin cannot be combined");

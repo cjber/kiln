@@ -27,7 +27,8 @@ Supported top-level settings:
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
 change `sort` to persist it. Existing session launch arguments are not rewritten.
 
-For Android, `kiln serve` configures Tailscale Serve and prints a pairing QR.
+For Android, `kiln setup` installs a systemd user service for the phone server,
+configures Tailscale Serve and prints a pairing QR. `kiln serve` does the same in the foreground.
 Use `--origin HTTPS_ORIGIN` with another tunnel or `--local` for localhost only.
 `kiln pair HTTPS_ORIGIN --qr` creates another invitation while serving. Credentials are separate from TOML.
 Use `kiln devices` and `kiln revoke DEVICE_ID` to manage phone access. Never put
