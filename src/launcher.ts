@@ -117,7 +117,7 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
   }
 }
 
-export type SessionAction = { verb: "close" | "archive" } | { reason: string };
+export type SessionAction = { verb: "close" | "archive" | "delete" } | { reason: string };
 
 export function sessionAction(session: Session): SessionAction {
   const place = session.place;
@@ -129,7 +129,8 @@ export function sessionAction(session: Session): SessionAction {
     case "thread":
       return { verb: "archive" };
     case "job":
-      if (session.lifecycle) return { reason: `This job has finished; delete it with claude rm ${place.id}` };
+      // `claude rm` removes the job and its worktree, and refuses while that worktree has unpushed work.
+      if (session.lifecycle) return { verb: "delete" };
       return place.stop ? { verb: "close" } : { reason: "Close this session in its native terminal" };
     case "kitty":
     case "elsewhere":
@@ -159,7 +160,15 @@ export async function closeSession(session: Session): Promise<true | string> {
         await archiveCodexThread(place.id);
         break;
       case "job":
-        if (place.stop) {
+        if (session.lifecycle) {
+          const child = Bun.spawn(["claude", "rm", place.id], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+          const [output, problem, code] = await Promise.all([
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+            child.exited,
+          ]);
+          if (code) throw new Error((problem || output).trim().split("\n")[0] || "claude rm failed");
+        } else if (place.stop) {
           const child = Bun.spawn(place.stop, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
           if (await child.exited) throw new Error("provider could not stop this session");
         }
@@ -174,6 +183,6 @@ export async function closeSession(session: Session): Promise<true | string> {
     closeNativeRecovery(session);
     return true;
   } catch (error) {
-    return `could not close ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;
+    return `could not ${action.verb} ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
