@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Claude sessions show their titles again.** Claude Code now records the titles it generates separately from ones you set with `/rename`, and kiln read only the latter, so sessions fell back to names like `kiln-05`. Kiln reads both; a title you set still wins.
+
 ## [0.8.0] - 2026-10-02
 
 - **Finished Claude background jobs stay in the list.** Jobs that have completed or been stopped appear with that status instead of disappearing, on the terminal and the phone. Enter attaches with `claude attach`. On the phone they move to History after a day. Kiln does not delete them; use `claude rm`.
