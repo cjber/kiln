@@ -17,7 +17,12 @@ export type Place =
   | { kind: "acp"; id: string }
   | { kind: "kiln"; name: string }
   | { kind: "kitty"; socket: string; windowId: number }
-  | { kind: "background"; id: string; attach: string[]; stop?: string[]; acpId?: string; recovery?: boolean }
+  /** A Claude background job, running or finished; `attach` gives it a terminal. */
+  | { kind: "job"; id: string; attach: string[]; stop?: string[] }
+  /** A Codex daemon thread with no terminal of its own. */
+  | { kind: "thread"; id: string; attach: string[] }
+  /** A conversation kiln's ACP host held; `acpId` while it still does, otherwise a recovery record. */
+  | { kind: "saved"; id: string; attach: string[]; acpId?: string }
   | { kind: "elsewhere"; source?: string }
   | { kind: "cloud"; id: string; title: string; url?: string };
 
@@ -43,6 +48,14 @@ export type Session = {
   place: Place;
 };
 
+/**
+ * One name for a session everywhere: the list cursor, phone rows and notifications. Provider identity
+ * outlives the process; a session without one is known by its process and start time.
+ */
+export function sessionIdentity(session: Session): string {
+  return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
+}
+
 export function gitBranch(cwd: string): string | undefined {
   try {
     for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
@@ -66,28 +79,73 @@ export function gitBranch(cwd: string): string | undefined {
   return undefined;
 }
 
-export async function listSessions({
-  cloud = false,
-  claudeCloud = false,
-  native = true,
-  kitty = true,
-} = {}): Promise<Session[]> {
-  const { acpRequest } = await import("./acp-host");
-  const { listNativeSessions } = await import("./native-sessions");
-  const owned = await acpRequest<Session[]>("/sessions");
-  const { nativeSavedSessions } = await import("./native-resume");
-  const saved = native ? nativeSavedSessions(owned) : owned;
-  const observed = native ? await listNativeSessions({ kitty }) : [];
-  return nestSessions(
-    [
-      ...saved
-        .filter((session) => !observed.some((row) => row.agent === session.agent && row.id === session.id))
+export type Discovered = {
+  sessions: Session[];
+  /** Why the list may be out of date, in words safe to show; empty when it is not. */
+  problem: string;
+  /** Some rows are the last successful ones rather than a fresh observation. */
+  stale: boolean;
+};
+
+/** While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. */
+export function keepLast<A extends unknown[]>(
+  load: (...args: A) => Promise<Session[]>,
+  name: string,
+): (...args: A) => Promise<Discovered> {
+  let last: Session[] = [];
+  return async (...args) => {
+    try {
+      last = await load(...args);
+      return { sessions: last, problem: "", stale: false };
+    } catch {
+      last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
+      return { sessions: last, problem: `${name} unavailable; showing the last successful list`, stale: true };
+    }
+  };
+}
+
+/**
+ * Every source of sessions, merged into one list. Each source fails on its own: the others stay
+ * live, and the failed one keeps its last rows. The TUI and the phone server each hold one.
+ */
+export function discovery() {
+  const saved = keepLast(async (native: boolean) => {
+    const { acpRequest } = await import("./acp-host");
+    const owned = await acpRequest<Session[]>("/sessions");
+    if (!native) return owned;
+    const { nativeSavedSessions } = await import("./native-resume");
+    return nativeSavedSessions(owned);
+  }, "ACP host");
+  const observed = keepLast(async (kitty: boolean) => {
+    const { listNativeSessions } = await import("./native-sessions");
+    return listNativeSessions({ kitty });
+  }, "Native session discovery");
+  return async ({ cloud = false, claudeCloud = false, native = true, kitty = true } = {}): Promise<Discovered> => {
+    const [held, seen] = await Promise.all([
+      saved(native),
+      native ? observed(kitty) : { sessions: [], problem: "", stale: false },
+    ]);
+    const clouds = [...(cloud ? [cloudSnapshot()] : []), ...(cloud && claudeCloud ? [claudeCloudSnapshot()] : [])];
+    const merged = [
+      ...held.sessions
+        .filter((session) => !seen.sessions.some((row) => row.agent === session.agent && row.id === session.id))
         .map((session) => ({ ...session, branch: gitBranch(session.cwd) })),
-      ...observed,
-      ...(cloud ? cloudSnapshot().sessions : []),
-      ...(cloud && claudeCloud ? claudeCloudSnapshot().sessions : []),
-    ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt),
-  );
+      ...seen.sessions,
+      ...clouds.flatMap((snapshot) => snapshot.sessions),
+    ].sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt);
+    return {
+      sessions: nestSessions([...new Map(merged.map((session) => [sessionIdentity(session), session])).values()]),
+      problem: [held.problem, seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
+      stale: held.stale || seen.stale,
+    };
+  };
+}
+
+/** One observation, for callers that would rather fail than show a stale list. */
+export async function listSessions(options: Parameters<ReturnType<typeof discovery>>[0] = {}): Promise<Session[]> {
+  const found = await discovery()(options);
+  if (found.stale) throw new Error(found.problem);
+  return found.sessions;
 }
 
 /** Provider relationships survive daemon execution, where children have no terminal PID. */

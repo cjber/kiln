@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pairing, serverOrigin } from "./pairing";
 import { phoneSession, startServer } from "./server";
-import { type Session, sessionParents } from "./sessions";
+import { keepLast, type Session, sessionParents } from "./sessions";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -60,7 +60,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     port: 0,
     pairing,
     interval: 20,
-    load: async () => {
+    discover: keepLast(async () => {
       if (fail) throw new Error("private provider response");
       return [
         {
@@ -72,7 +72,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
           place: { kind: "acp", id: "00000000-0000-0000-0000-000000000001" },
         },
       ];
-    },
+    }, "Session host"),
   });
   const origin = `http://127.0.0.1:${server.port}`;
   try {
@@ -147,7 +147,12 @@ test("paired phone reads the same ACP prompt, approval and completion as the loc
   );
   const host = startAcpHost();
   const session = await acpRequest<Session>("/sessions", { agent: "codex", cwd: process.cwd() });
-  const server = startServer({ port: 0, pairing, interval: 20, load: () => acpRequest<Session[]>("/sessions") });
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    discover: keepLast(() => acpRequest<Session[]>("/sessions"), "Session host"),
+  });
   const paired = pairing.exchange(pairing.invite(), "ACP phone");
   if (!paired || !session.id) throw new Error("Missing ACP test identity");
   const origin = `http://127.0.0.1:${server.port}`;

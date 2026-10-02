@@ -1,22 +1,6 @@
 import { basename } from "node:path";
 import { type SessionSort, sortSessions } from "./session-sort";
-import { type Session, sessionParents } from "./sessions";
-
-export function sessionKey(session: Session): string {
-  if (session.pid !== undefined) return `pid:${session.pid}`;
-  switch (session.place.kind) {
-    case "acp":
-    case "cloud":
-    case "background":
-      return `${session.agent}:${session.place.kind}:${session.place.id}`;
-    case "kiln":
-      return `kiln:${session.place.name}`;
-    case "kitty":
-      return `kitty:${session.place.socket}:${session.place.windowId}`;
-    case "elsewhere":
-      return `${session.agent}:${session.id ?? session.startedAt}`;
-  }
-}
+import { type Session, sessionIdentity, sessionParents } from "./sessions";
 
 export function sessionTitle(session: Session): string {
   const title = session.place.kind === "cloud" ? session.place.title : session.title;
@@ -25,18 +9,31 @@ export function sessionTitle(session: Session): string {
   );
 }
 
-/** The list's status column, which the filter also matches. */
-export function statusLabel(session: Session): string {
-  if (session.lifecycle) return session.lifecycle;
+export type Tone = "active" | "attention" | "done" | "muted";
+
+/** What a session is doing, in the words and emphasis every view shows. The filter matches the label. */
+export function sessionStatus(session: Session): { label: string; hint: string; tone: Tone } {
+  switch (session.lifecycle) {
+    case "completed":
+      return { label: "completed", hint: "finished · Enter attaches", tone: "done" };
+    case "stopped":
+      return { label: "stopped", hint: "stopped · Enter resumes", tone: "muted" };
+    case undefined:
+      break;
+  }
   switch (session.activity) {
     case "working":
-      return "working";
+      return { label: "working", hint: "working", tone: "active" };
     case "waiting":
-      return "needs input";
+      return { label: "needs input", hint: "needs your input", tone: "attention" };
     case "idle":
-      return "ready";
+      return { label: "ready", hint: "ready for a prompt", tone: "done" };
     case undefined:
-      return "unknown";
+      return {
+        label: "unknown",
+        hint: session.place.kind === "acp" ? "ACP connection lost" : "status unavailable from provider",
+        tone: "muted",
+      };
   }
 }
 
@@ -64,7 +61,7 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${statusLabel(session)} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${sessionStatus(session).label} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
   const matching = new Set(ordered.filter(matches));
@@ -98,7 +95,7 @@ export function sessionRows(
       if (seen.has(session) || !matching.has(session)) continue;
       seen.add(session);
       const descendants = (children.get(session) ?? []).filter((child) => matching.has(child));
-      const key = sessionKey(session);
+      const key = sessionIdentity(session);
       rows.push({ kind: "session", key, session, depth, children: descendants.length });
       if (!expanded.has(key) && !needle) continue;
       for (let index = descendants.length - 1; index >= 0; index--) {
@@ -125,4 +122,18 @@ export function sessionRows(
 /** The rows a cursor can rest on; selection is an index into this. */
 export function visibleSessions(rows: readonly ListRow[]): Session[] {
   return rows.flatMap((row) => (row.kind === "session" ? [row.session] : []));
+}
+
+/** The cursor follows a session by identity; `index` is where it rests when that session is gone. */
+export type Selection = { key?: string; index: number };
+
+export function selectionAt(visible: readonly Session[], index: number): Selection {
+  const clamped = Math.max(0, Math.min(visible.length - 1, index));
+  const session = visible[clamped];
+  return { key: session && sessionIdentity(session), index: clamped };
+}
+
+export function resolveSelection(visible: readonly Session[], selection: Selection): Selection {
+  const found = selection.key === undefined ? -1 : visible.findIndex((row) => sessionIdentity(row) === selection.key);
+  return selectionAt(visible, found >= 0 ? found : selection.index);
 }

@@ -63,9 +63,7 @@ createRoot(renderer).render(
       nativeSavedSessions(released ? [] : [session]).map((row) => ({
         ...row,
         place:
-          row.place.kind === "background"
-            ? { ...row.place, attach: [command, ...row.place.attach.slice(1)] }
-            : row.place,
+          row.place.kind === "saved" ? { ...row.place, attach: [command, ...row.place.attach.slice(1)] } : row.place,
       }))
     }
   />,

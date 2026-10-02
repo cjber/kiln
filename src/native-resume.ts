@@ -20,12 +20,11 @@ function nativeSession(record: SavedSession, owned: boolean): Session {
     pid: undefined,
     activity: owned ? session.activity : undefined,
     place: {
-      kind: "background",
+      kind: "saved",
       id: record.providerId,
       attach:
         session.agent === "claude" ? ["claude", "--resume", record.providerId] : ["codex", "resume", record.providerId],
       acpId: owned ? session.id : undefined,
-      recovery: owned ? undefined : true,
     },
   };
 }
@@ -75,7 +74,7 @@ export function nativeSavedSessions(owned: Session[]): Session[] {
 
 /** Archive kiln's chat history before releasing its adapter; the provider owns native conversation history. */
 export async function releaseForNative(session: Session): Promise<void> {
-  if (session.place.kind !== "background" || !session.place.acpId) return;
+  if (session.place.kind !== "saved" || !session.place.acpId) return;
   const id = session.place.acpId;
   const record = records(acpStatePath()).find((record) => record.conversation.session.id === id);
   if (!record || nativeSession(record, true).id !== session.id)

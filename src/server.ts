@@ -2,23 +2,33 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import type { Conversation } from "./acp";
 import { acpRequest } from "./acp-host";
-import { claudeCloudSnapshot } from "./claude-cloud";
-import { cloudSnapshot } from "./cloud";
 import { codexRemoteHost } from "./codex";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
-import { listSessions, type Session, sessionParents } from "./sessions";
+import { type Discovered, discovery, type Place, type Session, sessionIdentity, sessionParents } from "./sessions";
 import { loadSettings, SettingsError } from "./settings";
 
-function phoneId(session: Session): string {
-  return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
+/** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
+function wireKind(place: Place): "acp" | "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
+  switch (place.kind) {
+    case "job":
+    case "thread":
+    case "saved":
+      return "background";
+    case "acp":
+    case "kiln":
+    case "kitty":
+    case "elsewhere":
+    case "cloud":
+      return place.kind;
+  }
 }
 
 export function phoneSession(session: Session, parent?: Session, codexHost?: string) {
   return {
-    id: phoneId(session),
-    parentId: parent ? phoneId(parent) : undefined,
+    id: sessionIdentity(session),
+    parentId: parent ? sessionIdentity(parent) : undefined,
     agent: session.agent,
     title: sessionTitle(session),
     cwd: session.cwd,
@@ -27,21 +37,27 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     lifecycle: session.lifecycle,
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
-    where: session.place.kind,
+    where: wireKind(session.place),
     acpRemote: session.place.kind === "acp",
     handoff: phoneHandoff(session, codexHost),
   };
 }
 
+/** Settings are re-read each refresh, so an edit applies without restarting the server. */
+function settingsDiscovery(): () => Promise<Discovered> {
+  const discover = discovery();
+  return () => discover(loadSettings());
+}
+
 export function startServer({
   port,
   pairing,
-  load = () => listSessions(loadSettings()),
+  discover = settingsDiscovery(),
   interval = 2_000,
 }: {
   port: number;
   pairing: Pairing;
-  load?: () => Promise<Session[]>;
+  discover?: () => Promise<Discovered>;
   interval?: number;
 }) {
   const instance = randomUUID();
@@ -188,7 +204,7 @@ export function startServer({
     if (refreshing) return;
     refreshing = true;
     try {
-      const sessions = await load();
+      const { sessions, problem, stale } = await discover();
       const codexHost = sessions.some(
         (row) => row.agent === "codex" && row.place.kind !== "cloud" && row.place.kind !== "acp",
       )
@@ -199,23 +215,17 @@ export function startServer({
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
-        updatedAt: Date.now(),
-        sessions: [
-          ...new Map(
-            sessions.map((session) => {
-              const row = phoneSession(session, parents.get(session), codexHost.id);
-              return [row.id, row] as const;
-            }),
-          ).values(),
-        ],
-        problem: [cloudSnapshot(false).problem, claudeCloudSnapshot(false).problem].filter(Boolean).join("; "),
+        // Phones time freshness from this, so it moves only on a full successful load.
+        updatedAt: stale ? snapshot.updatedAt : Date.now(),
+        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id)),
+        problem,
       };
     } catch (error) {
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
         // A settings file edited while serving names its own fault; other failures stay generic.
-        problem: `${error instanceof SettingsError ? error.message : "Session host unavailable"}; showing the last successful list`,
+        problem: `${error instanceof SettingsError ? error.message : "Session discovery unavailable"}; showing the last successful list`,
         sessions: snapshot.sessions.map((session) =>
           session.where !== "cloud" ? { ...session, activity: undefined } : session,
         ),
