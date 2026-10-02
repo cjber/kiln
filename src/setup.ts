@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -93,6 +93,9 @@ export async function runSetup(
     // No unit yet.
   }
   const changed = existing !== unit;
+  // A linked unit belongs to whoever manages its target, such as a dotfiles repository.
+  if (changed && existing !== undefined && lstatSync(unitPath).isSymbolicLink())
+    throw new Error(`${unitPath} is a symlink kiln did not create; remove it, then run kiln setup again`);
   const active = (await run(["systemctl", "--user", "is-active", "--quiet", unitName])).code === 0;
   if (!active && (await isListening(options.port)))
     throw new Error(`port ${options.port} is already in use; stop the running kiln serve, then run kiln setup again`);
