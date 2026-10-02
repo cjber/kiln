@@ -65,10 +65,11 @@
       "what": "Claim without a fact as the Machines screen subtitle; PairingScreen.kt:74 'Bring your sessions\\nwith you.' is the same shape",
       "why": "Neither line says what the screen does; the repository rule is plain, concrete copy. User-visible, so an owner decision: e.g. 'Paired computers running kiln serve.' or cut.",
       "confidence": "low",
-      "status": "decide",
-      "reason": "User-visible tagline copy on the pairing and machines screens; wording is the owner's call.",
+      "status": "fixed",
+      "reason": "Owner asked for the fix; taglines replaced with concrete copy.",
       "first_seen": "2026-10-02",
-      "updated": "2026-10-02"
+      "updated": "2026-10-02",
+      "guard": "lens-only: needs to know whether copy states a checkable fact"
     },
     {
       "id": "73774934ec",

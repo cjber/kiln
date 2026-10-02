@@ -115,6 +115,43 @@ async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experi
   }
 }
 
+const archivePagesPerRefresh = 10;
+let archive = { socket: "", known: new Set<string>(), scanning: new Set<string>(), cursor: null as string | null };
+
+/**
+ * Archived thread ids. A scan that fits in one refresh is repeated every time, so the answer is
+ * current; a longer one continues on the next refresh instead of exhausting the connection's time
+ * budget, and until it completes the last full scan still applies.
+ */
+async function archivedThreads(socket: string, call: Call): Promise<Set<string>> {
+  if (archive.socket !== socket) archive = { socket, known: new Set(), scanning: new Set(), cursor: null };
+  const scan = archive;
+  try {
+    for (let pages = 0; pages < archivePagesPerRefresh; pages++) {
+      const page: { data: { id: string }[]; nextCursor: string | null } = await call("thread/list", {
+        archived: true,
+        useStateDbOnly: true,
+        sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
+        limit: 100,
+        cursor: scan.cursor,
+      });
+      for (const thread of page.data) scan.scanning.add(thread.id);
+      scan.cursor = page.nextCursor;
+      if (!scan.cursor) {
+        scan.known = scan.scanning;
+        scan.scanning = new Set();
+        break;
+      }
+    }
+  } catch (error) {
+    // A cursor does not survive a daemon restart; start the scan again next time.
+    scan.scanning = new Set();
+    scan.cursor = null;
+    throw error;
+  }
+  return new Set([...scan.known, ...scan.scanning]);
+}
+
 /** The daemon's loaded top-level threads; without a running daemon there are none. */
 export async function codexThreads(localIds: readonly string[] = []): Promise<CodexThread[]> {
   const socket = controlSocket();
@@ -124,19 +161,7 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
     threads = await rpc(socket, async (call) => {
       const loaded = await call<{ data: string[] }>("thread/loaded/list", {});
       if (!loaded.data.length && !localIds.length) return [];
-      const archived = new Set<string>();
-      let cursor: string | null = null;
-      do {
-        const page: { data: { id: string }[]; nextCursor: string | null } = await call("thread/list", {
-          archived: true,
-          useStateDbOnly: true,
-          sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
-          limit: 100,
-          cursor,
-        });
-        for (const thread of page.data) archived.add(thread.id);
-        cursor = page.nextCursor;
-      } while (cursor);
+      const archived = await archivedThreads(socket, call);
       const read = await Promise.all(
         [...new Set([...loaded.data, ...localIds])]
           .filter((id) => !archived.has(id))
@@ -174,7 +199,9 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
 
 /** Archive through the daemon, retaining history and letting Codex manage its descendants. */
 export async function archiveCodexThread(threadId: string): Promise<void> {
-  await rpc(controlSocket(), (call) => call("thread/archive", { threadId }));
+  const socket = controlSocket();
+  await rpc(socket, (call) => call("thread/archive", { threadId }));
+  if (archive.socket === socket) archive.known.add(threadId);
 }
 
 /** The phone's host identity comes from the connected relay, not the machine's hostname. */

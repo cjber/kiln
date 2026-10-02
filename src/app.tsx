@@ -219,7 +219,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const closed = await closeSession(session);
       setNotice(
         closed === true && "verb" in action
-          ? `closed ${session.agent} in ${tilde(session.cwd)}`
+          ? `${action.verb === "close" ? "closed" : `${action.verb}d`} ${session.agent} in ${tilde(session.cwd)}`
           : closed === true
             ? "session closed"
             : closed,

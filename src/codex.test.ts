@@ -12,6 +12,7 @@ let rejectArchive: boolean;
 let holdInitialization: boolean;
 let requests: { id?: number; method: string; params?: Record<string, unknown> }[];
 let archived: Set<string>;
+let archivePages: number;
 let remoteState: { status: string; environmentId?: string | null };
 
 beforeEach(() => {
@@ -21,6 +22,7 @@ beforeEach(() => {
   const control = join(root, "app-server-control");
   mkdirSync(control);
   archived = new Set(["already-archived"]);
+  archivePages = 0;
   rejectArchive = false;
   holdInitialization = false;
   requests = [];
@@ -46,9 +48,16 @@ beforeEach(() => {
             break;
           case "thread/list":
             expect(request.params.archived).toBe(true);
-            result = request.params.cursor
-              ? { data: [...archived].map((id) => ({ id })), nextCursor: null }
-              : { data: [], nextCursor: "second-page" };
+            if (archivePages) {
+              const page = Number(request.params.cursor ?? 0);
+              result = {
+                data: page === archivePages - 1 ? [...archived].map((id) => ({ id })) : [],
+                nextCursor: page === archivePages - 1 ? null : String(page + 1),
+              };
+            } else
+              result = request.params.cursor
+                ? { data: [...archived].map((id) => ({ id })), nextCursor: null }
+                : { data: [], nextCursor: "second-page" };
             break;
           case "thread/read":
             if (request.params.threadId === "missing-local") {
@@ -103,6 +112,16 @@ describe("Codex archive", () => {
     expect(
       requests.filter((request) => request.method === "thread/read").map((request) => request.params?.threadId),
     ).toEqual(["active"]);
+  });
+
+  test("a long archive is scanned across refreshes instead of timing out", async () => {
+    archivePages = 25;
+    const listed = () => requests.filter((request) => request.method === "thread/list").length;
+    expect((await codexThreads()).map((thread) => thread.id)).toEqual(["active", "already-archived"]);
+    expect(listed()).toBe(10);
+    await codexThreads();
+    expect((await codexThreads()).map((thread) => thread.id)).toEqual(["active"]);
+    expect(listed()).toBe(25);
   });
 
   test("archiving retains history and hides a thread on the next discovery", async () => {

@@ -164,9 +164,7 @@ describe("finished Claude jobs", () => {
     expect(done?.activity).toBeUndefined();
     expect(done?.pid).toBeUndefined();
     expect(stopped?.lifecycle).toBe("stopped");
-    expect(sessionAction(done as Session)).toEqual({
-      reason: "This job has finished; delete it with claude rm 82f7d7c3",
-    });
+    expect(sessionAction(done as Session)).toEqual({ verb: "delete" });
   });
 
   test("ignores running jobs, unknown states and ids that are not job ids", () => {
