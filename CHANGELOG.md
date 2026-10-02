@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-02
+
 - **`x` deletes a running Claude background job in one step.** It stopped the job and left a `stopped` row that needed a second `x`. It now stops the job and removes it with `claude rm`, after the same confirmation.
 
 ## [0.8.2] - 2026-10-02
