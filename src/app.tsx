@@ -214,7 +214,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const closed = await closeSession(session);
       setNotice(
         closed === true && "verb" in action
-          ? `${action.verb === "close" ? "closed" : `${action.verb}d`} ${session.agent} in ${tilde(session.cwd)}`
+          ? `${{ close: "closed", archive: "archived", delete: "deleted", forget: "forgot" }[action.verb]} ${session.agent} in ${tilde(session.cwd)}`
           : closed === true
             ? "session closed"
             : closed,
@@ -297,7 +297,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       return setExpanded(next);
     }
     if (key.name === "r") return void refresh();
-    if (key.name === "return" && current) return void openSession(current).then(follow);
+    if (key.name === "return" && current) return void openSession(current, getSettings()).then(follow);
     if (key.name === "x" && current) {
       const action = sessionAction(current);
       if ("reason" in action) return setNotice(action.reason);

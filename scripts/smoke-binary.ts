@@ -16,6 +16,7 @@ const env = {
   ...inherited,
   HOME: scratch,
   XDG_CONFIG_HOME: join(scratch, ".config"),
+  XDG_STATE_HOME: join(scratch, ".local", "state"),
   CLAUDE_CONFIG_DIR: join(scratch, ".claude"),
   CODEX_HOME: join(scratch, ".codex"),
   PI_CODING_AGENT_DIR: join(scratch, ".pi", "agent"),

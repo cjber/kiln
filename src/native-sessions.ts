@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { piStatus } from "./pi-status";
+import { restartStopped } from "./saved-sessions";
 import { transcriptTitle } from "./session-titles";
 import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
@@ -434,7 +435,8 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
       parentSessionPid: ancestorSessionPid,
     })),
   );
-  return [...sessions, ...codex.headless, ...claude.finished];
+  const listed = [...sessions, ...codex.headless, ...claude.finished];
+  return [...listed, ...restartStopped(listed)];
 }
 
 /** Keep one client per confirmed Codex task, preferring a terminal kiln can open. */
