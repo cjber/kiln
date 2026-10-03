@@ -10,7 +10,7 @@ export const agents: readonly Agent[] = ["claude", "codex", "pi"];
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
 
-/** How a background job ended. A finished job reports no activity. */
+/** How a session ended: a background job that finished, or a terminal session a restart cut off. It reports no activity. */
 export type Lifecycle = "completed" | "stopped";
 
 export type Place =
@@ -21,6 +21,8 @@ export type Place =
   /** A Codex daemon thread with no terminal of its own. */
   | { kind: "thread"; id: string; attach: string[] }
   | { kind: "elsewhere"; source?: string }
+  /** A terminal session a restart stopped; opening it resumes the conversation in a new kiln session. */
+  | { kind: "saved" }
   | { kind: "cloud"; id: string; title: string; url?: string };
 
 export type Session = {

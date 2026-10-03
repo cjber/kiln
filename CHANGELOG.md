@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-03
+
+- **Sessions survive a restart.** Restarting the computer emptied the list, because kiln only knew the sessions that were running. It now saves each Claude, Codex and Pi session running in a terminal, and after a restart lists them as `stopped`. `Enter` resumes the conversation in a new kiln session in the same directory, and `x` forgets the row without touching the conversation. A session closed before the restart is not kept.
+
 ## [0.10.0] - 2026-10-02
 
 - **Pi sessions show their status and title.** Kiln starts Pi with a small extension that reports whether the session is working, waiting on a prompt or ready, along with its name or first prompt. The list, the phone and turn-finished notifications use it like Claude's and Codex's own status. A Pi started outside kiln still shows `unknown`.

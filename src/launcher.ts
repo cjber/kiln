@@ -1,8 +1,10 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
 import { piExtensionPath } from "./pi-status";
+import { forget } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import type { Agent, Session } from "./sessions";
 import type { Settings } from "./settings";
@@ -33,7 +35,7 @@ function attachNative(session: Session, id: string, attach: string[]): Outcome {
   return { kind: "attach", name };
 }
 
-export async function openSession(session: Session): Promise<Outcome> {
+export async function openSession(session: Session, settings: Settings): Promise<Outcome> {
   const place = session.place;
   switch (place.kind) {
     case "kiln":
@@ -43,6 +45,11 @@ export async function openSession(session: Session): Promise<Outcome> {
     case "job":
     case "thread":
       return attachNative(session, place.id, place.attach);
+    case "saved": {
+      if (!session.id) return notice("this session has no conversation to resume");
+      // The row stays until the resumed conversation is seen running, so a resume that fails can be tried again.
+      return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id);
+    }
     case "elsewhere":
       return notice(`Open this session in its terminal · ${place.source ?? session.id ?? "unknown"}`);
     case "cloud": {
@@ -81,20 +88,37 @@ async function startCodexRemoteControl(): Promise<string | undefined> {
   }
 }
 
-export async function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
+/** The agent's configured command; `resume` continues a provider conversation instead of starting one. */
+function agentCommand(agent: Agent, settings: Settings, resume?: string): string[] {
+  const command = settings.agents[agent];
+  switch (agent) {
+    case "claude":
+      return [
+        ...command,
+        ...(settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
+        ...(resume ? ["--resume", resume] : []),
+      ];
+    case "codex": {
+      if (!resume) return command;
+      // `resume <id>` directly follows codex, after any wrapper: discovery reads a resumed thread's identity from there.
+      const at = command.findIndex((word) => basename(word) === "codex") + 1 || 1;
+      return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
+    }
+    case "pi":
+      return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : [])];
+  }
+}
+
+/** Start an agent in a session on kiln's tmux server. A resumed conversation has one session, named after it, that a second open reuses. */
+async function launch(agent: Agent, cwd: string, settings: Settings, title: string, resume?: string): Promise<Outcome> {
+  const name = `${agent}-${resume ? new Bun.CryptoHasher("sha256").update(resume).digest("hex").slice(0, 16) : crypto.randomUUID()}`;
+  if (resume && exists(name)) return { kind: "attach", name };
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
     const command = settings.agents[agent];
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agent} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
-    const name = `${agent}-${crypto.randomUUID()}`;
-    const argv =
-      agent === "claude" && settings.remoteControl && !command.includes("--remote-control")
-        ? [...command, "--remote-control"]
-        : agent === "pi"
-          ? [...command, "-e", piExtensionPath()]
-          : command;
-    if (!start(name, cwd, argv, `${agent} · ${cwd}`)) throw new Error(`could not start ${agent}`);
+    if (!start(name, cwd, agentCommand(agent, settings, resume), title)) throw new Error(`could not start ${agent}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
   } catch (error) {
@@ -102,7 +126,11 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
   }
 }
 
-export type SessionAction = { verb: "close" | "archive" | "delete" } | { reason: string };
+export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
+  return launch(agent, cwd, settings, `${agent} · ${cwd}`);
+}
+
+export type SessionAction = { verb: "close" | "archive" | "delete" | "forget" } | { reason: string };
 
 export function sessionAction(session: Session): SessionAction {
   const place = session.place;
@@ -116,6 +144,9 @@ export function sessionAction(session: Session): SessionAction {
       return session.lifecycle || place.stop
         ? { verb: "delete" }
         : { reason: "Close this session in its native terminal" };
+    case "saved":
+      // Only kiln's row goes; the provider keeps the conversation.
+      return { verb: "forget" };
     case "kitty":
     case "elsewhere":
       return { reason: "Close this session in its native terminal" };
@@ -151,6 +182,8 @@ export async function closeSession(session: Session): Promise<true | string> {
           if (code) throw new Error((problem || output).trim().split("\n")[0] || "claude rm failed");
         }
         break;
+      case "saved":
+        break;
       case "kitty":
       case "elsewhere":
       case "cloud":
@@ -158,6 +191,8 @@ export async function closeSession(session: Session): Promise<true | string> {
       default:
         return place satisfies never;
     }
+    // A session closed on purpose is not one for a restart to bring back.
+    forget(session);
     return true;
   } catch (error) {
     return `could not ${action.verb} ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;

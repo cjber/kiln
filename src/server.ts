@@ -12,6 +12,7 @@ function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" |
   switch (place.kind) {
     case "job":
     case "thread":
+    case "saved":
       return "background";
     case "kiln":
     case "kitty":

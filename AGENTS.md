@@ -36,6 +36,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
 - `src/pi-status.ts`, `pi-extension/kiln-status.js` - the extension kiln loads into the Pi sessions it starts (`pi -e`) and the reader for the
   per-process status file it writes. A Pi started elsewhere has no record and stays unknown.
+- `src/saved-sessions.ts` - the terminal sessions and Codex daemon threads last seen running, in `$XDG_STATE_HOME/kiln/sessions.sqlite`. One saved in an
+  earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering, directory/task groups with collapsed children, status wording and the cursor.
