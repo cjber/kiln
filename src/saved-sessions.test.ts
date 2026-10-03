@@ -65,12 +65,13 @@ test("only top-level terminal sessions with a conversation are saved", () => {
       { ...running, id: "--flag" },
       { ...running, id: "job", place: { kind: "job", id: "0b276145", attach: [] } },
       { ...running, id: "kitty", pid: 11, place: { kind: "kitty", socket: "unix:/k", windowId: 1 } },
+      { ...running, agent: "codex", id: "thread", pid: undefined, place: { kind: "thread", id: "thread", attach: [] } },
     ],
     "boot-1",
     0,
     dead,
   );
-  expect(saved.map((item) => item.id)).toEqual(["kitty"]);
+  expect(saved.map((item) => item.id)).toEqual(["kitty", "thread"]);
 });
 
 test("a process that moved to a new conversation replaces its record", () => {

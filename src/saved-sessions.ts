@@ -12,9 +12,9 @@ export type Saved = {
   title?: string;
   startedAt: number;
   lastActiveAt?: number;
-  /** The boot and process it was last seen in. */
+  /** The boot and process it was last seen in; a Codex daemon thread has no process of its own. */
   boot: string;
-  pid: number;
+  pid?: number;
   /** When its process was first found gone during that boot. */
   goneAt?: number;
 };
@@ -51,7 +51,7 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=2000; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER NOT NULL, goneAt REAL, PRIMARY KEY (agent, id));",
+      "PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=2000; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, PRIMARY KEY (agent, id));",
     );
     databases.set(path, db);
   }
@@ -68,23 +68,24 @@ function read(db: Database): Saved[] {
       ...(row as Saved),
       title: row.title ?? undefined,
       lastActiveAt: row.lastActiveAt ?? undefined,
+      pid: row.pid ?? undefined,
       goneAt: row.goneAt ?? undefined,
     }));
 }
 
 /**
- * A top-level agent in a terminal with a conversation its provider can resume. Jobs and daemon threads
- * outlive a restart on their own. The id becomes a command argument, so one that could read as a flag is not saved.
+ * A top-level conversation its provider can resume: an agent in a terminal, or a thread loaded in the Codex
+ * daemon, which is how a Codex terminal using the daemon is listed. Claude keeps its own background jobs.
+ * The id becomes a command argument, so one that could read as a flag is not saved.
  */
-function resumable(session: Session): session is Session & { id: string; pid: number } {
+function resumable(session: Session): session is Session & { id: string } {
   const kind = session.place.kind;
   return (
     session.id !== undefined &&
     /^[A-Za-z0-9][\w.-]*$/.test(session.id) &&
-    session.pid !== undefined &&
     session.parentSessionPid === undefined &&
     session.parentSessionId === undefined &&
-    (kind === "kiln" || kind === "kitty" || kind === "elsewhere")
+    (kind === "thread" || (session.pid !== undefined && (kind === "kiln" || kind === "kitty" || kind === "elsewhere")))
   );
 }
 
@@ -119,9 +120,9 @@ export function reconcile(
     if (next.has(key(item))) continue;
     if (item.boot !== boot) next.set(key(item), item);
     // A running process under a new id started another conversation; the old one is not what a restart would lose.
-    else if (running.has(item.pid)) continue;
+    else if (item.pid !== undefined && running.has(item.pid)) continue;
     // A listing that failed says nothing about a process that is still there.
-    else if (alive(item.pid)) next.set(key(item), { ...item, goneAt: undefined });
+    else if (item.pid !== undefined && alive(item.pid)) next.set(key(item), { ...item, goneAt: undefined });
     else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
   }
   const listed = new Set(sessions.filter((session) => session.id !== undefined).map(key));
@@ -166,7 +167,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
               item.startedAt,
               item.lastActiveAt ?? null,
               item.boot,
-              item.pid,
+              item.pid ?? null,
               item.goneAt ?? null,
             );
         }

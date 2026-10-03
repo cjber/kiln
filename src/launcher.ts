@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
 import { piExtensionPath } from "./pi-status";
@@ -97,9 +98,12 @@ function agentCommand(agent: Agent, settings: Settings, resume?: string): string
         ...(settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
         ...(resume ? ["--resume", resume] : []),
       ];
-    case "codex":
-      // `resume <id>` comes first: discovery reads a resumed thread's identity from those two arguments.
-      return resume ? [...command.slice(0, 1), "resume", resume, ...command.slice(1)] : command;
+    case "codex": {
+      if (!resume) return command;
+      // `resume <id>` directly follows codex, after any wrapper: discovery reads a resumed thread's identity from there.
+      const at = command.findIndex((word) => basename(word) === "codex") + 1 || 1;
+      return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
+    }
     case "pi":
       return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : [])];
   }
@@ -179,7 +183,6 @@ export async function closeSession(session: Session): Promise<true | string> {
         }
         break;
       case "saved":
-        forget(session);
         break;
       case "kitty":
       case "elsewhere":
@@ -188,6 +191,8 @@ export async function closeSession(session: Session): Promise<true | string> {
       default:
         return place satisfies never;
     }
+    // A session closed on purpose is not one for a restart to bring back.
+    forget(session);
     return true;
   } catch (error) {
     return `could not ${action.verb} ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;

@@ -1,6 +1,10 @@
+import { Database } from "bun:sqlite";
 import { expect, spyOn, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { closeSession, openSession, sessionAction } from "./launcher";
+import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 
@@ -105,11 +109,13 @@ test("a session a restart stopped resumes its conversation, and x only forgets t
       ...defaults,
       remoteControl: false,
       zoxide: false,
-      agents: { ...defaults.agents, codex: ["codex", "--search"] },
+      agents: { ...defaults.agents, codex: ["env", "CODEX_HOME=/x", "codex", "--search"] },
     };
     const outcome = await openSession(stopped, settings);
     expect(outcome.kind).toBe("attach");
-    expect(commands.find((command) => command.includes("new-session"))?.slice(-4)).toEqual([
+    expect(commands.find((command) => command.includes("new-session"))?.slice(-6)).toEqual([
+      "env",
+      "CODEX_HOME=/x",
       "codex",
       "resume",
       "0199c5a1-7a0e-7c11-9d3f-2f6d1c0e8a11",
@@ -124,5 +130,34 @@ test("a session a restart stopped resumes its conversation, and x only forgets t
   } finally {
     spawn.mockRestore();
     which.mockRestore();
+  }
+});
+
+test("closing a running session also drops it from the sessions a restart brings back", async () => {
+  const before = Bun.env.XDG_STATE_HOME;
+  const state = mkdtempSync(join(tmpdir(), "kiln-close-"));
+  Bun.env.XDG_STATE_HOME = state;
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+    exitCode: 0,
+  })) as unknown as typeof Bun.spawnSync);
+  try {
+    const session: Session = {
+      agent: "claude",
+      id: "closed-on-purpose",
+      pid: 10,
+      cwd: "/repo",
+      startedAt: 1,
+      place: { kind: "kiln", name: "claude-1" },
+    };
+    const path = join(state, "kiln", "sessions.sqlite");
+    const saved = () => new Database(path, { readonly: true }).query("SELECT id FROM sessions").all();
+    restartStopped([session]);
+    expect(saved()).toHaveLength(1);
+    expect(await closeSession(session)).toBe(true);
+    expect(saved()).toEqual([]);
+  } finally {
+    spawn.mockRestore();
+    if (before === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = before;
   }
 });
