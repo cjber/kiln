@@ -5,6 +5,8 @@ from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
 
+`bun start` opens the TUI; it needs `fzf` and `tmux` on `PATH`.
+
 ```sh
 bun install --frozen-lockfile
 bunx biome ci .
@@ -48,7 +50,6 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
-  Paired phones open provider apps through verified HTTPS links.
 - `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
