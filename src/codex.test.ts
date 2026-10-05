@@ -1,24 +1,36 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveCodexThread, codexActivity, codexRemoteHost, codexThreads } from "./codex";
 import { closeSession } from "./launcher";
+import { restartStopped } from "./saved-sessions";
 
 let root: string;
 let server: ReturnType<typeof Bun.serve>;
 let originalHome: string | undefined;
+let originalState: string | undefined;
 let rejectArchive: boolean;
 let holdInitialization: boolean;
 let requests: { id?: number; method: string; params?: Record<string, unknown> }[];
 let archived: Set<string>;
 let archivePages: number;
 let remoteState: { status: string; environmentId?: string | null };
+const ownedSession = {
+  agent: "codex" as const,
+  id: "active",
+  cwd: "/repo",
+  startedAt: 1,
+  place: { kind: "kiln" as const, name: "codex-owned" },
+};
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "kiln-codex-"));
   originalHome = Bun.env.CODEX_HOME;
+  originalState = Bun.env.XDG_STATE_HOME;
   Bun.env.CODEX_HOME = root;
+  Bun.env.XDG_STATE_HOME = root;
   const control = join(root, "app-server-control");
   mkdirSync(control);
   archived = new Set(["already-archived"]);
@@ -94,10 +106,92 @@ afterEach(() => {
   server.stop(true);
   if (originalHome === undefined) delete Bun.env.CODEX_HOME;
   else Bun.env.CODEX_HOME = originalHome;
+  if (originalState === undefined) delete Bun.env.XDG_STATE_HOME;
+  else Bun.env.XDG_STATE_HOME = originalState;
   rmSync(root, { recursive: true, force: true });
 });
 
 describe("Codex archive", () => {
+  test("closing a kiln Codex terminal also archives its daemon thread", async () => {
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 0,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      restartStopped([{ ...ownedSession, pid: process.pid }]);
+      const db = new Database(join(root, "kiln", "sessions.sqlite"), { readonly: true });
+      try {
+        expect(db.query("SELECT id FROM sessions").all()).toHaveLength(1);
+        expect(await closeSession(ownedSession)).toBe(true);
+        expect(db.query("SELECT id FROM sessions").all()).toEqual([]);
+      } finally {
+        db.close();
+      }
+      expect((await codexThreads()).map((thread) => thread.id)).toEqual([]);
+      expect(
+        requests.filter((request) => request.method === "thread/archive").map((request) => request.params),
+      ).toEqual([{ threadId: "active" }]);
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  test("a failed terminal kill never archives a still-running thread", async () => {
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 1,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      expect(await closeSession(ownedSession)).toContain("tmux could not close");
+      expect(requests).toEqual([]);
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  test("an archive refusal reports the partial close and keeps the daemon row retryable", async () => {
+    rejectArchive = true;
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 0,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      expect(await closeSession(ownedSession)).toContain(
+        "terminal closed, but archiving failed: thread/archive: archive refused",
+      );
+      expect((await codexThreads()).map((row) => row.id)).toEqual(["active"]);
+      rejectArchive = false;
+      expect(await closeSession({ ...ownedSession, place: { kind: "thread", id: "active", attach: [] } })).toBe(true);
+      expect(await codexThreads()).toEqual([]);
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  test("older local Codex terminals still close without a daemon", async () => {
+    Bun.env.CODEX_HOME = join(root, "offline");
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 0,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      expect(await closeSession(ownedSession)).toBe(true);
+      expect(requests).toEqual([]);
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  test("a stale daemon endpoint does not prevent closing a local terminal", async () => {
+    server.stop(true);
+    writeFileSync(join(root, "app-server-control", "app-server-control.sock"), "stale");
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 0,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      expect(await closeSession(ownedSession)).toBe(true);
+      await expect(archiveCodexThread("active")).rejects.toThrow("cannot connect");
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
   test("initialization timeout never sends an archive request", async () => {
     holdInitialization = true;
     await expect(archiveCodexThread("active")).rejects.toThrow("the Codex daemon did not answer");

@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-05
+
+- **Codex sessions stay closed.** Closing a Codex terminal also archives its daemon thread, so the conversation does not return as a background row. History is retained. Local terminals still close when the daemon is unavailable, and an archive failure reports the partial close so it can be retried.
+
 ## [0.11.0] - 2026-10-03
 
 - **Sessions survive a restart.** Restarting the computer emptied the list, because kiln only knew the sessions that were running. It now saves each Claude, Codex and Pi session running in a terminal, and after a restart lists them as `stopped`. `Enter` resumes the conversation in a new kiln session in the same directory, and `x` forgets the row without touching the conversation. A session closed before the restart is not kept.

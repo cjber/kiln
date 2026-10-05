@@ -64,6 +64,7 @@ export function codexActivity(status: ThreadStatus): Activity | undefined {
 }
 
 type Call = <T>(method: string, params: object) => Promise<T>;
+class CodexConnectionError extends Error {}
 
 /** Bound the connection lifetime, including initialization, and close timed-out sockets. */
 async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experimental = false): Promise<T> {
@@ -96,7 +97,7 @@ async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experi
     await Promise.race([
       new Promise((resolve, reject) => {
         ws.onopen = resolve;
-        ws.onerror = () => reject(new Error(`cannot connect to ${socket}`));
+        ws.onerror = () => reject(new CodexConnectionError(`cannot connect to ${socket}`));
       }),
       timeout,
     ]);
@@ -198,9 +199,16 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
 }
 
 /** Archive through the daemon, retaining history and letting Codex manage its descendants. */
-export async function archiveCodexThread(threadId: string): Promise<void> {
+export async function archiveCodexThread(threadId: string, ifRunning = false): Promise<void> {
   const socket = controlSocket();
-  await rpc(socket, (call) => call("thread/archive", { threadId }));
+  // Older local TUIs have no daemon thread to keep running after their terminal closes.
+  if (ifRunning && !existsSync(socket)) return;
+  try {
+    await rpc(socket, (call) => call("thread/archive", { threadId }));
+  } catch (error) {
+    if (ifRunning && error instanceof CodexConnectionError) return;
+    throw error;
+  }
   if (archive.socket === socket) archive.known.add(threadId);
 }
 

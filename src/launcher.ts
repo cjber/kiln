@@ -163,6 +163,15 @@ export async function closeSession(session: Session): Promise<true | string> {
     switch (place.kind) {
       case "kiln":
         if (!kill(place.name)) throw new Error("tmux could not close this session");
+        if (session.agent === "codex" && session.id) {
+          try {
+            await archiveCodexThread(session.id, true);
+          } catch (error) {
+            throw new Error(
+              `terminal closed, but archiving failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
         break;
       case "thread":
         await archiveCodexThread(place.id);
