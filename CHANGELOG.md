@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-05
+
 - **Codex sessions stay closed.** Closing a Codex terminal also archives its daemon thread, so the conversation does not return as a background row. History is retained. Local terminals still close when the daemon is unavailable, and an archive failure reports the partial close so it can be retried.
 
 ## [0.11.0] - 2026-10-03
