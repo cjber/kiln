@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-06
+
 - **Empty Codex threads stay hidden.** Idle daemon threads without a name or first prompt no longer appear as UUID-titled ready rows. Terminal-owned threads and working or waiting tasks remain visible.
 
 ## [0.11.1] - 2026-10-05
