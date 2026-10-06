@@ -16,6 +16,7 @@ let holdInitialization: boolean;
 let requests: { id?: number; method: string; params?: Record<string, unknown> }[];
 let archived: Set<string>;
 let archivePages: number;
+let emptyThread: { name: string | null; preview: string; status: { type: string; activeFlags?: string[] } } | undefined;
 let remoteState: { status: string; environmentId?: string | null };
 const ownedSession = {
   agent: "codex" as const,
@@ -38,6 +39,7 @@ beforeEach(() => {
   rejectArchive = false;
   holdInitialization = false;
   requests = [];
+  emptyThread = undefined;
   remoteState = { status: "connected", environmentId: "env_example" };
   server = Bun.serve({
     unix: join(control, "app-server-control.sock"),
@@ -56,7 +58,7 @@ beforeEach(() => {
             result = remoteState;
             break;
           case "thread/loaded/list":
-            result = { data: ["active", "already-archived"] };
+            result = { data: ["active", "already-archived", ...(emptyThread ? ["empty"] : [])] };
             break;
           case "thread/list":
             expect(request.params.archived).toBe(true);
@@ -85,6 +87,7 @@ beforeEach(() => {
                 createdAt: 1,
                 parentThreadId: request.params.threadId === "active" ? "parent" : null,
                 status: { type: request.params.threadId === "local" ? "notLoaded" : "idle" },
+                ...(request.params.threadId === "empty" ? emptyThread : {}),
               },
             };
             break;
@@ -269,4 +272,16 @@ test("phone host identities require connected relay metadata and request experim
 test("unknown native activity stays unknown", () => {
   expect(codexActivity({ type: "active", activeFlags: ["waitingOnApproval"] })).toBe("waiting");
   expect(codexActivity({ type: "active", activeFlags: ["future-state" as "waitingOnApproval"] })).toBeUndefined();
+});
+
+test("empty idle daemon threads stay hidden unless a local terminal owns them", async () => {
+  emptyThread = { name: null, preview: "", status: { type: "idle" } };
+  expect((await codexThreads()).map((row) => row.id)).toEqual(["active"]);
+  expect((await codexThreads(["empty"])).map((row) => row.id)).toEqual(["active", "empty"]);
+  emptyThread = { name: "  ", preview: "\n", status: { type: "idle" } };
+  expect((await codexThreads()).map((row) => row.id)).toEqual(["active"]);
+  emptyThread = { name: null, preview: "", status: { type: "active", activeFlags: [] } };
+  expect((await codexThreads()).map((row) => row.id)).toEqual(["active", "empty"]);
+  emptyThread = { name: null, preview: "", status: { type: "systemError" } };
+  expect((await codexThreads()).map((row) => row.id)).toEqual(["active", "empty"]);
 });

@@ -183,7 +183,9 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
   }
   return threads.flatMap((thread) => {
     const state = codexActivity(thread.status);
-    if (!state && !localIds.includes(thread.id)) return [];
+    const title = (thread.name?.trim() || thread.preview)?.replace(/\s+/g, " ").trim().slice(0, 160);
+    const local = localIds.includes(thread.id);
+    if (!local && (!state || (state === "idle" && !title))) return [];
     return [
       {
         id: thread.id,
@@ -192,7 +194,7 @@ export async function codexThreads(localIds: readonly string[] = []): Promise<Co
         createdAt: thread.createdAt * 1000,
         updatedAt: thread.updatedAt * 1000,
         activity: state,
-        title: (thread.name || thread.preview)?.replace(/\s+/g, " ").trim().slice(0, 160),
+        title,
       },
     ];
   });
