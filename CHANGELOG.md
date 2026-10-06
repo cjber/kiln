@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-06
+
+- **Empty Codex threads stay hidden.** Idle daemon threads without a name or first prompt no longer appear as UUID-titled ready rows. Terminal-owned threads and working or waiting tasks remain visible.
+
 ## [0.11.1] - 2026-10-05
 
 - **Codex sessions stay closed.** Closing a Codex terminal also archives its daemon thread, so the conversation does not return as a background row. History is retained. Local terminals still close when the daemon is unavailable, and an archive failure reports the partial close so it can be retried.
