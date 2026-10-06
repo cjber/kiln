@@ -132,3 +132,23 @@ test("phone projection retains provider ancestry without terminal PIDs", () => {
   const child: Session = { ...parent, id: "child", parentSessionId: "parent" };
   expect(phoneSession(child, sessionParents([child, parent]).get(child)).parentId).toBe(phoneSession(parent).id);
 });
+
+test("phone parent IDs include the originating provider for cross-provider helpers", () => {
+  const parent: Session = {
+    agent: "codex",
+    id: "parent",
+    cwd: "/parent",
+    startedAt: 1,
+    place: { kind: "thread", id: "parent", attach: [] },
+  };
+  const child: Session = {
+    agent: "claude",
+    id: "child",
+    parentSessionId: "parent",
+    parentSessionAgent: "codex",
+    cwd: "/child",
+    startedAt: 2,
+    place: { kind: "elsewhere" },
+  };
+  expect(phoneSession(child, sessionParents([parent, child]).get(child)).parentId).toBe("codex:parent");
+});

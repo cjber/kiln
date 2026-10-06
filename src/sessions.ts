@@ -31,9 +31,10 @@ export type Session = {
   title?: string;
   /** The agent's process; a Codex daemon thread has none of its own. */
   pid?: number;
-  /** The live kiln session whose agent spawned this process. */
+  /** The live session whose agent spawned this process. */
   parentSessionPid?: number;
   parentSessionId?: string;
+  parentSessionAgent?: Agent;
   agent: Agent;
   cwd: string;
   startedAt: number;
@@ -155,7 +156,9 @@ export function sessionParents(sessions: readonly Session[]): Map<Session, Sessi
     const provider =
       session.parentSessionId === undefined
         ? undefined
-        : ids.get(`${session.agent}:${session.parentSessionId}`)?.find((parent) => parent !== session);
+        : ids
+            .get(`${session.parentSessionAgent ?? session.agent}:${session.parentSessionId}`)
+            ?.find((parent) => parent !== session);
     const process =
       session.parentSessionPid === undefined
         ? undefined

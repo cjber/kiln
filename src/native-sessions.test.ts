@@ -4,6 +4,7 @@ import {
   claudeListing,
   deduplicateSessions,
   finishedClaudeJobs,
+  inheritedCodexParent,
   isInteractiveCodex,
   resumedCodexThread,
   sessionLocation,
@@ -188,4 +189,37 @@ test("a failed Claude listing keeps the last rows with their status unknown", ()
   expect(claudeListing(undefined)).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
   expect(claudeListing('[{"pid": 1')).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
   expect(claudeListing("[]")).toEqual([]);
+});
+
+test("daemon execution IDs are explicit and validated", () => {
+  const id = "01a1102b-bf08-7ee1-b19c-55540647c1fa";
+  expect(inheritedCodexParent(`OTHER=private\0CODEX_THREAD_ID=${id}\0`)).toBe(id);
+  expect(inheritedCodexParent(`CODEX_SESSION_ID=${id}\0`)).toBe(id);
+  expect(inheritedCodexParent(`CODEX_THREAD_ID=invalid\0CODEX_SESSION_ID=${id}\0`)).toBeUndefined();
+  expect(inheritedCodexParent("OTHER=value\0")).toBeUndefined();
+});
+test("children retain the parent thread when duplicate terminal clients are removed", () => {
+  const outside: Session = {
+    agent: "codex",
+    id: "parent",
+    pid: 1,
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "elsewhere" },
+  };
+  const inside: Session = { ...outside, pid: 2, place: { kind: "kiln", name: "parent" } };
+  for (const agent of ["claude", "codex", "pi"] as const) {
+    const child: Session = {
+      agent,
+      id: "child",
+      pid: 3,
+      parentSessionPid: 1,
+      cwd: "/child",
+      startedAt: 3,
+      place: { kind: "elsewhere" },
+    };
+    const result = deduplicateSessions([outside, inside, child]);
+    expect(result[1]?.parentSessionId).toBe("parent");
+    expect(result[1]?.parentSessionAgent).toBe("codex");
+  }
 });

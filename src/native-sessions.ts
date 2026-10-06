@@ -317,6 +317,30 @@ function latestActivity(...times: (number | undefined)[]): number | undefined {
   return valid.length ? Math.max(...valid) : undefined;
 }
 
+/** Only Codex's execution environment establishes a daemon-owned conversation parent. */
+export function inheritedCodexParent(environment: string): string | undefined {
+  const entries = new Map(
+    environment.split("\0").map((entry) => {
+      const separator = entry.indexOf("=");
+      return [entry.slice(0, separator), entry.slice(separator + 1)];
+    }),
+  );
+  const id = entries.get("CODEX_THREAD_ID") ?? entries.get("CODEX_SESSION_ID");
+  return id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id) ? id : undefined;
+}
+
+function daemonParentThread(lineage: readonly number[]): string | undefined {
+  try {
+    const daemon = lineage.slice(1).some((pid) => {
+      const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+      return args[0]?.split("/").pop() === "codex" && args[1] === "app-server";
+    });
+    return daemon ? inheritedCodexParent(readFileSync(`/proc/${lineage[0]}/environ`, "utf8")) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A resumed terminal reports its identity in argv even when the daemon owns its lock. */
 export function resumedCodexThread(args: readonly string[]): string | undefined {
   const id = args[2];
@@ -420,11 +444,17 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const lineage: number[] = [];
     for (let pid: number | undefined = process.pid; pid; pid = parentPid(pid)) lineage.push(pid);
     const { ancestorSessionPid, place: found } = sessionLocation(lineage, places, runningPids);
+    const inheritedParent =
+      process.parentSessionId === undefined && ancestorSessionPid === undefined
+        ? daemonParentThread(lineage)
+        : undefined;
     const place = background ?? found ?? { kind: "elsewhere" as const, source: processSource(process.pid) };
     return {
       ...process,
       lastActiveAt: process.lastActiveAt ?? transcriptActivity(process.pid),
       ancestorSessionPid,
+      parentSessionId: process.parentSessionId ?? inheritedParent,
+      parentSessionAgent: inheritedParent ? ("codex" as const) : process.parentSessionAgent,
       branch: gitBranch(process.cwd),
       place,
     };
@@ -456,7 +486,14 @@ export function deduplicateSessions(sessions: readonly Session[]): Session[] {
       result[index] = session;
     }
   }
-  return result;
+  const byPid = new Map(
+    sessions.filter((session) => session.pid !== undefined).map((session) => [session.pid, session]),
+  );
+  return result.map((session) => {
+    const parent = byPid.get(session.parentSessionPid);
+    if (session.parentSessionId !== undefined || !parent?.id) return session;
+    return { ...session, parentSessionId: parent.id, parentSessionAgent: parent.agent };
+  });
 }
 
 /** A child can own a terminal, but cannot inherit one through another live agent. */
