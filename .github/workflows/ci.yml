@@ -21,7 +21,7 @@ jobs:
       - run: bunx biome ci .
       - run: bunx tsc --noEmit -p .
       - run: bun test
-      # A release publishes its changelog entry, so every tagged version needs one.
+      # Tags in this branch history need a changelog entry for their release notes.
       - run: bun scripts/changelog.ts --check
       # Project rules and suppression markers. `--base` because actions/checkout creates no origin/HEAD.
       - env:

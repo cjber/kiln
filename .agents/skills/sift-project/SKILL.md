@@ -21,7 +21,7 @@ bun install --frozen-lockfile
 bunx biome ci .                            # format + lint; `bunx biome check --write .` fixes
 bunx tsc --noEmit -p .                     # strict
 bun test                                   # src/*.test.ts
-bun scripts/changelog.ts --check           # every tagged version has a CHANGELOG.md entry
+bun scripts/changelog.ts --check           # each tag in the branch history has a CHANGELOG.md entry
 python3 .sift/gate.py --base origin/main   # project rules and `sift:` markers
 python3 .sift/agents.py check              # AGENTS.md is complete and not stale
 ```
@@ -138,7 +138,7 @@ two audits.
 ## Project rules and lenses
 
 - Rules already owned elsewhere (not duplicated in `.sift/`): Biome `recommended` preset;
-  `tsc` strict; `scripts/changelog.ts --check` (a changelog entry per tag); `release.yml` checks the
+  `tsc` strict; `scripts/changelog.ts --check` (a changelog entry per tag in the branch history); `release.yml` checks the
   tag is on `main` and matches `package.json`.
 - ast-grep rules: `.sift/rules/` (0): none yet
 - Script rules: `.sift/scripts/` (0): none yet
