@@ -2,7 +2,7 @@
  * Print one version's CHANGELOG.md entry, which becomes that release's notes.
  *
  *   bun scripts/changelog.ts 0.1.0      # the entry (a leading v is fine)
- *   bun scripts/changelog.ts --check    # every v* tag has an entry, and [Unreleased] is there
+ *   bun scripts/changelog.ts --check    # every reachable v* tag has an entry, and [Unreleased] is there
  *
  * A tag with no entry, or an empty one, fails here rather than publishing notes nobody wrote.
  */
@@ -21,7 +21,8 @@ function entry(version: string): string {
 const [argument] = process.argv.slice(2);
 if (argument === "--check") {
   if (!/^## \[Unreleased\]$/m.test(text)) throw new Error("CHANGELOG.md has no ## [Unreleased] heading");
-  const tags = Bun.spawnSync(["git", "tag", "--list", "v*"]).stdout.toString().split("\n");
+  // Tags from the retired codebase have a different changelog and are outside this branch history.
+  const tags = Bun.spawnSync(["git", "tag", "--merged", "HEAD", "--list", "v*"]).stdout.toString().split("\n");
   for (const tag of tags.filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))) entry(tag.slice(1));
 } else if (argument) {
   console.log(entry(argument.replace(/^v/, "")));

@@ -5,7 +5,7 @@ import { loadSettings } from "./settings";
 const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
        kiln serve [--port 7437] [--origin https://host | --local]
-                                  start phone access and print a pairing QR
+                                  start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
                                   keep phone access running as a user service and print a pairing QR
        kiln pair <https-origin> [--qr]   print a five-minute phone invitation

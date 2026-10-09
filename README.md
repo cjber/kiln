@@ -92,7 +92,7 @@ kiln setup # installs a user service that survives reboots, configures Tailscale
 kiln serve
 # With your own HTTPS tunnel instead:
 kiln serve --origin https://your-machine.example
-# Localhost only, without tunnel setup or pairing:
+# Localhost only, without tunnel setup or a printed invitation:
 kiln serve --local
 # Generate another invitation while the server is running:
 kiln pair https://your-machine.example --qr
