@@ -38,7 +38,11 @@ fun SessionDetails(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(agentName(row.agent), style = MaterialTheme.typography.titleMedium)
-                ActivityBadge(row.activity)
+                Text(
+                    activityName(row.activity),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = activityColor(row.activity),
+                )
             }
             SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
