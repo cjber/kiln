@@ -233,7 +233,7 @@ fun SessionScreen(
                             ErrorNotice(error, onDismissError)
                             if (problem.isNotBlank())
                                 ConnectionNotice("Discovery needs attention", problem, onReconnect)
-                            if (!fresh)
+                            if (state != ConnectionState.CONNECTED)
                                 ConnectionNotice(
                                     status,
                                     if (loaded) "Last update: ${relativeTime(updated, now)}."
@@ -266,17 +266,6 @@ fun SessionScreen(
                                 )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 SessionScope.entries.forEach { value ->
-                                    val count =
-                                        sessionItems(
-                                                rows,
-                                                SessionOrder.RECENT,
-                                                "",
-                                                rows.mapTo(mutableSetOf()) { it.id },
-                                                value,
-                                                now,
-                                                hiddenIds = hiddenIds,
-                                            )
-                                            .count { it is SessionItem.Entry }
                                     TextButton(
                                         modifier = Modifier.semantics { selected = scope == value },
                                         onClick = {
@@ -292,24 +281,20 @@ fun SessionScreen(
                                             ),
                                     ) {
                                         Text(
-                                            "${value.label} $count",
+                                            value.label,
                                             fontWeight =
-                                                if (scope == value) FontWeight.Bold
+                                                if (scope == value) FontWeight.SemiBold
                                                 else FontWeight.Normal,
                                         )
                                     }
                                 }
                                 Spacer(Modifier.weight(1f))
                                 IconButton(onClick = { options = true }) {
-                                    BadgedBox(
-                                        badge = { if (agent != null || activity != null) Badge() }
-                                    ) {
-                                        Icon(
-                                            Icons.Default.MoreVert,
-                                            "Filter and sort sessions: ${sort.label}",
-                                            Modifier.size(20.dp),
-                                        )
-                                    }
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        "Filter and sort sessions: ${sort.label}",
+                                        Modifier.size(20.dp),
+                                    )
                                 }
                             }
                         }
