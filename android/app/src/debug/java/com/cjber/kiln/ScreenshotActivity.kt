@@ -105,11 +105,13 @@ private fun demo(
         when (agent) {
             Agent.CODEX -> chatgpt
             Agent.CLAUDE -> claude
+            Agent.OPENCODE,
             Agent.PI -> null
         },
         when (agent) {
             Agent.CODEX -> "Open ChatGPT, then choose this thread"
             Agent.CLAUDE -> "Open in Claude"
+            Agent.OPENCODE -> "Open this OpenCode session in kiln on your PC"
             Agent.PI -> "Open this Pi session in kiln on your PC"
         },
         agent != Agent.CODEX,
@@ -158,8 +160,8 @@ private val demoRows =
             7,
         ),
         demo(
-            "claude:104",
-            Agent.CLAUDE,
+            "opencode:104",
+            Agent.OPENCODE,
             "Draft terminal tools post",
             "/home/demo/code/blog",
             Activity.IDLE,

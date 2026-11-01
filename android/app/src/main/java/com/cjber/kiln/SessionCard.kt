@@ -64,13 +64,14 @@ fun AgentMark(agent: Agent, modifier: Modifier = Modifier) {
                     if (agent == Agent.CLAUDE) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
             )
+        Agent.OPENCODE,
         Agent.PI ->
             Box(modifier.size(22.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    "π",
+                    if (agent == Agent.PI) "π" else "O",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.semantics { contentDescription = "Pi" },
+                    modifier = Modifier.semantics { contentDescription = agentName(agent) },
                 )
             }
     }

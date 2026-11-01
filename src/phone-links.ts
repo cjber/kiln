@@ -50,6 +50,8 @@ export function phoneHandoff(session: Session, codexHost?: string): Handoff {
       }
       return { url: "https://chatgpt.com/codex", label: "Open ChatGPT, then choose this thread", exact: false };
     }
+    case "opencode":
+      return { reason: "Open this OpenCode session in kiln on your PC" };
     case "pi":
       return { reason: "Open this Pi session in kiln on your PC" };
   }

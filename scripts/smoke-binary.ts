@@ -62,7 +62,7 @@ for line in sys.stdin:
   );
   writeFileSync(
     join(env.XDG_CONFIG_HOME, "kiln", "config.toml"),
-    `cloud = false\nremote_control = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\npi = []\n`,
+    `cloud = false\nremote_control = false\nzoxide = false\nnotifications = false\n[agents]\nclaude = ${JSON.stringify(["python3", "-u", fixture])}\ncodex = []\nopencode = []\npi = []\n`,
   );
   // The directory picker returns a fixture path; the agent is a local echo fixture, so no provider is contacted.
   writeFileSync(join(scratch, "bin", "fzf"), `#!/bin/sh\nprintf '%s\\n' ${quote(scratch)}\n`, { mode: 0o755 });

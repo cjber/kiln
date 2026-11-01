@@ -21,7 +21,12 @@ import { color, openInEditor, tilde, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
 import { rankedDirectories } from "./zoxide";
 
-const agentColor: Record<Agent, string> = { claude: color.orange, codex: color.teal, pi: color.purple };
+const agentColor: Record<Agent, string> = {
+  claude: color.orange,
+  codex: color.teal,
+  opencode: color.fgBright,
+  pi: color.purple,
+};
 
 type Mode = "normal" | "filter" | "agent" | "confirm";
 
@@ -329,7 +334,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       />
     );
 
-  const titleWidth = Math.max(1, width - 37);
+  const titleWidth = Math.max(1, width - 38);
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
 
   return (
@@ -348,7 +353,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(8)}${"task".padEnd(titleWidth + 2)}${"status".padEnd(12)}${"updated".padStart(8)}`}
+            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${"status".padEnd(12)}${"updated".padStart(8)}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -366,7 +371,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(8)}</span>
+                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
                   <span fg={toneColor[sessionStatus(session).tone]}>
                     {fit(title, titleWidth, "end").padEnd(titleWidth)}
                     {"  "}

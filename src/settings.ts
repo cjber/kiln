@@ -36,7 +36,7 @@ export const defaults: Settings = {
   cloud: true,
   notifications: true,
   claudeCloud: false,
-  agents: { claude: ["claude"], codex: ["codex"], pi: ["pi"] },
+  agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"] },
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -71,6 +71,7 @@ claude_cloud = false
 [agents]
 claude = ["claude"]
 codex = ["codex"]
+opencode = ["opencode"]
 pi = ["pi"]
 `;
 

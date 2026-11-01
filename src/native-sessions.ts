@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
+import { isOpencodeService, type OpencodeListing, opencodeInvocation, opencodeSessions } from "./opencode";
 import { piStatus } from "./pi-status";
 import { restartStopped } from "./saved-sessions";
 import { transcriptTitle } from "./session-titles";
@@ -284,6 +285,22 @@ async function piProcesses(): Promise<AgentProcess[]> {
   });
 }
 
+/**
+ * `opencode api` starts the service when it is down, so a list refresh only asks a service that is already
+ * running. A terminal started outside kiln names no session in argv and stays unknown.
+ */
+async function readOpencode() {
+  const found = (await pidsNamed("opencode")).map((pid) => ({ pid, args: processArgs(pid) ?? [] }));
+  const processes = found.flatMap(({ pid, args }) => {
+    const invocation = opencodeInvocation(args);
+    const cwd = processCwd(pid);
+    if (!invocation || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
+    return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
+  });
+  const running = found.some(({ args }) => isOpencodeService(args));
+  return withOpencodeSessions(processes, running ? await opencodeSessions() : { sessions: [], live: false });
+}
+
 function processArgs(pid: number): string[] | undefined {
   try {
     return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
@@ -413,6 +430,48 @@ export function withCodexThreads(
   return { processes: paired, headless };
 }
 
+/** A terminal pairs by the id in its argv only; a private server's sessions are not the shared service's. */
+export function withOpencodeSessions(
+  processes: (AgentProcess & { shared: boolean })[],
+  { sessions, live }: OpencodeListing,
+): { processes: AgentProcess[]; headless: Session[] } {
+  const paired = new Set<string>();
+  const located = processes.map(({ shared, ...process }) => {
+    if (!shared || !process.id) return process;
+    paired.add(process.id);
+    const session = sessions.find((session) => session.id === process.id);
+    return {
+      ...process,
+      title: session?.title,
+      cwd: session?.cwd ?? process.cwd,
+      // A session with no prompt yet is not stored, and one absent from `session.active` is inactive.
+      activity: session ? session.activity : live ? ("idle" as const) : undefined,
+      lastActiveAt: session?.updatedAt,
+      parentSessionId: session?.parentId,
+    };
+  });
+  // Idle sessions are history, but one still running after its terminal left, or a helper, can be attached to.
+  const headless = sessions
+    .filter((session) => !paired.has(session.id) && (session.activity === "working" || session.activity === "waiting"))
+    .map((session) => ({
+      agent: "opencode" as const,
+      id: session.id,
+      parentSessionId: session.parentId,
+      title: session.title,
+      cwd: session.cwd,
+      startedAt: session.createdAt,
+      lastActiveAt: session.updatedAt,
+      activity: session.activity,
+      branch: gitBranch(session.cwd),
+      place: {
+        kind: "thread" as const,
+        id: session.id,
+        attach: ["opencode", "--session", session.id],
+      },
+    }));
+  return { processes: located, headless };
+}
+
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listNativeSessions({ kitty = true } = {}): Promise<Session[]> {
   const readCodex = async () => {
@@ -423,14 +482,15 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
     return withCodexThreads(processes, threads);
   };
-  const [claude, owned, windows, codex, pi] = await Promise.all([
+  const [claude, owned, windows, codex, pi, opencode] = await Promise.all([
     claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
     piProcesses(),
+    readOpencode(),
   ]);
-  const running = [...claude.processes, ...codex.processes, ...pi];
+  const running = [...claude.processes, ...codex.processes, ...opencode.processes, ...pi];
 
   const places = new Map<number, Place>();
   for (const window of windows) {
@@ -465,22 +525,22 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
       parentSessionPid: ancestorSessionPid,
     })),
   );
-  const listed = [...sessions, ...codex.headless, ...claude.finished];
+  const listed = [...sessions, ...codex.headless, ...opencode.headless, ...claude.finished];
   return [...listed, ...restartStopped(listed)];
 }
 
-/** Keep one client per confirmed Codex task, preferring a terminal kiln can open. */
+/** Keep one client per confirmed daemon conversation, preferring a terminal kiln can open. */
 export function deduplicateSessions(sessions: readonly Session[]): Session[] {
   const result: Session[] = [];
   const indices = new Map<string, number>();
   for (const session of sessions) {
-    if (session.agent !== "codex" || session.id === undefined) {
+    if ((session.agent !== "codex" && session.agent !== "opencode") || session.id === undefined) {
       result.push(session);
       continue;
     }
-    const index = indices.get(session.id);
+    const index = indices.get(`${session.agent}:${session.id}`);
     if (index === undefined) {
-      indices.set(session.id, result.length);
+      indices.set(`${session.agent}:${session.id}`, result.length);
       result.push(session);
     } else if (result[index]?.place.kind === "elsewhere" && session.place.kind !== "elsewhere") {
       result[index] = session;

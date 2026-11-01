@@ -93,6 +93,7 @@ fun agentName(agent: Agent): String =
     when (agent) {
         Agent.CLAUDE -> "Claude"
         Agent.CODEX -> "Codex"
+        Agent.OPENCODE -> "OpenCode"
         Agent.PI -> "Pi"
     }
 

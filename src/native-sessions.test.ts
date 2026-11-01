@@ -9,6 +9,7 @@ import {
   resumedCodexThread,
   sessionLocation,
   withCodexThreads,
+  withOpencodeSessions,
 } from "./native-sessions";
 import type { Place, Session } from "./sessions";
 
@@ -208,7 +209,7 @@ test("children retain the parent thread when duplicate terminal clients are remo
     place: { kind: "elsewhere" },
   };
   const inside: Session = { ...outside, pid: 2, place: { kind: "kiln", name: "parent" } };
-  for (const agent of ["claude", "codex", "pi"] as const) {
+  for (const agent of ["claude", "codex", "opencode", "pi"] as const) {
     const child: Session = {
       agent,
       id: "child",
@@ -222,4 +223,74 @@ test("children retain the parent thread when duplicate terminal clients are remo
     expect(result[1]?.parentSessionId).toBe("parent");
     expect(result[1]?.parentSessionAgent).toBe("codex");
   }
+});
+
+describe("OpenCode pairing", () => {
+  const process = { pid: 1, agent: "opencode" as const, cwd: "/repo", startedAt: 1, shared: true };
+  const stored = {
+    id: "ses_a",
+    cwd: "/repo/sub",
+    createdAt: 1,
+    updatedAt: 5,
+    activity: "working" as const,
+    title: "Fix",
+  };
+
+  test("a terminal takes its session's status by id", () => {
+    const { processes, headless } = withOpencodeSessions([{ ...process, id: "ses_a" }], {
+      sessions: [stored],
+      live: true,
+    });
+    expect(processes[0]).toMatchObject({ title: "Fix", cwd: "/repo/sub", activity: "working", lastActiveAt: 5 });
+    expect(headless).toEqual([]);
+  });
+
+  test("a terminal is never paired by directory, and an unattached running session can be opened", () => {
+    const { processes, headless } = withOpencodeSessions([process], {
+      sessions: [{ ...stored, cwd: "/repo" }],
+      live: true,
+    });
+    expect(processes[0]?.activity).toBeUndefined();
+    expect(headless[0]?.place).toEqual({ kind: "thread", id: "ses_a", attach: ["opencode", "--session", "ses_a"] });
+  });
+
+  test("idle history is not listed, but helpers keep their parent", () => {
+    const { headless } = withOpencodeSessions([], {
+      sessions: [
+        { ...stored, id: "ses_old", activity: "idle" },
+        { ...stored, id: "ses_child", parentId: "ses_a" },
+      ],
+      live: true,
+    });
+    expect(headless.map((session) => [session.id, session.parentSessionId])).toEqual([["ses_child", "ses_a"]]);
+  });
+
+  test("a session not stored yet is idle only when the service answered", () => {
+    const named = { ...process, id: "ses_new" };
+    expect(withOpencodeSessions([named], { sessions: [], live: true }).processes[0]?.activity).toBe("idle");
+    expect(withOpencodeSessions([named], { sessions: [], live: false }).processes[0]?.activity).toBeUndefined();
+  });
+
+  test("a private server's terminal does not borrow the shared service's status", () => {
+    const { processes, headless } = withOpencodeSessions([{ ...process, id: "ses_a", shared: false }], {
+      sessions: [stored],
+      live: true,
+    });
+    expect(processes[0]?.activity).toBeUndefined();
+    expect(headless).toHaveLength(1);
+  });
+
+  test("two terminals on one conversation are one row, preferring the one kiln can open", () => {
+    const row = (pid: number, place: Session["place"]): Session => ({
+      agent: "opencode",
+      id: "ses_a",
+      pid,
+      cwd: "/repo",
+      startedAt: pid,
+      place,
+    });
+    expect(
+      deduplicateSessions([row(1, { kind: "elsewhere" }), row(2, { kind: "kiln", name: "a" })]).map(({ pid }) => pid),
+    ).toEqual([2]);
+  });
 });

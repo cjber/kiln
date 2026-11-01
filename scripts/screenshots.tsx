@@ -75,7 +75,7 @@ const demo: Session[] = [
   {
     pid: 104,
     title: "Draft terminal tools post",
-    agent: "claude",
+    agent: "opencode",
     cwd: code("blog"),
     lastActiveAt: minutes(2),
     startedAt: minutes(190),

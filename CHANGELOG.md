@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **OpenCode is a fourth agent.** `n` starts OpenCode, the list shows its titles and whether it is working, waiting or ready, helpers nest under their parent, and a session a restart stopped resumes in place. Closing a session interrupts and archives it, and a conversation still running with no terminal can be attached. It shares `.agents/skills` without links. On the phone these rows open on the PC, and the Android app must be updated with the desktop to read them.
+
 ## [0.11.3] - 2026-10-06
 
 - **Helpers appear under their parent conversation.** Claude helpers launched by Codex nest under the conversation that started them. Parent links work across Claude, Codex and Pi, including grandchildren, and survive removal of duplicate Codex terminal rows.

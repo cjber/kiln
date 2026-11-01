@@ -34,6 +34,30 @@ test("each terminal-less place has its own close rule", () => {
   });
 });
 
+test("an OpenCode thread is archived, and resuming passes its id through any wrapper", async () => {
+  const session: Session = {
+    agent: "opencode",
+    id: "ses_a",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "thread", id: "ses_a", attach: ["opencode", "--session", "ses_a"] },
+  };
+  expect(sessionAction(session)).toEqual({ verb: "archive" });
+  const spawn = spyOn(Bun, "spawn").mockImplementation((() => ({
+    stdout: new Response("").body,
+    stderr: new Response("").body,
+    exited: Promise.resolve(0),
+    kill() {},
+  })) as unknown as typeof Bun.spawn);
+  try {
+    expect(await closeSession(session)).toBe(true);
+    const calls = spawn.mock.calls.map(([command]) => (command as unknown as string[]).slice(0, 3).join(" "));
+    expect(calls).toEqual(["opencode api session.interrupt", "opencode api session.update"]);
+  } finally {
+    spawn.mockRestore();
+  }
+});
+
 test("opening reports what the view should do without touching the terminal", async () => {
   const session: Session = { agent: "pi", cwd: "/repo", startedAt: 1, place: { kind: "kiln", name: "pi-1" } };
   expect(await openSession(session, defaults)).toEqual({ kind: "attach", name: "pi-1" });
