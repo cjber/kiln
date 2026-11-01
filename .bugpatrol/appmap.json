@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "platform": "cli",
+  "screens": [
+    {
+      "name": "Session list",
+      "description": "Main kiln screen: a header, sessions grouped by directory, a detail line and key hints, with filter and empty states.",
+      "platform": "cli",
+      "firstSeenAt": "2026-11-01T18:18:07.348Z",
+      "id": "session-list",
+      "location": "terminal",
+      "screenKey": "terminal|",
+      "routineId": "screen-session-list",
+      "lastScreenshot": ".bugpatrol/runs/sessions/ses_20261101181446_b51d/008-session-list.png",
+      "links": [],
+      "visits": 1,
+      "lastSeenAt": "2026-11-01T18:18:07.348Z"
+    }
+  ],
+  "updatedAt": "2026-11-01T18:18:07.348Z"
+}

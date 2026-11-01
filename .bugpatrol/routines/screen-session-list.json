@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "id": "screen-session-list",
+  "description": "Main kiln screen: a header, sessions grouped by directory, a detail line and key hints, with filter and empty states.",
+  "platform": "cli",
+  "requires": [
+    "enter-app"
+  ],
+  "steps": [],
+  "screenId": "session-list",
+  "createdAt": "2026-11-01T18:18:07.347Z",
+  "updatedAt": "2026-11-01T18:18:07.347Z"
+}
