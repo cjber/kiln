@@ -366,14 +366,17 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
               );
             const { session, depth, children } = row;
             const active = session === current;
-            const title = `${depth ? "↳ " : ""}${sessionTitle(session)}${children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : ""}`;
+            const title = `${depth ? "↳ " : ""}${sessionTitle(session)}`;
+            const childrenMark = children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : "";
             return (
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
                   <span fg={agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
                   <span fg={toneColor[sessionStatus(session).tone]}>
-                    {fit(title, titleWidth, "end").padEnd(titleWidth)}
+                    {`${fit(title, Math.max(1, titleWidth - childrenMark.length), "end")}${childrenMark}`.padEnd(
+                      titleWidth,
+                    )}
                     {"  "}
                   </span>
                   <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
