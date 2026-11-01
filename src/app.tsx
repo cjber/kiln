@@ -17,7 +17,7 @@ import { type Agent, agents, discovery, keepLast, type Session, sessionIdentity 
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach } from "./tmux";
-import { color, openInEditor, tilde, typed, untilde } from "./tui";
+import { color, displayWidth, openInEditor, padToWidth, tilde, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
 import { rankedDirectories } from "./zoxide";
 
@@ -52,10 +52,30 @@ function label(session: Session): string {
   return session.place.kind === "cloud" ? session.place.title : tilde(session.cwd);
 }
 
-/** Shorten with an ellipsis, keeping the end of a path (the repo) or the start of a branch. */
+/** Shorten with an ellipsis by terminal columns, keeping the end of a path or the start of a title. */
 function fit(value: string, width: number, cut: "start" | "end"): string {
-  if (value.length <= width) return value;
-  return cut === "start" ? `…${value.slice(value.length - width + 1)}` : `${value.slice(0, width - 1)}…`;
+  if (displayWidth(value) <= width) return value;
+  const chars = Array.from(value);
+  const keep = width - 1; // one column for the ellipsis
+  if (cut === "start") {
+    const kept: string[] = [];
+    let acc = 0;
+    for (let index = chars.length - 1; index >= 0 && acc < keep; index--) {
+      const char = chars[index];
+      if (!char) break;
+      acc += displayWidth(char);
+      kept.unshift(char);
+    }
+    return `…${kept.join("")}`;
+  }
+  const kept: string[] = [];
+  let acc = 0;
+  for (const char of chars) {
+    if (acc + displayWidth(char) > keep) break;
+    acc += displayWidth(char);
+    kept.push(char);
+  }
+  return `${kept.join("")}…`;
 }
 
 /**
@@ -334,7 +354,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       />
     );
 
-  const titleWidth = Math.max(1, width - 38);
+  // Drop the updated and status columns before the title on narrow terminals, so the columns never collide.
+  const showUpdated = width >= 48;
+  const showStatus = width >= 30;
+  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
 
   return (
@@ -345,7 +368,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         </span>
         <span fg={color.comment}>
           {" "}
-          {visible.length} tasks · {order === "project" ? "directory / task" : order.replaceAll("_", " ")}
+          {sessions.length} tasks · {order === "project" ? "directory / task" : order.replaceAll("_", " ")}
         </span>
         {needsInput ? <span fg={color.yellow}> · {needsInput} need input</span> : null}
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
@@ -353,7 +376,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${"status".padEnd(12)}${"updated".padStart(8)}`}
+            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -374,13 +397,16 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
                   <span fg={agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
                   <span fg={toneColor[sessionStatus(session).tone]}>
-                    {`${fit(title, Math.max(1, titleWidth - childrenMark.length), "end")}${childrenMark}`.padEnd(
+                    {padToWidth(
+                      `${fit(title, Math.max(1, titleWidth - displayWidth(childrenMark)), "end")}${childrenMark}`,
                       titleWidth,
                     )}
                     {"  "}
                   </span>
-                  <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
-                  <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span>
+                  {showStatus ? (
+                    <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
+                  ) : null}
+                  {showUpdated ? <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span> : null}
                 </text>
               </box>
             );
