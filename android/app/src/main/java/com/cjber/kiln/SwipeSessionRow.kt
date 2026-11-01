@@ -69,14 +69,6 @@ fun SwipeSessionRow(
             }
         },
     ) {
-        SessionCard(
-            item,
-            now,
-            expanded,
-            open,
-            details,
-            toggle,
-            if (hidden) restore else null,
-        )
+        SessionCard(item, now, expanded, open, details, toggle)
     }
 }

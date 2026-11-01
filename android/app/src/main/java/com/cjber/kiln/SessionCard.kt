@@ -1,16 +1,17 @@
 package com.cjber.kiln
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -78,21 +79,6 @@ fun AgentMark(agent: Agent, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ActivityBadge(activity: Activity) {
-    val color = activityColor(activity)
-    Surface(shape = CircleShape, color = color.copy(alpha = 0.12f), contentColor = color) {
-        Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Surface(Modifier.size(6.dp), shape = CircleShape, color = color) {}
-            Text(activityName(activity), style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
 fun SessionCard(
     item: SessionItem.Entry,
     now: Long,
@@ -100,44 +86,34 @@ fun SessionCard(
     open: () -> Unit,
     details: () -> Unit,
     toggle: () -> Unit,
-    restore: (() -> Unit)?,
 ) {
     val row = item.row
     val openable = row.url != null
-    Card(
-        onClick = if (openable) open else details,
-        modifier = Modifier.fillMaxWidth().padding(start = if (item.depth > 0) 16.dp else 0.dp),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-        colors =
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        Row(
+    Row(
+        modifier =
             Modifier.fillMaxWidth()
-                .heightIn(min = 60.dp)
-                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            AgentMark(row.agent)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    row.title,
-                    color = activityColor(row.activity),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                .heightIn(min = 44.dp)
+                .combinedClickable(
+                    onClick = { if (openable) open() else details() },
+                    onLongClickLabel = "Details",
+                    onLongClick = details,
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        activityName(row.activity),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = activityColor(row.activity),
-                    )
-                    Text(
+                .padding(start = if (item.depth > 0) 20.dp else 0.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        AgentMark(row.agent, Modifier.size(18.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                row.title,
+                color = activityColor(row.activity),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                listOfNotNull(
                         if (row.where == Place.CLOUD) "Cloud"
                         else
                             listOf(
@@ -145,48 +121,39 @@ fun SessionCard(
                                     row.branch.takeIf { it.isNotBlank() },
                                 )
                                 .filterNotNull()
-                                .joinToString(" / "),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                                .joinToString(" / ")
+                                .takeIf { it.isNotBlank() },
+                        activityName(row.activity),
+                        if (row.active > 0) elapsed(row.active, now) else null,
                     )
-                }
-            }
-            Text(
-                if (row.active > 0) elapsed(row.active, now) else "?",
+                    .joinToString("  ·  "),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier =
-                    Modifier.semantics { contentDescription = relativeTime(row.active, now) },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            if (item.children > 0)
-                TextButton(
-                    onClick = toggle,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Text(item.children.toString(), style = MaterialTheme.typography.labelSmall)
-                    Icon(
-                        if (expanded) Icons.Default.KeyboardArrowDown
-                        else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        "${if (expanded) "Collapse" else "Expand"} ${item.children} subagents",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            if (restore != null)
-                IconButton(onClick = restore, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Check, "Restore ${row.title}", Modifier.size(20.dp))
-                }
-            IconButton(onClick = details, modifier = Modifier.size(48.dp)) {
+        }
+        if (item.children > 0)
+            Row(
+                modifier =
+                    Modifier.clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = toggle)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    item.children.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Icon(
-                    Icons.Default.Info,
-                    "Details for ${row.title}",
-                    modifier = Modifier.size(18.dp),
+                    if (expanded) Icons.Default.KeyboardArrowDown
+                    else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    null,
+                    Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
     }
 }
