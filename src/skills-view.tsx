@@ -72,7 +72,7 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
           setNotice(
             backups.length
               ? `shared; conflicts backed up under ${store.directory}/.kiln-backups`
-              : "shared with Claude, Codex and Pi",
+              : "shared with Claude, Codex, OpenCode and Pi",
           );
         });
       return;
@@ -82,7 +82,7 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
       if (key.name === "y" && current)
         void action(() => {
           unshareSkill(store, current.name);
-          setNotice("Claude and Pi links removed; the shared files and Codex access remain");
+          setNotice("Claude and Pi links removed; the shared files and Codex and OpenCode access remain");
         });
       return;
     }
@@ -120,7 +120,7 @@ export function SkillsView({ project, onBack, edit, loadSkills = listSkills }: P
     if (key.name === "l" && current)
       return void action(() => {
         shareSkill(store, current.name);
-        setNotice("shared with Claude, Codex and Pi; reload skills in existing sessions");
+        setNotice("shared with Claude, Codex, OpenCode and Pi; reload skills in existing sessions");
       });
     if (key.name === "f" && current) return setMode("repair");
     if (key.name === "x" && current) return setMode("unlink");

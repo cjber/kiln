@@ -3,9 +3,9 @@ import { dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 
-export type Agent = "claude" | "codex" | "pi";
+export type Agent = "claude" | "codex" | "opencode" | "pi";
 
-export const agents: readonly Agent[] = ["claude", "codex", "pi"];
+export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi"];
 
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
@@ -18,7 +18,7 @@ export type Place =
   | { kind: "kitty"; socket: string; windowId: number }
   /** A Claude background job, running or finished; `attach` gives it a terminal. */
   | { kind: "job"; id: string; attach: string[]; stop?: string[] }
-  /** A Codex daemon thread with no terminal of its own. */
+  /** A conversation on the Codex daemon or OpenCode service with no terminal of its own. */
   | { kind: "thread"; id: string; attach: string[] }
   | { kind: "elsewhere"; source?: string }
   /** A terminal session a restart stopped; opening it resumes the conversation in a new kiln session. */
@@ -29,7 +29,7 @@ export type Session = {
   /** Provider identity and display name, when reported. */
   id?: string;
   title?: string;
-  /** The agent's process; a Codex daemon thread has none of its own. */
+  /** The agent's process; a daemon thread has none of its own. */
   pid?: number;
   /** The live session whose agent spawned this process. */
   parentSessionPid?: number;

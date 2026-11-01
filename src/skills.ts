@@ -20,7 +20,7 @@ export type SkillStore = { scope: SkillScope; directory: string; adapters: { cla
 export type Skill = { name: string; directory: string; external: boolean; claude: LinkState; pi: LinkState };
 export type LinkState = "shared" | "missing" | "conflict";
 
-/** Codex reads the shared store directly. Claude and Pi need compatibility links. */
+/** Codex and OpenCode read the shared store directly. Claude and Pi need compatibility links. */
 export function skillStore(scope: SkillScope, project: string, home = homedir()): SkillStore {
   const base = scope === "user" ? home : resolve(project);
   return {
@@ -130,7 +130,7 @@ export function shareSkill(store: SkillStore, name: string): void {
   }
 }
 
-/** Remove only links to this skill. Codex still reads the canonical copy. */
+/** Remove only links to this skill. Codex and OpenCode still read the canonical copy. */
 export function unshareSkill(store: SkillStore, name: string): void {
   checkName(name);
   const target = join(store.directory, name);

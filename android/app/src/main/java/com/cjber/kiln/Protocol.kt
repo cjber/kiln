@@ -8,6 +8,7 @@ data class Host(val origin: String, val name: String, val token: String)
 enum class Agent(val id: String) {
     CLAUDE("claude"),
     CODEX("codex"),
+    OPENCODE("opencode"),
     PI("pi"),
 }
 
@@ -138,6 +139,7 @@ fun safeLink(agent: Agent, value: String): String? {
                                 Regex("hostId=slingshot%3Aenv_[A-Za-z0-9_-]+%3A8765")
                             ) == true))
             }
+        Agent.OPENCODE,
         Agent.PI -> null
     }
 }

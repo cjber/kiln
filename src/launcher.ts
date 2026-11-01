@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename } from "node:path";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
+import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
@@ -11,6 +12,11 @@ import type { Settings } from "./settings";
 import { exists, kill, start } from "./tmux";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
+
+/** Daemon conversations are archived on close; the other providers keep theirs without being asked. */
+function archiveConversation(session: Session, id: string, terminalClosed = false): Promise<void> {
+  return session.agent === "opencode" ? archiveOpencodeSession(id) : archiveCodexThread(id, terminalClosed);
+}
 
 /** What the view does next: hand the terminal to a tmux session, or only say something. */
 export type Outcome =
@@ -104,6 +110,9 @@ function agentCommand(agent: Agent, settings: Settings, resume?: string): string
       const at = command.findIndex((word) => basename(word) === "codex") + 1 || 1;
       return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
     }
+    // The id kiln chooses is what discovery reads back from argv; OpenCode creates it on the first prompt.
+    case "opencode":
+      return [...command, "--session", resume ?? newOpencodeSessionId()];
     case "pi":
       return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : [])];
   }
@@ -163,9 +172,9 @@ export async function closeSession(session: Session): Promise<true | string> {
     switch (place.kind) {
       case "kiln":
         if (!kill(place.name)) throw new Error("tmux could not close this session");
-        if (session.agent === "codex" && session.id) {
+        if ((session.agent === "codex" || session.agent === "opencode") && session.id) {
           try {
-            await archiveCodexThread(session.id, true);
+            await archiveConversation(session, session.id, true);
           } catch (error) {
             throw new Error(
               `terminal closed, but archiving failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -174,7 +183,7 @@ export async function closeSession(session: Session): Promise<true | string> {
         }
         break;
       case "thread":
-        await archiveCodexThread(place.id);
+        await archiveConversation(session, place.id);
         break;
       case "job":
         if (!session.lifecycle && place.stop) {

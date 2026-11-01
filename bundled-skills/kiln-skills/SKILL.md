@@ -8,7 +8,7 @@ description: Inspect and repair kiln's shared user or project skills, including 
 Use `kiln skills list` for user/machine scope, or
 `kiln skills list --project /absolute/project` for project scope. The JSON includes
 the canonical store, Claude/Pi adapter directories and each skill's state.
-Codex reads `.agents/skills` directly. Claude and Pi use compatibility links.
+Codex and OpenCode read `.agents/skills` directly. Claude and Pi use compatibility links.
 
 - `shared`: the adapter resolves to the canonical skill.
 - `missing`: no adapter exists. `kiln skills share NAME` creates the missing links.

@@ -2,7 +2,7 @@
 
 # kiln
 
-kiln opens native Claude, Codex and Pi terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+kiln opens native Claude, Codex, OpenCode and Pi terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 
 Claude and Codex keep their own TUIs for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity.
 
@@ -22,7 +22,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Install Claude Code, Codex CLI or Pi, and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
+Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
 
 ## Terminal
 
@@ -50,6 +50,8 @@ Finished Claude background jobs stay in the list, marked `completed` in green or
 
 Kiln observes each provider's own status and never guesses from terminal output, so unknown activity stays unknown. Kiln starts Pi with a small extension that reports the session's title and whether it is working, waiting on a prompt or ready. A Pi started outside kiln is listed with `unknown` status.
 
+OpenCode status comes from its background service. Kiln starts each OpenCode session with its own `--session` id, which ties the terminal to its conversation. An OpenCode started outside kiln is listed with `unknown` status unless it was given `--session`, and a conversation still running with no known terminal is listed so `Enter` can attach to it. A session you switch to inside OpenCode, such as with `/new`, appears as its own row while it runs. Closing a session in kiln interrupts and archives it in OpenCode, and kiln never starts the service to read status.
+
 Desktop notifications identify the session when it needs input or finishes an observed turn. Enable `notify-send` and a desktop notification service to receive them.
 
 Cloud tasks retain their provider status and verified HTTPS links. Claude cloud tasks open in a browser. Codex Cloud tasks open a read-only CLI status/diff viewer. Cloud tasks cannot be closed or prompted from kiln.
@@ -71,6 +73,7 @@ remote_control = true
 [agents]
 claude = ["claude"]
 codex = ["codex"]
+opencode = ["opencode"]
 pi = ["pi"]
 ```
 

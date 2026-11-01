@@ -25,6 +25,7 @@ export function cloudLink(agent: Agent, id: string, source?: unknown): string | 
         throw new Error("codex cloud returned an invalid task URL");
       return url.href;
     }
+    case "opencode":
     case "pi":
       return undefined;
   }
