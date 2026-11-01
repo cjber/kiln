@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-01
+
 - **OpenCode is a fourth agent.** `n` starts OpenCode, the list shows its titles and whether it is working, waiting or ready, helpers nest under their parent, and a session a restart stopped resumes in place. Closing a session interrupts and archives it, and a conversation still running with no terminal can be attached. It shares `.agents/skills` without links. On the phone these rows open on the PC, and the Android app must be updated with the desktop to read them.
 
 - **The Android list is flatter.** Session rows drop the card, the activity pill and the per-row buttons for text-only rows like the terminal: the title is coloured by status, long-press shows details, and the Live, History and Hidden tabs no longer carry counts.
