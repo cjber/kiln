@@ -7,3 +7,5 @@ android/**/build/
 android/local.properties
 
 android/.kotlin/
+# Bugpatrol: local data and screenshots of the real app
+.bugpatrol/runs/
