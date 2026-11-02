@@ -1,6 +1,6 @@
 {
   "name": "kiln",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "react": "^19.3.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.3",
+    "@biomejs/biome": "2.6.4",
     "@types/bun": "^1.4.4",
     "@types/qrcode": "1.5.6",
     "@types/react": "^19.3.0",

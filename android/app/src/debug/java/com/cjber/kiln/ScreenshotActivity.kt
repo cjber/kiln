@@ -31,6 +31,8 @@ class ScreenshotActivity : ComponentActivity() {
                         setInvitation = {},
                         busy = false,
                         canCancel = false,
+                        tailscaleOn = true,
+                        openTailscale = {},
                         pair = {},
                         scan = {},
                         cancel = {},

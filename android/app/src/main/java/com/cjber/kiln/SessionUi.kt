@@ -15,8 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -65,6 +68,8 @@ fun SessionScreen(
     hiddenIds: Set<String> = emptySet(),
     changeHidden: (Set<String>) -> Boolean = { false },
     selectedMachine: Int = 0,
+    tailscaleOn: Boolean = true,
+    openTailscale: () -> Unit = {},
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -82,6 +87,7 @@ fun SessionScreen(
             state == ConnectionState.CONNECTING -> "Connecting…"
             else -> "Offline"
         }
+    val needsInput = rows.count { it.activity == Activity.WAITING && it.id !in hiddenIds }
     val snackbar = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val items = sessionItems(rows, sort, filter, expanded, scope, now, agent, activity, hiddenIds)
@@ -154,9 +160,18 @@ fun SessionScreen(
                         tint = androidx.compose.ui.graphics.Color.Unspecified,
                     )
                 Text(
-                    "kiln",
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = Tui.fgBright, fontWeight = FontWeight.Bold)) {
+                            append("kiln")
+                        }
+                        if (needsInput > 0)
+                            withStyle(SpanStyle(color = Tui.yellow)) {
+                                append("  $needsInput need input")
+                            }
+                    },
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 8.dp).weight(1f),
                 )
                 TextButton(onClick = { machinesPage = !machinesPage }) {
@@ -233,11 +248,27 @@ fun SessionScreen(
                             ErrorNotice(error, onDismissError)
                             if (problem.isNotBlank())
                                 ConnectionNotice("Discovery needs attention", problem, onReconnect)
-                            if (state != ConnectionState.CONNECTED)
+                            if (state != ConnectionState.CONNECTED && !tailscaleOn)
+                                ConnectionNotice(
+                                    "Tailscale is off",
+                                    "Turn on Tailscale on this phone to reach $machineLabel. " +
+                                        "kiln reconnects as soon as it is on.",
+                                    onReconnect,
+                                    "Open Tailscale" to openTailscale,
+                                )
+                            else if (state == ConnectionState.DISCONNECTED)
+                                ConnectionNotice(
+                                    "$machineLabel is not answering",
+                                    "Check that it is awake and kiln serve is running." +
+                                        if (loaded) " Last update: ${relativeTime(updated, now)}."
+                                        else "",
+                                    onReconnect,
+                                )
+                            else if (state != ConnectionState.CONNECTED)
                                 ConnectionNotice(
                                     status,
                                     if (loaded) "Last update: ${relativeTime(updated, now)}."
-                                    else "Waiting for your machine.",
+                                    else "Waiting for $machineLabel.",
                                     onReconnect,
                                 )
                             if (searching || filter.isNotEmpty())
@@ -275,13 +306,11 @@ fun SessionScreen(
                                         colors =
                                             ButtonDefaults.textButtonColors(
                                                 contentColor =
-                                                    if (scope == value)
-                                                        MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                                    if (scope == value) Tui.peach else Tui.comment
                                             ),
                                     ) {
                                         Text(
-                                            value.label,
+                                            value.label.lowercase(),
                                             fontWeight =
                                                 if (scope == value) FontWeight.SemiBold
                                                 else FontWeight.Normal,
@@ -305,23 +334,36 @@ fun SessionScreen(
 }
 
 @Composable
-fun ConnectionNotice(title: String, message: String, retry: () -> Unit) {
+fun ConnectionNotice(
+    title: String,
+    message: String,
+    retry: (() -> Unit)?,
+    action: Pair<String, () -> Unit>? = null,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.small,
     ) {
         Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.labelLarge)
+            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                Text(title, style = MaterialTheme.typography.labelLarge, color = Tui.peach)
                 Text(
                     message,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (action != null)
+                    TextButton(
+                        onClick = action.second,
+                        contentPadding = PaddingValues(horizontal = 0.dp),
+                    ) {
+                        Text(action.first)
+                    }
             }
-            IconButton(onClick = retry) {
-                Icon(Icons.Default.Refresh, "Reconnect", Modifier.size(20.dp))
-            }
+            if (retry != null)
+                IconButton(onClick = retry) {
+                    Icon(Icons.Default.Refresh, "Reconnect", Modifier.size(20.dp))
+                }
         }
     }
 }
@@ -347,7 +389,6 @@ fun SessionListView(
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         item(key = "controls") { header() }
         if (items.isEmpty())
@@ -384,8 +425,9 @@ fun SessionListView(
                     if (item.directory != null)
                         Text(
                             tildePath(item.directory),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Tui.orange,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp),

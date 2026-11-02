@@ -3,8 +3,13 @@ package com.cjber.kiln
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
@@ -32,7 +37,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The app is always dark, so keep light system bar icons whatever the phone's theme.
+        val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        enableEdgeToEdge(bars, bars)
         incoming = if (savedInstanceState == null) intent.dataString.orEmpty() else ""
         setContent {
             KilnTheme { Kiln() }
@@ -42,6 +49,28 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         incoming = intent.dataString.orEmpty()
+    }
+
+    /** kiln reaches the computer only through Tailscale, which Android runs as a VPN. */
+    private fun vpnOn(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        return manager
+            .getNetworkCapabilities(manager.activeNetwork)
+            ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+    }
+
+    private fun openTailscale() {
+        val intent =
+            packageManager.getLaunchIntentForPackage("com.tailscale.ipn")
+                ?: Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse(
+                        "https://play.google.com/store/apps/details?id=com.tailscale.ipn"
+                    ),
+                )
+        try {
+            startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {}
     }
 
     private fun copyId(row: Row) {
@@ -86,28 +115,51 @@ class MainActivity : ComponentActivity() {
         var received by remember { mutableLongStateOf(0L) }
         var retry by remember { mutableIntStateOf(0) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
-        val connection = remember { Connection() }
+        var tailscaleOn by remember { mutableStateOf(vpnOn()) }
+        val connection = remember {
+            Connection(
+                unreachable = {
+                    if (vpnOn())
+                        "Your computer is not answering. Check that it is awake and kiln serve is running."
+                    else "Tailscale is off on this phone. Turn it on, then try again."
+                }
+            )
+        }
         val screenState = rememberSaveableStateHolder()
         val host = hosts.find { it.origin == selected }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
-        var hiddenIds by
+        var hidden by
             remember(host?.origin) {
                 mutableStateOf(
-                    viewPreferences
-                        .getStringSet("hidden:${host?.origin}", emptySet())
-                        .orEmpty()
-                        .toSet()
+                    hiddenEntries(
+                        viewPreferences
+                            .getStringSet("hidden:${host?.origin}", emptySet())
+                            .orEmpty()
+                            .toSet()
+                    )
                 )
             }
-        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hiddenIds)
-        fun setHidden(next: Set<String>): Boolean {
+        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hidden.keys)
+        fun saveHidden(next: Map<String, Activity?>): Boolean {
             if (host == null) return false
-            if (!viewPreferences.edit().putStringSet("hidden:${host.origin}", next).commit()) {
+            if (
+                !viewPreferences
+                    .edit()
+                    .putStringSet("hidden:${host.origin}", storedHidden(next))
+                    .commit()
+            ) {
                 error = "Could not save hidden sessions"
                 return false
             }
-            hiddenIds = next
+            hidden = next
             return true
+        }
+        fun setHidden(next: Set<String>): Boolean =
+            saveHidden(hideWithActivity(snapshot?.rows.orEmpty(), hidden, next))
+        LaunchedEffect(snapshot) {
+            val rows = snapshot?.rows ?: return@LaunchedEffect
+            val settled = settleHidden(rows, hidden)
+            if (settled != hidden) saveHidden(settled)
         }
         fun save(next: List<Host>): Boolean =
             try {
@@ -165,6 +217,31 @@ class MainActivity : ComponentActivity() {
                 )
             }
             onDispose { connection.close() }
+        }
+        DisposableEffect(Unit) {
+            val manager = getSystemService(ConnectivityManager::class.java)
+            val callback =
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        runOnUiThread {
+                            tailscaleOn = true
+                            // Reconnect now rather than at the next five-second retry.
+                            if (state != ConnectionState.CONNECTED) retry++
+                        }
+                    }
+
+                    override fun onLost(network: Network) {
+                        runOnUiThread { tailscaleOn = vpnOn() }
+                    }
+                }
+            manager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build(),
+                callback,
+            )
+            onDispose { manager.unregisterNetworkCallback(callback) }
         }
         LaunchedEffect(state, host, pairing, foreground) {
             if (state == ConnectionState.DISCONNECTED && host != null && !pairing && foreground) {
@@ -231,6 +308,8 @@ class MainActivity : ComponentActivity() {
                 { invitation = it },
                 pairingBusy,
                 hosts.isNotEmpty(),
+                tailscaleOn = tailscaleOn,
+                openTailscale = ::openTailscale,
                 pair = {
                     try {
                         val (origin, code) = com.cjber.kiln.invitation(invitation)
@@ -298,6 +377,8 @@ class MainActivity : ComponentActivity() {
                         now = clock,
                         expanded = expanded,
                         hiddenIds = effectiveHidden,
+                        tailscaleOn = tailscaleOn,
+                        openTailscale = ::openTailscale,
                         changeHidden = ::setHidden,
                         open = ::launch,
                         details = { details = it },

@@ -9,6 +9,16 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-02
+
+- **The phone app looks like the terminal list.** It is always dark, uses the terminal's colours and a monospace font, and shows each session as one line: the agent name in its colour, the title in its status colour (yellow needs input, green ready or completed) and the age in grey. Swiping to hide no longer leaves a green band behind every row.
+
+- **A hidden session comes back when its status changes.** Hide a long job while it works and it returns to the list once it finishes, stops or needs input, along with its parent and helpers. Losing sight of it for a moment does not count as a change.
+
+- **The phone says when Tailscale is off.** If no VPN is running, the list and the pairing screen say Tailscale is off and offer an Open Tailscale button, and the app reconnects as soon as it comes on. When Tailscale is on but the computer does not answer, it says to check that the computer is awake and `kiln serve` is running.
+
+- **Pairing help names the right commands.** The pairing screen points to `kiln setup` for the first phone and `kiln pair` for another.
+
 ## [0.12.1] - 2026-11-02
 
 - **Agent names keep their proper casing.** The list, status line, prompts and notifications say Claude, Codex, OpenCode and Pi.

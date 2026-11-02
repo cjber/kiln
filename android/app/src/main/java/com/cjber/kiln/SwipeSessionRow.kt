@@ -1,14 +1,11 @@
 package com.cjber.kiln
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -49,24 +46,18 @@ fun SwipeSessionRow(
                     )
             },
         backgroundContent = {
-            Surface(
-                modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
+            if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart)
                 Row(
-                    Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                    Modifier.fillMaxSize().background(Tui.bg2).padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        if (hidden) Icons.Default.Check else Icons.Default.Clear,
-                        null,
-                        Modifier.size(20.dp),
+                    Text(
+                        label.lowercase(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (hidden) Tui.green else Tui.peach,
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text(label, style = MaterialTheme.typography.labelLarge)
                 }
-            }
         },
     ) {
         SessionCard(item, now, expanded, open, details, toggle)
