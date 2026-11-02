@@ -5,11 +5,11 @@ description: "Project skill for Sloppatrol in kiln: the exact quality-gate and e
 
 # Sloppatrol project skill: kiln
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex and Pi TUIs and lists cached cloud tasks. It runs from source under
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex, OpenCode and Pi TUIs and lists cached cloud tasks. It runs from source under
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
 with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
-`node_modules` (production install), `bundled-skills`, `package.json` and `tmux.conf`. No other repository imports it.
+`node_modules` (production install), `bundled-skills`, `pi-extension`, `package.json` and `tmux.conf`. No other repository imports it.
 
 ## Gate
 
@@ -20,7 +20,7 @@ CI's required `check` job runs exactly this list.
 bun install --frozen-lockfile
 bunx biome ci .                            # format + lint; `bunx biome check --write .` fixes
 bunx tsc --noEmit -p .                     # strict
-bun test                                   # src/*.test.ts
+bun test                                   # src/*.test.ts, src/*.test.tsx
 bun scripts/changelog.ts --check           # each tag in the branch history has a CHANGELOG.md entry
 python3 .sloppatrol/gate.py --base origin/main   # project rules and `sloppatrol:` markers
 python3 .sloppatrol/agents.py check              # AGENTS.md is complete and not stale
@@ -30,7 +30,7 @@ CI also runs `actionlint` and `zizmor --offline .github` (job `workflows`) and g
 history (job `secrets`). Locally, `gitleaks git` scans every local ref, including other worktrees'
 branches; pass `--log-opts=HEAD` to scan only this branch.
 
-Biome is pinned exactly in `package.json` (2.5.14) with the `recommended` preset in `biome.json`.
+Biome is pinned exactly in `package.json` with the `recommended` preset in `biome.json`.
 
 ast-grep pin: not needed while `.sloppatrol/rules/` is empty; when the first rule lands, CI installs it
 with `uv tool install ast-grep-cli==0.44.1` after a SHA-pinned `astral-sh/setup-uv` step.
@@ -47,8 +47,7 @@ bunx jscpd@5.3.3 src scripts --reporters console --silent # clones
 Known false positives:
 
 - knip: `knip.json` adds `scripts/*.{ts,tsx}` as entries, since they are run by hand or from
-  workflows rather than imported. At setup it reported one candidate: the exported type `Place` in
-  `src/sessions.ts`, used only inside that module (unverified).
+  workflows rather than imported.
 - jscpd: 0 clones at setup.
 - A proposed pipe deadlock from `await process.exited` before reading stdout: Bun buffers piped
   output itself (20 MB read back in full on Bun 1.4.2), so the order is not a defect here.
@@ -65,14 +64,14 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
 - `scripts/changelog.ts` and `scripts/render-aur.ts` run from `.github/workflows/`;
   `scripts/build.ts` runs in releases; `scripts/release.ts` and `scripts/screenshots.tsx` run by hand (README, AGENTS.md).
 - `App`'s `loadSessions` prop exists for `scripts/screenshots.tsx`, which passes demo sessions.
-- `src/native-sessions.ts`, `src/codex.ts` and `src/kitty.ts` discover native sessions and observe provider status. Do not infer activity from terminal output or transcript timestamps.
+- `src/native-sessions.ts`, `src/codex.ts`, `src/opencode.ts`, `src/pi-status.ts` and `src/kitty.ts` discover native sessions and observe provider status. Do not infer activity from terminal output or transcript timestamps.
 - `pi-extension/kiln-status.js` is embedded as text and run by Pi, not by kiln; its event handlers are live roots.
 - Persisted data: `~/.config/kiln/config.toml` (`src/settings.ts`); every key is user-facing.
 
 ## Model-read text
 
 `bundled-skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
-harnesses. Keep its CLI commands and settings aligned with the implementation. Phones hand sessions off through verified provider HTTPS links.
+harnesses; no eval covers it (`src/bundled-skills.test.ts` checks only syncing and backups). Keep its CLI commands and settings aligned with the implementation. Phones hand sessions off through verified provider HTTPS links, or a one-use `/opencode/<code>` path on kiln's server.
 
 ## Zones
 
@@ -80,7 +79,7 @@ How each part of the tree is reviewed. Unlisted paths are `production`.
 
 | Path | Zone | Reason |
 |---|---|---|
-| `src/*.test.ts` | test | `bun test` |
+| `src/*.test.ts`, `src/*.test.tsx` | test | `bun test` |
 | `scripts/` | script | release, changelog, AUR rendering, screenshots |
 | `.github/`, `biome.json`, `knip.json`, `tsconfig.json`, `tmux.conf` | config | `tmux.conf` also ships |
 | `README.md`, `CHANGELOG.md`, `AGENTS.md` | docs | user-facing copy |
