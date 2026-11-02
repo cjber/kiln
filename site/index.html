@@ -9,6 +9,7 @@
       content="kiln opens native Claude, Codex, OpenCode and Pi terminal sessions in one list and pairs with an Android phone. Install on Arch, or build from source with Bun."
     />
     <link rel="canonical" href="https://kiln.cjber.dev/" />
+    <link rel="alternate" type="text/plain" href="llms.txt" title="kiln for agents" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <meta name="theme-color" content="#101214" />
 
@@ -1077,6 +1078,12 @@ bun start</code></pre>
             <p>
               Conflicting content is backed up before repair, and kiln does not overwrite unowned
               same-name skills. The skills view shows what is shared, missing or in conflict.
+            </p>
+            <p>
+              kiln ships its own skills for agents: <code>kiln-config</code> changes its settings and
+              <code>kiln-skills</code> repairs shared skills. kiln syncs them at start, or install them
+              first with <code>npx skills add cjber/kiln</code>. Agents can read
+              <a href="llms.txt">llms.txt</a> for the short version.
             </p>
           </div>
 

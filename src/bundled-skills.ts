@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import config from "../bundled-skills/kiln-config/SKILL.md" with { type: "text" };
-import skills from "../bundled-skills/kiln-skills/SKILL.md" with { type: "text" };
+import config from "../skills/kiln-config/SKILL.md" with { type: "text" };
+import skills from "../skills/kiln-skills/SKILL.md" with { type: "text" };
 import { shareSkill, skillStore } from "./skills";
 
 const bundled = { "kiln-config": config, "kiln-skills": skills };
