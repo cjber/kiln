@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-02
+
 - **Agent names keep their proper casing.** The list, status line, prompts and notifications say Claude, Codex, OpenCode and Pi.
 
 - **`kiln pair` needs no origin on Tailscale.** With no argument it uses this machine's Tailscale HTTPS name, and the invitation always prints with its QR code.
