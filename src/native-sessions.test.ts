@@ -233,6 +233,7 @@ describe("OpenCode pairing", () => {
     createdAt: 1,
     updatedAt: 5,
     activity: "working" as const,
+    running: true,
     title: "Fix",
   };
 
@@ -254,10 +255,11 @@ describe("OpenCode pairing", () => {
     expect(headless[0]?.place).toEqual({ kind: "thread", id: "ses_a", attach: ["opencode", "--session", "ses_a"] });
   });
 
-  test("idle history is not listed, but helpers keep their parent", () => {
+  test("stopped history, even a failed run, is not listed, but helpers keep their parent", () => {
     const { headless } = withOpencodeSessions([], {
       sessions: [
-        { ...stored, id: "ses_old", activity: "idle" },
+        { ...stored, id: "ses_old", activity: "idle", running: false },
+        { ...stored, id: "ses_failed", activity: "waiting", running: false },
         { ...stored, id: "ses_child", parentId: "ses_a" },
       ],
       live: true,

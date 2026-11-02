@@ -450,9 +450,14 @@ export function withOpencodeSessions(
       parentSessionId: session?.parentId,
     };
   });
-  // Idle sessions are history, but one still running after its terminal left, or a helper, can be attached to.
+  // Stopped sessions are history, but one still running after its terminal left, or a helper, can be attached to.
   const headless = sessions
-    .filter((session) => !paired.has(session.id) && (session.activity === "working" || session.activity === "waiting"))
+    .filter(
+      (session) =>
+        !paired.has(session.id) &&
+        session.running &&
+        (session.activity === "working" || session.activity === "waiting"),
+    )
     .map((session) => ({
       agent: "opencode" as const,
       id: session.id,

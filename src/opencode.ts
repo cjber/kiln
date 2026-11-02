@@ -7,6 +7,8 @@ export type OpencodeSession = {
   createdAt: number;
   updatedAt: number;
   activity?: Activity;
+  /** The service holds a turn for it; a stopped one, even one that failed, is history. */
+  running: boolean;
   title?: string;
   parentId?: string;
 };
@@ -146,6 +148,7 @@ async function read(): Promise<OpencodeSession[]> {
             createdAt: info.time.created,
             updatedAt: info.time.updated,
             activity: opencodeActivity(active.data[info.id], waiting.has(info.id), info.outcome),
+            running: info.id in active.data,
             title: info.title,
             parentId: info.parentID,
           },
