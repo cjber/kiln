@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-11-02
+
 - **OpenCode status costs almost nothing to read.** kiln asked OpenCode's background service for each session's state by starting `opencode api`, two calls per refresh plus two for every working session, about 0.15 s of CPU each. It now sends those requests straight to the service on this machine, so the list and the phone server no longer keep a core busy while OpenCode sessions run.
 
 ## [0.13.2] - 2026-11-02
