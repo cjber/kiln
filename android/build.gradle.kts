@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application") version "9.1.1" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false
+    id("com.android.application") version "9.5.0" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
 }
 
 val formatter by configurations.creating {
@@ -10,7 +10,7 @@ val formatter by configurations.creating {
     )
 }
 
-dependencies { formatter("com.facebook:ktfmt:0.63") }
+dependencies { formatter("com.facebook:ktfmt:0.64") }
 
 val kotlinFiles =
     fileTree(rootDir) {
