@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Activity } from "./sessions";
 import { checkout, toolPath } from "./workdir";
 
@@ -103,8 +106,53 @@ export function opencodeActivity(active: Active | undefined, pending: boolean, o
   }
 }
 
-/** Every call goes through the CLI, which holds the service's address and password. */
-async function api<T>(...args: string[]): Promise<T> {
+/** The read routes kiln polls, from the service's OpenAPI document. */
+const routes = {
+  "session.active": "/api/session/active",
+  "session.list": "/api/session",
+  "session.permission.list": "/api/session/{sessionID}/permission",
+  "session.form.list": "/api/session/{sessionID}/form",
+  "session.message.list": "/api/session/{sessionID}/message",
+} as const;
+
+/**
+ * Where the background service listens and its password, as it records them for `opencode api`.
+ * Only a loopback address is accepted, so the password never leaves this machine.
+ */
+export function opencodeService(
+  path = join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "opencode", "service.json"),
+): { url: string; authorization: string } {
+  const { url, password } = JSON.parse(readFileSync(path, "utf8")) as { url?: unknown; password?: unknown };
+  if (typeof url !== "string" || typeof password !== "string" || !password)
+    throw new Error("the OpenCode service has not recorded its address");
+  const origin = new URL(url);
+  if (origin.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname))
+    throw new Error("the OpenCode service is not on this machine");
+  return { url: origin.origin, authorization: `Basic ${btoa(`opencode:${password}`)}` };
+}
+
+/**
+ * One status read from the service. Starting `opencode api` for each cost about 0.15 s of CPU, and a refresh
+ * makes two calls plus two per working session.
+ */
+async function get<T>(operation: keyof typeof routes, params: Record<string, string | number> = {}): Promise<T> {
+  const route = routes[operation];
+  const { url, authorization } = opencodeService();
+  const query = new URLSearchParams();
+  const path = route.replace(/\{(\w+)\}/g, (_, name: string) => encodeURIComponent(String(params[name])));
+  for (const [name, value] of Object.entries(params)) if (!route.includes(`{${name}}`)) query.set(name, String(value));
+  const response = await fetch(`${url}${path}${query.size ? `?${query}` : ""}`, {
+    headers: { Authorization: authorization },
+    redirect: "error",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const source = await response.text();
+  if (!response.ok) throw new Error(source.split("\n")[0] || `the OpenCode service answered ${response.status}`);
+  return JSON.parse(source) as T;
+}
+
+/** Writes go through the CLI, which starts the service when it is not running, so closing never loses one. */
+async function cli(...args: string[]): Promise<void> {
   const child = Bun.spawn(["opencode", "api", ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const timeout = setTimeout(() => child.kill(), timeoutMs);
   const [source, problem, code] = await Promise.all([
@@ -114,14 +162,12 @@ async function api<T>(...args: string[]): Promise<T> {
   ]);
   clearTimeout(timeout);
   if (code) throw new Error(`${source}\n${problem}`.trim().split("\n")[0] || "the OpenCode service did not answer");
-  // A write can answer with an empty body.
-  return (source.trim() ? JSON.parse(source) : undefined) as T;
 }
 
 /** Asked directly, since the listing is capped; a service that cannot answer is treated as busy. */
 export async function opencodeBusy(): Promise<boolean> {
   try {
-    return Object.keys((await api<{ data: Record<string, Active> }>("session.active")).data).length > 0;
+    return Object.keys((await get<{ data: Record<string, Active> }>("session.active")).data).length > 0;
   } catch {
     return true;
   }
@@ -132,17 +178,16 @@ let last: OpencodeSession[] = [];
 /** Prompts are read for active sessions only: a turn that stops to ask is still a running turn. */
 async function read(): Promise<OpencodeSession[]> {
   const [active, listed] = await Promise.all([
-    api<{ data: Record<string, Active> }>("session.active"),
-    api<{ data: Info[] }>("session.list", "--param", `limit=${listLimit}`),
+    get<{ data: Record<string, Active> }>("session.active"),
+    get<{ data: Info[] }>("session.list", { limit: listLimit }),
   ]);
   const waiting = new Set(
     (
       await Promise.all(
         Object.keys(active.data).map(async (id) => {
-          const sessionID = `sessionID=${id}`;
           const [permissions, forms] = await Promise.all([
-            api<{ data: unknown[] }>("session.permission.list", "--param", sessionID),
-            api<{ data: unknown[] }>("session.form.list", "--param", sessionID),
+            get<{ data: unknown[] }>("session.permission.list", { sessionID: id }),
+            get<{ data: unknown[] }>("session.form.list", { sessionID: id }),
           ]);
           return permissions.data.length || forms.data.length ? [id] : [];
         }),
@@ -190,13 +235,10 @@ export async function opencodeWorkdir(session: OpencodeSession, now = Date.now()
   if (saved && (saved.updatedAt === session.updatedAt || now - saved.at < 30_000)) return saved.workdir;
   let workdir = saved?.workdir;
   try {
-    const messages = await api<{ data: { content?: ToolPart[] }[] }>(
-      "session.message.list",
-      "--param",
-      `sessionID=${session.id}`,
-      "--param",
-      "limit=20",
-    );
+    const messages = await get<{ data: { content?: ToolPart[] }[] }>("session.message.list", {
+      sessionID: session.id,
+      limit: 20,
+    });
     for (const message of messages.data)
       for (const part of message.content ?? []) {
         const path = part.type === "tool" && part.name ? toolPath(part.name, part.state?.input ?? {}) : undefined;
@@ -213,8 +255,8 @@ export async function opencodeWorkdir(session: OpencodeSession, now = Date.now()
 /** Stop any turn, then hide the conversation; a session that never took a prompt was never stored. */
 export async function archiveOpencodeSession(id: string): Promise<void> {
   try {
-    await api("session.interrupt", "--param", `sessionID=${id}`);
-    await api("session.update", "--param", `sessionID=${id}`, "--data", '{"archived":true}');
+    await cli("session.interrupt", "--param", `sessionID=${id}`);
+    await cli("session.update", "--param", `sessionID=${id}`, "--data", '{"archived":true}');
   } catch (error) {
     if (!(error instanceof Error && error.message.includes("SessionNotFoundError"))) throw error;
   }

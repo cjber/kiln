@@ -297,8 +297,8 @@ async function piProcesses(): Promise<AgentProcess[]> {
 }
 
 /**
- * `opencode api` starts the service when it is down, so a list refresh only asks a service that is already
- * running. A terminal started outside kiln names no session in argv and stays unknown.
+ * A list refresh only asks a service that is running, since its recorded address outlives it. A terminal
+ * started outside kiln names no session in argv and stays unknown.
  */
 async function readOpencode() {
   const found = (await pidsNamed("opencode")).map((pid) => ({ pid, args: processArgs(pid) ?? [] }));

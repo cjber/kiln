@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **OpenCode status costs almost nothing to read.** kiln asked OpenCode's background service for each session's state by starting `opencode api`, two calls per refresh plus two for every working session, about 0.15 s of CPU each. It now sends those requests straight to the service on this machine, so the list and the phone server no longer keep a core busy while OpenCode sessions run.
+
 ## [0.13.2] - 2026-11-02
 
 - **OpenCode on the phone needs no pairing.** "Open in OpenCode" signs the phone's browser in through kiln's own address and lands on the session, so `kiln setup` no longer prints a second QR code and the sign-in no longer runs out after 30 days. Each link works once, for 15 minutes. The phone app needs this release too.
