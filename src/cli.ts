@@ -44,7 +44,9 @@ export async function runCli(args: string[]): Promise<number | undefined> {
           if (!options.local) {
             const origin = options.origin ?? (await setupTailscale(server.port ?? options.port));
             console.log(`kiln: phone access at ${origin}`);
-            await printInvitation(pairing, origin);
+            // A service's log is no place for a pairing code, even a short-lived one.
+            if (process.stdout.isTTY) await printInvitation(pairing, origin);
+            else console.log("kiln: run kiln pair to add a phone");
           }
         } catch (error) {
           server?.stop();

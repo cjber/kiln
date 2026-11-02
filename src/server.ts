@@ -50,11 +50,14 @@ export function startServer({
   pairing,
   discover = settingsDiscovery(),
   interval = 2_000,
+  idleInterval = 60_000,
 }: {
   port: number;
   pairing: Pairing;
   discover?: () => Promise<Discovered>;
   interval?: number;
+  /** Refresh period with no phone connected; it keeps the saved-session records current. */
+  idleInterval?: number;
 }) {
   const instance = randomUUID();
   let snapshot = {
@@ -67,6 +70,10 @@ export function startServer({
     sessions: [] as ReturnType<typeof phoneSession>[],
   };
   let refreshing = false;
+  let refreshedAt = 0;
+  const refreshIfOld = () => {
+    if (Date.now() - refreshedAt >= interval) void refresh();
+  };
   let attempts = 0;
   let windowStart = Date.now();
   const sockets = new Set<Bun.ServerWebSocket<{ token: string }>>();
@@ -110,7 +117,10 @@ export function startServer({
       const token = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
       const device = token ? pairing.authenticate(token) : null;
       if (!token || !device) return response({ error: "Device is not paired" }, 401);
-      if (request.method === "GET" && path === "/v1/sessions") return response(snapshot);
+      if (request.method === "GET" && path === "/v1/sessions") {
+        refreshIfOld();
+        return response(snapshot);
+      }
       if (request.method === "GET" && path === "/v1/events") {
         if (server.upgrade(request, { data: { token } })) return;
         return response({ error: "Expected WebSocket" }, 400);
@@ -124,6 +134,7 @@ export function startServer({
       open(socket) {
         sockets.add(socket);
         socket.send(JSON.stringify(snapshot));
+        refreshIfOld();
       },
       message(socket) {
         socket.close(1008, "This stream is read-only");
@@ -143,6 +154,7 @@ export function startServer({
   const refresh = async () => {
     if (refreshing) return;
     refreshing = true;
+    refreshedAt = Date.now();
     try {
       const { sessions, problem, stale } = await discover();
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
@@ -172,9 +184,10 @@ export function startServer({
       publish();
     }
   };
+  // Discovery starts several provider CLIs, so it runs every interval only while a phone watches.
   const timer = setInterval(() => {
     publish();
-    void refresh();
+    if (sockets.size || Date.now() - refreshedAt >= idleInterval) void refresh();
   }, interval);
   void refresh();
   return {

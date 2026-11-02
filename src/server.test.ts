@@ -121,6 +121,37 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
   }
 });
 
+test("discovery runs every interval only while a phone is connected", async () => {
+  const { pairing } = fixture();
+  let calls = 0;
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    idleInterval: 60_000,
+    discover: async () => {
+      calls++;
+      return { sessions: [], problem: "", stale: false };
+    },
+  });
+  const origin = `http://127.0.0.1:${server.port}`;
+  try {
+    await Bun.sleep(200);
+    expect(calls).toBe(1);
+    const { token } = pairing.exchange(pairing.invite(), "test")!;
+    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/v1/events`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    await new Promise((resolve) => (socket.onopen = resolve));
+    await Bun.sleep(200);
+    expect(calls).toBeGreaterThan(4);
+    socket.close();
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
 test("phone projection retains provider ancestry without terminal PIDs", () => {
   const parent: Session = {
     id: "parent",
