@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sessionAction } from "./launcher";
 import {
+  claudeActivity,
   claudeListing,
+  claudeSessionStatus,
   deduplicateSessions,
   finishedClaudeJobs,
   inheritedCodexParent,
@@ -22,6 +27,7 @@ describe("isInteractiveCodex", () => {
 
   test("keeps a session whose opening prompt starts with a subcommand's name", () => {
     expect(isInteractiveCodex(["codex", "review the retry change"])).toBe(true);
+    expect(isInteractiveCodex(["codex", "-m", "gpt-reserve", "review the retry change"])).toBe(true);
   });
 
   test("drops the non-session subcommands", () => {
@@ -31,6 +37,8 @@ describe("isInteractiveCodex", () => {
       ["codex", "agents"],
       ["codex", "app-server"],
       ["codex", "mcp", "list"],
+      ["codex", "-c", "features.code_mode_host=true", "app-server"],
+      ["codex", "-m", "gpt-reserve", "--config=x=1", "review"],
     ]) {
       expect(isInteractiveCodex(command)).toBe(false);
     }
@@ -151,10 +159,11 @@ test("duplicate clients keep an openable terminal regardless of process order", 
 describe("finished Claude jobs", () => {
   const job = { kind: "background", id: "82f7d7c3", sessionId: "provider-id", name: "Finished", cwd: "/repo" };
 
-  test("lists completed and stopped jobs without a process or an activity", () => {
-    const [done, stopped] = finishedClaudeJobs([
+  test("lists completed, stopped and crashed jobs without a process or an activity", () => {
+    const [done, stopped, crashed] = finishedClaudeJobs([
       { ...job, state: "done", startedAt: 5 },
       { ...job, id: "0b276145", state: "stopped" },
+      { ...job, id: "1c387256", state: "crashed" },
     ]);
     expect(done).toMatchObject({
       agent: "claude",
@@ -167,6 +176,7 @@ describe("finished Claude jobs", () => {
     expect(done?.activity).toBeUndefined();
     expect(done?.pid).toBeUndefined();
     expect(stopped?.lifecycle).toBe("stopped");
+    expect(crashed?.lifecycle).toBe("stopped");
     expect(sessionAction(done as Session)).toEqual({ verb: "delete" });
   });
 
@@ -182,6 +192,18 @@ describe("finished Claude jobs", () => {
       ]),
     ).toEqual([]);
   });
+});
+
+test("a Claude turn that ended with a background shell running is idle, not working", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-claude-"));
+  mkdirSync(join(dir, "sessions"));
+  writeFileSync(join(dir, "sessions", "7.json"), JSON.stringify({ pid: 7, status: "shell" }));
+  writeFileSync(join(dir, "sessions", "8.json"), "{");
+  expect(claudeSessionStatus(7, dir)).toBe("shell");
+  expect(claudeSessionStatus(8, dir)).toBeUndefined();
+  expect(claudeSessionStatus(9, dir)).toBeUndefined();
+  expect(claudeActivity("shell")).toBe("idle");
+  expect(claudeActivity("busy")).toBe("working");
 });
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {

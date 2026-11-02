@@ -5,27 +5,21 @@ import { allPages, cloudCache } from "./cloud";
 import { cloudLink } from "./cloud-links";
 import type { Activity, Session } from "./sessions";
 
-const statuses = ["idle", "working", "waiting", "completed", "archived", "cancelled", "rejected"] as const;
-type CloudStatus = (typeof statuses)[number];
-
-function activity(status: CloudStatus | undefined): Activity | undefined {
+/** Claude's `worker_status` values, as its own cloud picker reads them; anything else shows as unknown. */
+function activity(status: unknown): Activity | undefined {
   switch (status) {
-    case "working":
+    case "running":
       return "working";
-    case "waiting":
-    case "rejected":
+    case "requires_action":
       return "waiting";
     case "idle":
-    case "completed":
-    case "archived":
-    case "cancelled":
       return "idle";
-    case undefined:
+    default:
       return undefined;
   }
 }
 
-/** Internal Claude Code API, verified against 2.1.285's cloud picker. Bridge rows are local sessions. */
+/** Internal Claude Code API, verified against 2.1.316's cloud picker. Bridge rows are local sessions. */
 export function parseClaudeCloudPage(source: string): { sessions: Session[]; cursor: string | null } {
   let page: { data?: unknown; next_cursor?: unknown } | null;
   try {
@@ -61,13 +55,12 @@ export function parseClaudeCloudPage(source: string): { sessions: Session[]; cur
       continue;
     const url = cloudLink("claude", row.id);
     if (!url) throw new Error("Claude cloud returned an invalid session");
-    const status = statuses.includes(row.worker_status as CloudStatus) ? (row.worker_status as CloudStatus) : undefined;
     sessions.push({
       agent: "claude",
       cwd: homedir(),
       startedAt: Date.parse(row.created_at),
       lastActiveAt: lastActivity(row.last_event_at, row.updated_at),
-      activity: activity(status),
+      activity: activity(row.worker_status),
       place: { kind: "cloud", id: row.id, title: row.title, url },
     });
   }
