@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **OpenCode status costs almost nothing to read.** kiln asked OpenCode's background service for each session's state by starting `opencode api`, two calls per refresh plus two for every working session, about 0.15 s of CPU each. It now sends those requests straight to the service on this machine, so the list and the phone server no longer keep a core busy while OpenCode sessions run.
+
 - **Sessions show the worktree they work in.** An agent started in one checkout and working in a worktree was listed under the checkout it started in, with that checkout's branch, so most rows said `main`. The list, the footer and the phone now show the checkout of the agent's latest file edit or `cd`, and its branch. Claude and OpenCode sessions are read this way; Codex already reported its own. Opening or resuming a session still starts it where it began.
 
 ## [0.13.1] - 2026-11-02
