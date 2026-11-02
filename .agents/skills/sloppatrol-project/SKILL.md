@@ -1,9 +1,9 @@
 ---
-name: sift-project
-description: "Project skill for sift in kiln: the exact quality-gate and evidence commands, live roots that must never be deleted as dead code, exclusions, conventions and risk order. Load before running sift or any code-quality, cleanup or dead-code work in this repository."
+name: sloppatrol-project
+description: "Project skill for Sloppatrol in kiln: the exact quality-gate and evidence commands, live roots that must never be deleted as dead code, exclusions, conventions and risk order. Load before running a Sloppatrol audit or any code-quality, cleanup or dead-code work in this repository."
 ---
 
-# sift project skill: kiln
+# Sloppatrol project skill: kiln
 
 kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex and Pi TUIs and lists cached cloud tasks. It runs from source under
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
@@ -22,8 +22,8 @@ bunx biome ci .                            # format + lint; `bunx biome check --
 bunx tsc --noEmit -p .                     # strict
 bun test                                   # src/*.test.ts
 bun scripts/changelog.ts --check           # each tag in the branch history has a CHANGELOG.md entry
-python3 .sift/gate.py --base origin/main   # project rules and `sift:` markers
-python3 .sift/agents.py check              # AGENTS.md is complete and not stale
+python3 .sloppatrol/gate.py --base origin/main   # project rules and `sloppatrol:` markers
+python3 .sloppatrol/agents.py check              # AGENTS.md is complete and not stale
 ```
 
 CI also runs `actionlint` and `zizmor --offline .github` (job `workflows`) and gitleaks over the
@@ -32,7 +32,7 @@ branches; pass `--log-opts=HEAD` to scan only this branch.
 
 Biome is pinned exactly in `package.json` (2.5.14) with the `recommended` preset in `biome.json`.
 
-ast-grep pin: not needed while `.sift/rules/` is empty; when the first rule lands, CI installs it
+ast-grep pin: not needed while `.sloppatrol/rules/` is empty; when the first rule lands, CI installs it
 with `uv tool install ast-grep-cli==0.44.1` after a SHA-pinned `astral-sh/setup-uv` step.
 
 ## Evidence
@@ -86,7 +86,7 @@ How each part of the tree is reviewed. Unlisted paths are `production`.
 | `README.md`, `CHANGELOG.md`, `AGENTS.md` | docs | user-facing copy |
 | `assets/*.png` | generated | `bun scripts/screenshots.tsx` |
 | `bun.lock` | generated | `bun install` |
-| `.sift/gate.py`, `.sift/agents.py`, `.sift/LICENSE` | vendor | copied from sift; `sift update` replaces them |
+| `.sloppatrol/gate.py`, `.sloppatrol/agents.py`, `.sloppatrol/LICENSE` | vendor | copied from Sloppatrol; `sloppatrol init --refresh` replaces them |
 
 ## Conventions
 
@@ -137,9 +137,9 @@ two audits.
 
 ## Project rules and lenses
 
-- Rules already owned elsewhere (not duplicated in `.sift/`): Biome `recommended` preset;
+- Rules already owned elsewhere (not duplicated in `.sloppatrol/`): Biome `recommended` preset;
   `tsc` strict; `scripts/changelog.ts --check` (a changelog entry per tag in the branch history); `release.yml` checks the
   tag is on `main` and matches `package.json`.
-- ast-grep rules: `.sift/rules/` (0): none yet
-- Script rules: `.sift/scripts/` (0): none yet
-- Lenses: `.sift/lenses/`: none yet
+- ast-grep rules: `.sloppatrol/rules/` (0): none yet
+- Script rules: `.sloppatrol/scripts/` (0): none yet
+- Lenses: `.sloppatrol/lenses/`: none yet
