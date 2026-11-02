@@ -5,11 +5,11 @@ plugins {
 
 android {
     namespace = "com.cjber.kiln"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         applicationId = "com.cjber.kiln"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 22
         versionName = "0.12.1"
     }
