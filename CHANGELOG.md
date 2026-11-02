@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The phone server's address explains itself in a browser.** Opening it showed `{"error":"Device is not paired"}`, which read as a lost pairing. It now says it is the kiln phone server, that sessions are in the phone app, and that `kiln pair` adds a phone.
+
 ## [0.13.0] - 2026-11-02
 
 - **OpenCode sessions open on the phone.** `kiln setup` serves OpenCode's web UI on your tailnet and prints a QR code that signs the phone's browser in once. OpenCode rows then get an "Open in OpenCode" button that goes straight to the session. The Android app accepts these links only for the machine it paired with, so it needs this release too.

@@ -87,6 +87,12 @@ export function startServer({
     async fetch(request, server) {
       if (request.headers.has("Origin")) return response({ error: "Browser requests are not supported" }, 403);
       const path = new URL(request.url).pathname;
+      // Opened in a browser, the address explains itself instead of reading as a lost pairing.
+      if (path === "/" && request.method === "GET")
+        return new Response(
+          "This is the kiln phone server. It has no web page: open the kiln app on your phone to see your sessions. To pair a phone, run kiln pair on this computer.\n",
+          { headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } },
+        );
       if (path === "/v1/pair" && request.method === "POST") {
         if (Date.now() - windowStart >= 60_000) {
           attempts = 0;
