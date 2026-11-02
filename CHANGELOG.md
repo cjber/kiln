@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-02
+
 - **The phone server rests while no phone is watching.** `kiln serve` looked for sessions every two seconds whether or not a phone was connected, starting the Claude, OpenCode and kitty command-line tools each time, which kept about one CPU core busy. With no phone connected it now looks once a minute, enough to remember running sessions across a restart, and goes back to every two seconds as soon as the app opens.
 
 - **`kiln serve` keeps pairing codes out of the service log.** Run as a service, it prints where the phone server is and the `kiln pair` command for that address; the invitation and QR code appear only when it runs in a terminal.
