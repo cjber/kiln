@@ -16,8 +16,8 @@ bun scripts/changelog.ts --check
 bun scripts/perf.ts
 bun scripts/list-tui-e2e.ts
 bun scripts/native-tui-e2e.ts
-python3 .sift/gate.py --base origin/main
-python3 .sift/agents.py check
+python3 .sloppatrol/gate.py --base origin/main
+python3 .sloppatrol/agents.py check
 ```
 
 CI runs the same except `bun scripts/perf.ts`, plus actionlint, zizmor and gitleaks over the workflows and history.
@@ -75,7 +75,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
   screen; nothing prints to the console while it is up.
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.
-- Quality: load `.agents/skills/sift-project/SKILL.md` before cleanup, dead-code or refactoring
+- Quality: load `.agents/skills/sloppatrol-project/SKILL.md` before cleanup, dead-code or refactoring
   work.
 
 Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links, or a one-use `/opencode/<code>` path the phone resolves against the kiln server it paired with.

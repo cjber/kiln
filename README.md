@@ -135,8 +135,8 @@ bunx biome ci .
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
-python3 .sift/gate.py --base origin/main
-python3 .sift/agents.py check
+python3 .sloppatrol/gate.py --base origin/main
+python3 .sloppatrol/agents.py check
 bun scripts/list-tui-e2e.ts
 bun scripts/perf.ts
 bun scripts/native-tui-e2e.ts
