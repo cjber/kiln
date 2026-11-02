@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kiln - one list for Claude, Codex, OpenCode and Pi sessions</title>
+    <meta
+      name="description"
+      content="kiln opens native Claude, Codex, OpenCode and Pi terminal sessions in one list and pairs with an Android phone. Install on Arch, or build from source with Bun."
+    />
+    <link rel="canonical" href="https://kiln.cjber.dev/" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#101214" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="kiln - one list for Claude, Codex, OpenCode and Pi sessions" />
+    <meta
+      property="og:description"
+      content="kiln opens native Claude, Codex, OpenCode and Pi terminal sessions in one list and pairs with an Android phone."
+    />
+    <meta property="og:url" content="https://kiln.cjber.dev/" />
+    <meta property="og:image" content="https://kiln.cjber.dev/img/list.png" />
+    <meta property="og:image:width" content="1736" />
+    <meta property="og:image:height" content="640" />
+    <meta property="og:image:alt" content="kiln's terminal list of Claude, Codex and OpenCode sessions grouped by directory" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&amp;display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        color-scheme: dark light;
+        --ink: #101214;
+        --ember: #df8b63;
+        --flame: #ffc477;
+        --bg: #101214;
+        --panel: #15181b;
+        --panel-2: #1b1f23;
+        --text: #f4f1ec;
+        --muted: #a8a29b;
+        --faint: #918b84;
+        --line: #292e33;
+        --line-strong: #3b4148;
+        --accent: #df8b63;
+        --focus: #ffc477;
+        --accent-soft: rgba(223, 139, 99, 0.12);
+        --green: #9ec9a2;
+        --yellow: #e8c36a;
+        --shadow: 0 28px 70px rgba(0, 0, 0, 0.45);
+        --gutter: 16px;
+        --max: 1120px;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #faf7f2;
+          --panel: #ffffff;
+          --panel-2: #f2ece4;
+          --text: #101214;
+          --muted: #57534d;
+          --faint: #6e6962;
+          --line: #e3dbce;
+          --line-strong: #cbc1b1;
+          --accent: #9c4723;
+          --focus: #9c4723;
+          --accent-soft: rgba(156, 71, 35, 0.1);
+          --green: #3d6843;
+          --yellow: #775711;
+          --shadow: 0 22px 55px rgba(16, 18, 20, 0.1);
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        background-image: radial-gradient(58rem 30rem at 50% -12%, var(--accent-soft), transparent 72%);
+        background-repeat: no-repeat;
+        color: var(--text);
+        font-family: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      img {
+        max-width: 100%;
+        height: auto;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      a:hover {
+        color: var(--text);
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+      }
+
+      .wrap {
+        width: 100%;
+        max-width: var(--max);
+        margin-inline: auto;
+        padding-inline: var(--gutter);
+      }
+
+      .site-header {
+        border-bottom: 1px solid var(--line);
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(12px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .site-header .wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 64px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        text-decoration: none;
+        font-size: 1.05rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .brand img {
+        display: block;
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+      }
+
+      .site-nav {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        font-size: 0.82rem;
+      }
+
+      .site-nav a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      .site-nav a:hover {
+        color: var(--text);
+      }
+
+      .site-nav .nav-cta {
+        color: var(--ink);
+        background: var(--ember);
+        border-radius: 4px;
+        padding: 6px 12px;
+        font-weight: 600;
+      }
+
+      .site-nav .nav-cta:hover {
+        color: var(--ink);
+        background: var(--flame);
+      }
+
+      main {
+        display: block;
+      }
+
+      section {
+        scroll-margin-top: 88px;
+      }
+
+      .hero {
+        padding-top: 64px;
+        padding-bottom: 48px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        gap: 56px;
+        align-items: center;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 0 22px;
+        color: var(--accent);
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        background: var(--accent);
+      }
+
+      h1 {
+        margin: 0 0 24px;
+        font-size: clamp(2.35rem, 6.2vw, 4.25rem);
+        font-weight: 500;
+        line-height: 1.02;
+        letter-spacing: -0.05em;
+      }
+
+      h1 .accent {
+        color: var(--accent);
+      }
+
+      .lead {
+        max-width: 38rem;
+        margin: 0 0 30px;
+        color: var(--muted);
+        font-size: clamp(0.98rem, 1.6vw, 1.1rem);
+        line-height: 1.7;
+      }
+
+      .lead strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 14px;
+        margin-bottom: 26px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 42px;
+        padding: 9px 18px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        font-size: 0.86rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .button-primary {
+        background: var(--ember);
+        color: var(--ink);
+      }
+
+      .button-primary:hover {
+        background: var(--flame);
+        color: var(--ink);
+      }
+
+      .button-ghost {
+        border-color: var(--line-strong);
+        color: var(--text);
+      }
+
+      .button-ghost:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .agents {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .agents li {
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        padding: 3px 9px;
+        color: var(--muted);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+      }
+
+      .terminal {
+        min-width: 0;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .terminal-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--line);
+        padding: 11px 14px;
+        background: var(--panel-2);
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--line-strong);
+      }
+
+      .dot.ember {
+        background: var(--ember);
+      }
+
+      .dot.flame {
+        background: var(--flame);
+      }
+
+      .terminal-title {
+        margin-left: auto;
+        color: var(--faint);
+        font-size: 0.68rem;
+        letter-spacing: 0.08em;
+      }
+
+      .terminal pre {
+        margin: 0;
+        padding: 20px 18px;
+        overflow-x: auto;
+        color: var(--text);
+        font-family: inherit;
+        font-size: clamp(0.72rem, 1.5vw, 0.82rem);
+        line-height: 1.85;
+      }
+
+      .terminal .prompt {
+        color: var(--accent);
+        user-select: none;
+      }
+
+      .terminal .comment {
+        color: var(--faint);
+      }
+
+      .figure-wide {
+        margin: 0;
+      }
+
+      .shot {
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        background: var(--panel);
+        padding: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 5px;
+      }
+
+      .figure-wide figcaption,
+      .figure-split figcaption {
+        margin-top: 12px;
+        color: var(--faint);
+        font-size: 0.76rem;
+        line-height: 1.6;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        margin: 16px 0 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted);
+        font-size: 0.74rem;
+      }
+
+      .legend li {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .legend i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+
+      .legend .needs {
+        background: var(--yellow);
+      }
+
+      .legend .ready {
+        background: var(--green);
+      }
+
+      .legend .working {
+        background: var(--faint);
+      }
+
+      .legend .dir {
+        border-radius: 1px;
+        background: var(--accent);
+      }
+
+      .section {
+        padding-top: 72px;
+      }
+
+      .section-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 18px;
+        margin-bottom: 34px;
+      }
+
+      .section-index {
+        color: var(--accent);
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+      }
+
+      h2 {
+        flex: 1 1 18rem;
+        margin: 0;
+        font-size: clamp(1.5rem, 3.2vw, 2rem);
+        font-weight: 500;
+        letter-spacing: -0.035em;
+        line-height: 1.2;
+      }
+
+      .section-note {
+        flex: 0 1 auto;
+        margin: 0;
+        color: var(--faint);
+        font-size: 0.78rem;
+      }
+
+      .section-intro {
+        max-width: 42rem;
+        margin: 0 0 30px;
+        color: var(--muted);
+        font-size: 0.94rem;
+        line-height: 1.75;
+      }
+
+      .install-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .install-card {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        padding: 20px 20px 22px;
+      }
+
+      .install-card h3 {
+        margin: 0 0 4px;
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+
+      .install-card p {
+        margin: 0 0 16px;
+        color: var(--faint);
+        font-size: 0.76rem;
+      }
+
+      .code-block {
+        position: relative;
+        margin: 0;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--panel-2);
+        overflow-x: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.78rem;
+        line-height: 1.8;
+      }
+
+      .code-block code {
+        font-family: inherit;
+      }
+
+      .code-block .comment {
+        color: var(--faint);
+      }
+
+      .install-foot {
+        margin: 22px 0 0;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 30px 34px;
+      }
+
+      .feature {
+        min-width: 0;
+        border-top: 1px solid var(--line-strong);
+        padding-top: 18px;
+      }
+
+      .feature .num {
+        display: block;
+        margin-bottom: 12px;
+        color: var(--accent);
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+      }
+
+      .feature h3 {
+        margin: 0 0 8px;
+        font-size: 0.98rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .feature p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+        line-height: 1.7;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr);
+        gap: 40px;
+        align-items: center;
+      }
+
+      .split h2 {
+        margin-bottom: 14px;
+      }
+
+      .split p {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        line-height: 1.75;
+      }
+
+      .split p:last-child {
+        margin-bottom: 0;
+      }
+
+      .figure-split {
+        margin: 0;
+        min-width: 0;
+      }
+
+      .phones {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 4px;
+      }
+
+      .phone {
+        min-width: 0;
+        margin: 0;
+      }
+
+      .phone .shot {
+        padding: 5px;
+        border-radius: 12px;
+      }
+
+      .phone img {
+        border-radius: 8px;
+      }
+
+      .phone figcaption {
+        margin-top: 10px;
+        color: var(--faint);
+        font-size: 0.72rem;
+        line-height: 1.55;
+      }
+
+      .phone-note {
+        margin: 26px 0 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+        gap: 48px;
+        align-items: start;
+      }
+
+      .keys {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.82rem;
+      }
+
+      .keys th {
+        border-bottom: 1px solid var(--line-strong);
+        padding: 0 10px 9px;
+        color: var(--faint);
+        font-size: 0.68rem;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-align: left;
+        text-transform: uppercase;
+      }
+
+      .keys td {
+        border-bottom: 1px solid var(--line);
+        padding: 9px 10px;
+        vertical-align: top;
+      }
+
+      .keys td:first-child {
+        width: 8.5rem;
+        padding-right: 16px;
+        white-space: nowrap;
+      }
+
+      kbd {
+        display: inline-block;
+        border: 1px solid var(--line-strong);
+        border-radius: 3px;
+        background: var(--panel-2);
+        padding: 0 6px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.76rem;
+        line-height: 1.7;
+      }
+
+      .cmd-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .cmd-list li {
+        border-bottom: 1px solid var(--line);
+        padding: 12px 0;
+      }
+
+      .cmd-list code {
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+
+      .cmd-list p {
+        margin: 3px 0 0;
+        color: var(--faint);
+        font-size: 0.76rem;
+        line-height: 1.6;
+      }
+
+      .callout {
+        margin: 18px 0 0;
+        border-left: 2px solid var(--accent);
+        padding: 2px 0 2px 14px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .more {
+        margin-top: 40px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        padding: 24px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px 30px;
+      }
+
+      .more p {
+        margin: 0;
+        max-width: 38rem;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.7;
+      }
+
+      .more a {
+        font-size: 0.84rem;
+        white-space: nowrap;
+      }
+
+      .site-footer {
+        margin-top: 88px;
+        border-top: 1px solid var(--line);
+        padding-block: 28px 36px;
+      }
+
+      .site-footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px 28px;
+      }
+
+      .footer-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--text);
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .footer-brand img {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 20px;
+        color: var(--faint);
+        font-size: 0.76rem;
+      }
+
+      .footer-links a {
+        color: var(--muted);
+        text-decoration: none;
+      }
+
+      .footer-links a:hover {
+        color: var(--text);
+        text-decoration: underline;
+      }
+
+      @media (max-width: 900px) {
+        .hero-grid {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 34px;
+        }
+
+        .feature-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .split {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 26px;
+        }
+
+        .two-col {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 40px;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .site-nav {
+          gap: 12px;
+          font-size: 0.74rem;
+        }
+
+        .site-header .wrap {
+          min-height: 58px;
+        }
+
+        .brand {
+          font-size: 0.98rem;
+        }
+
+        .hero {
+          padding-top: 44px;
+          padding-bottom: 36px;
+        }
+
+        .install-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .feature-grid {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 24px;
+        }
+
+        .phones {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .phone:last-child {
+          grid-column: span 2;
+          max-width: 52%;
+          margin-inline: auto;
+        }
+
+        .phone:last-child figcaption {
+          text-align: center;
+        }
+
+        .keys td:first-child {
+          width: 8rem;
+          padding-right: 14px;
+          white-space: normal;
+        }
+
+        .keys td,
+        .keys th {
+          padding-inline: 6px;
+        }
+
+        .more {
+          padding: 20px;
+        }
+
+        .site-footer {
+          margin-top: 64px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="#top">
+          <img src="icon.svg" width="30" height="30" alt="" />
+          kiln
+        </a>
+        <nav class="site-nav" aria-label="Site">
+          <a href="#install">Install</a>
+          <a href="#features">Features</a>
+          <a href="#keys">Keys</a>
+          <a
+            class="nav-cta"
+            href="https://github.com/cjber/kiln#readme"
+            >README</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">Terminal session list</p>
+            <h1 id="hero-title">
+              One list for your <span class="accent">agent sessions.</span>
+            </h1>
+            <p class="lead">
+              <strong>kiln opens native Claude, Codex, OpenCode and Pi terminal sessions and pairs
+              with an Android phone.</strong>
+              Each agent keeps its own terminal interface. kiln discovers the sessions, reads
+              their status and gives you one place to find them.
+            </p>
+            <div class="actions">
+              <a class="button button-primary" href="#install">Install kiln</a>
+              <a class="button button-ghost" href="https://github.com/cjber/kiln">View on GitHub</a>
+            </div>
+            <ul class="agents" aria-label="Supported agents">
+              <li>Claude</li>
+              <li>Codex</li>
+              <li>OpenCode</li>
+              <li>Pi</li>
+            </ul>
+          </div>
+
+          <div class="terminal">
+            <div class="terminal-bar" aria-hidden="true">
+              <span class="dot ember"></span>
+              <span class="dot flame"></span>
+              <span class="dot"></span>
+              <span class="terminal-title">install</span>
+            </div>
+            <pre><span class="prompt">$</span> paru -S kiln-agents-bin
+<span class="comment"># or: paru -S kiln-agents</span>
+<span class="prompt">$</span> bun install --frozen-lockfile
+<span class="prompt">$</span> bun start</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="wrap" aria-label="kiln session list">
+        <figure class="figure-wide">
+          <div class="shot">
+            <img
+              src="img/list.png"
+              width="1736"
+              height="640"
+              fetchpriority="high"
+              alt="kiln's list showing Claude, Codex and OpenCode sessions grouped by directory, with working, needs input, ready and completed statuses"
+            />
+          </div>
+          <figcaption>
+            Sessions grouped by directory and task, with the provider's status and the time since
+            its last update. <a href="img/list.png">Open full size</a>.
+          </figcaption>
+          <ul class="legend">
+            <li><i class="needs"></i>Needs input</li>
+            <li><i class="ready"></i>Ready</li>
+            <li><i class="working"></i>Working</li>
+            <li><i class="dir"></i>Directory</li>
+          </ul>
+        </figure>
+      </section>
+
+      <section class="section wrap" id="install" aria-labelledby="install-title">
+        <div class="section-head">
+          <span class="section-index">01</span>
+          <h2 id="install-title">Install</h2>
+          <p class="section-note">Arch, or from source with Bun</p>
+        </div>
+
+        <div class="install-grid">
+          <div class="install-card">
+            <h3>Arch package</h3>
+            <p>The AUR package, from a terminal.</p>
+            <pre class="code-block"><code>paru -S kiln-agents-bin <span class="comment"># standalone binary</span>
+<span class="comment"># or: paru -S kiln-agents # Bun source package</span></code></pre>
+          </div>
+
+          <div class="install-card">
+            <h3>From source</h3>
+            <p>Install Bun, fzf and tmux first, then:</p>
+            <pre class="code-block"><code>bun install --frozen-lockfile
+bun start</code></pre>
+          </div>
+        </div>
+
+        <p class="install-foot">
+          Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provider's own
+          CLI. Native commands and their arguments can be overridden in settings.
+        </p>
+      </section>
+
+      <section class="section wrap" id="features" aria-labelledby="features-title">
+        <div class="section-head">
+          <span class="section-index">02</span>
+          <h2 id="features-title">What it does</h2>
+          <p class="section-note">Native agents, one view</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="num">01</span>
+            <h3>Keeps each agent's own TUI</h3>
+            <p>
+              Claude and Codex keep their terminal interfaces for messages, prompts and approvals.
+              kiln opens them and steps back, without starting a second agent.
+            </p>
+          </article>
+
+          <article class="feature">
+            <span class="num">02</span>
+            <h3>Status from the provider</h3>
+            <p>
+              kiln reads each provider's own status updates. Terminal output never establishes
+              activity, and activity it cannot read stays unknown rather than guessed.
+            </p>
+          </article>
+
+          <article class="feature">
+            <span class="num">03</span>
+            <h3>Grouped, filtered and counted</h3>
+            <p>
+              Sessions sit under their directory, with child sessions collapsed. The header counts
+              input requests even when children are closed. Filter by title, directory, agent or
+              status.
+            </p>
+          </article>
+
+          <article class="feature">
+            <span class="num">04</span>
+            <h3>Survives a restart</h3>
+            <p>
+              Sessions running in a terminal stay in the list as stopped after a restart. Enter
+              resumes the conversation in a new kiln session in the same directory.
+            </p>
+          </article>
+
+          <article class="feature">
+            <span class="num">05</span>
+            <h3>Read-only cloud tasks</h3>
+            <p>
+              Codex Cloud tasks and optional Claude cloud sessions keep their provider status and
+              verified HTTPS links. They cannot be closed or prompted from kiln.
+            </p>
+          </article>
+
+          <article class="feature">
+            <span class="num">06</span>
+            <h3>Settings in one file</h3>
+            <p>
+              Press s to edit <code>~/.config/kiln/config.toml</code>. Choose the sort order, the
+              detach key, which agents appear and whether cloud listings are on. Unknown keys are
+              errors.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section wrap" id="skills" aria-labelledby="skills-title">
+        <div class="split">
+          <div>
+            <div class="section-head">
+              <span class="section-index">03</span>
+              <h2 id="skills-title">Shared skills</h2>
+            </div>
+            <p>
+              Press S in a selected project to manage the skills your agents share. n creates a
+              skill and opens <code>SKILL.md</code> in <code>$EDITOR</code>, and Enter edits it.
+            </p>
+            <p>
+              Conflicting content is backed up before repair, and kiln does not overwrite unowned
+              same-name skills. The skills view shows what is shared, missing or in conflict.
+            </p>
+          </div>
+
+          <figure class="figure-split">
+            <div class="shot">
+              <img
+                src="img/skills.png"
+                width="1736"
+                height="640"
+                loading="lazy"
+                alt="kiln's shared skills view listing deploy and review, with shared, conflict and missing states for Claude and Pi"
+              />
+            </div>
+            <figcaption>
+              Shared skills, with each agent's state and where the skill comes from.
+              <a href="img/skills.png">Open full size</a>.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section wrap" id="phone" aria-labelledby="phone-title">
+        <div class="section-head">
+          <span class="section-index">04</span>
+          <h2 id="phone-title">On your phone</h2>
+          <p class="section-note">Android over Tailscale</p>
+        </div>
+        <p class="section-intro">
+          The Android app lists native sessions and cloud tasks. Opening a linked session goes
+          through the provider's installed app or browser using verified HTTPS links. Pair a phone
+          with <code>kiln setup</code>, or with <code>kiln pair</code> for another device.
+        </p>
+
+        <div class="phones">
+          <figure class="phone">
+            <div class="shot">
+              <img
+                src="img/android-list.png"
+                width="1080"
+                height="2400"
+                loading="lazy"
+                alt="kiln on Android: sessions grouped by directory with status labels and branch names"
+              />
+            </div>
+            <figcaption>Every session, with status and branch.</figcaption>
+          </figure>
+
+          <figure class="phone">
+            <div class="shot">
+              <img
+                src="img/android-handoff.png"
+                width="1080"
+                height="2400"
+                loading="lazy"
+                alt="Session details on Android with an Open in Claude button"
+              />
+            </div>
+            <figcaption>Details, then a handoff to the provider.</figcaption>
+          </figure>
+
+          <figure class="phone">
+            <div class="shot">
+              <img
+                src="img/android-pairing.png"
+                width="1080"
+                height="2400"
+                loading="lazy"
+                alt="Pair with kiln screen on Android offering a QR scan or a pairing invitation"
+              />
+            </div>
+            <figcaption>Pair once with a QR code or invitation.</figcaption>
+          </figure>
+        </div>
+
+        <p class="phone-note">
+          Pairing invitations expire after five minutes and work once. Sign in to Tailscale before
+          running <code>kiln serve</code>. OpenCode sessions open in OpenCode's own web UI on your
+          PC, reached over Tailscale. The APK is on the
+          <a href="https://github.com/cjber/kiln/releases">releases page</a>; add the repository to
+          <a href="https://obtainium.imranr.dev">Obtainium</a> for updates.
+        </p>
+      </section>
+
+      <section class="section wrap" id="keys" aria-labelledby="keys-title">
+        <div class="section-head">
+          <span class="section-index">05</span>
+          <h2 id="keys-title">Keys and commands</h2>
+          <p class="section-note">The short version</p>
+        </div>
+
+        <div class="two-col">
+          <div>
+            <table class="keys">
+              <thead>
+                <tr>
+                  <th scope="col">Key</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><kbd>j</kbd> <kbd>k</kbd>, arrows</td><td>Select a session</td></tr>
+                <tr><td><kbd>Enter</kbd></td><td>Open a session or cloud task</td></tr>
+                <tr><td><kbd>n</kbd></td><td>Choose an agent, then a directory through fzf</td></tr>
+                <tr><td><kbd>/</kbd></td><td>Filter titles, directories, agent names and status</td></tr>
+                <tr><td><kbd>Tab</kbd></td><td>Expand children</td></tr>
+                <tr><td><kbd>o</kbd></td><td>Cycle list order</td></tr>
+                <tr><td><kbd>x</kbd></td><td>Close a kiln-owned session after confirmation</td></tr>
+                <tr><td><kbd>s</kbd></td><td>Edit settings</td></tr>
+                <tr><td><kbd>S</kbd></td><td>Open shared skills</td></tr>
+                <tr><td><kbd>r</kbd></td><td>Refresh</td></tr>
+                <tr><td><kbd>q</kbd></td><td>Quit the list</td></tr>
+              </tbody>
+            </table>
+            <p class="callout">
+              New sessions run inside kiln's private tmux server. <kbd>Ctrl+Q</kbd> returns to the
+              list and leaves the session running.
+            </p>
+          </div>
+
+          <div>
+            <ul class="cmd-list">
+              <li>
+                <code>kiln setup</code>
+                <p>
+                  Installs a user service that survives reboots, configures Tailscale Serve and
+                  prints a pairing QR.
+                </p>
+              </li>
+              <li>
+                <code>kiln serve</code>
+                <p>Runs the phone server in the foreground until the terminal closes.</p>
+              </li>
+              <li>
+                <code>kiln serve --origin https://your-machine.example</code>
+                <p>Uses your own HTTPS tunnel instead of Tailscale Serve.</p>
+              </li>
+              <li>
+                <code>kiln serve --local</code>
+                <p>Listens on localhost only, without tunnel setup or a printed invitation.</p>
+              </li>
+              <li>
+                <code>kiln pair</code>
+                <p>
+                  Generates another invitation while the server is running. The origin defaults to
+                  this machine's Tailscale HTTPS name.
+                </p>
+              </li>
+              <li>
+                <code>kiln devices</code>
+                <p>Lists paired devices.</p>
+              </li>
+              <li>
+                <code>kiln revoke &lt;device-id&gt;</code>
+                <p>Disconnects a phone without affecting agent sessions.</p>
+              </li>
+              <li>
+                <code>kiln skills list</code>
+                <p>Lists shared skills. Also: <code>kiln skills share &lt;name&gt;</code> and <code>kiln skills sync</code>.</p>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="more">
+          <p>
+            Settings, sort orders, cloud behaviour, the phone server and the full verification
+            steps are in the README. That is the place for anything not covered here.
+          </p>
+          <a href="https://github.com/cjber/kiln#readme">Read the README</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <a class="footer-brand" href="https://github.com/cjber/kiln">
+          <img src="icon.svg" width="22" height="22" alt="" loading="lazy" />
+          kiln
+        </a>
+        <span class="footer-links">
+          <a href="https://github.com/cjber/kiln">GitHub</a>
+          <a href="https://cjber.dev">cjber.dev</a>
+          <span>Made by Cillian Berragan</span>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
