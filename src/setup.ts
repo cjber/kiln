@@ -90,10 +90,11 @@ export async function runSetup(
   } catch {
     // No unit yet, or a link whose target is missing.
   }
-  const changed = existing !== unit;
-  // A linked unit belongs to whoever manages its target, such as a dotfiles repository.
-  if (changed && lstatSync(unitPath, { throwIfNoEntry: false })?.isSymbolicLink())
-    throw new Error(`${unitPath} is a symlink kiln did not create; remove it, then run kiln setup again`);
+  // A linked unit belongs to whoever manages its target, such as a dotfiles repository: use it as it is.
+  const linked = lstatSync(unitPath, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
+  if (linked && existing === undefined)
+    throw new Error(`${unitPath} links to a missing file; fix or remove the link, then run kiln setup again`);
+  const changed = !linked && existing !== unit;
   const active = (await run(["systemctl", "--user", "is-active", "--quiet", unitName])).code === 0;
   if (!active && (await isListening(options.port)))
     throw new Error(`port ${options.port} is already in use; stop the running kiln serve, then run kiln setup again`);
@@ -102,7 +103,7 @@ export async function runSetup(
     writeFileSync(unitPath, unit);
     await systemctl("daemon-reload");
     report(`${existing === undefined ? "installed" : "updated"} ${unitPath}`);
-  } else report(`${unitPath} is up to date`);
+  } else report(linked ? `using ${unitPath}, which links to a unit kiln does not manage` : `${unitPath} is up to date`);
   await systemctl("enable", unitName);
   if (active && changed) {
     await systemctl("restart", unitName);

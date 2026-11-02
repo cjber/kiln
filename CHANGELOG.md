@@ -9,11 +9,19 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-02
+
 - **Agent names keep their proper casing.** The list, status line, prompts and notifications say Claude, Codex, OpenCode and Pi.
 
 - **`kiln pair` needs no origin on Tailscale.** With no argument it uses this machine's Tailscale HTTPS name, and the invitation always prints with its QR code.
 
 - **Stopped OpenCode sessions leave the list.** A conversation with no terminal is listed only while the OpenCode service is still running it, so one whose last run failed no longer stays as "needs input" when there is nothing to open.
+
+- **A long title keeps its helper count.** The `[+N]` count of nested sessions stays on the line, and only the title is shortened to fit.
+
+- **`kiln setup` uses a phone server unit from your dotfiles.** When `kiln-serve.service` is a link to a unit kiln did not write, setup leaves it as it is and goes on to the tunnel and the pairing QR instead of stopping.
+
+- **The terminal UI runs on OpenTUI 0.8.1.** Opening a session from the list hands the terminal over once the list has fully let go of it.
 
 ## [0.12.0] - 2026-11-01
 

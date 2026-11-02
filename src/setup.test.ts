@@ -59,10 +59,11 @@ test("setup installs and starts the service once, then changes nothing", async (
     writeFileSync(managed, "[Service]\nExecStart=/usr/bin/kiln serve\n");
     rmSync(join(unitDirectory, "kiln-serve.service"));
     symlinkSync(managed, join(unitDirectory, "kiln-serve.service"));
-    await expect(runSetup([], dependencies)).rejects.toThrow("is a symlink");
-    expect(readFileSync(managed, "utf8")).toContain("ExecStart=/usr/bin/kiln serve\n");
+    await expect(runSetup([], dependencies)).resolves.toBe("https://machine.example:7437");
+    expect(reports.some((line) => line.includes("links to a unit kiln does not manage"))).toBe(true);
+    expect(readFileSync(managed, "utf8")).toBe("[Service]\nExecStart=/usr/bin/kiln serve\n");
     rmSync(managed);
-    await expect(runSetup([], dependencies)).rejects.toThrow("is a symlink");
+    await expect(runSetup([], dependencies)).rejects.toThrow("links to a missing file");
     expect(existsSync(managed)).toBe(false);
   } finally {
     rmSync(unitDirectory, { recursive: true, force: true });
