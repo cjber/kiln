@@ -17,7 +17,7 @@ import { panes } from "./tmux";
 import { readTranscript } from "./transcript";
 
 /** Claude's own statuses, grouped; anything newer than this list shows as unknown rather than guessed. */
-function claudeActivity(status: string | undefined): Activity | undefined {
+export function claudeActivity(status: string | undefined): Activity | undefined {
   switch (status) {
     case "busy":
       return "working";
@@ -27,6 +27,8 @@ function claudeActivity(status: string | undefined): Activity | undefined {
     case "blocked":
       return "waiting";
     case "idle":
+    // The turn has ended and only a background shell it started is still running.
+    case "shell":
       return "idle";
     default:
       return undefined;
@@ -126,14 +128,21 @@ function isDaemon(pid: number): boolean {
   }
 }
 
+const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+
+/** `claude agents` reports `shell` as `busy`, so a busy session's raw status is read from its own record. */
+export function claudeSessionStatus(pid: number, dir = claudeConfigDir()): string | undefined {
+  try {
+    const { status } = JSON.parse(readFileSync(join(dir, "sessions", `${pid}.json`), "utf8"));
+    return typeof status === "string" ? status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function claudeTranscriptPath(item: ClaudeAgent): string | undefined {
   if (!item.sessionId || !/^[A-Za-z0-9-]+$/.test(item.sessionId)) return undefined;
-  return join(
-    Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-    "projects",
-    item.cwd.replace(/[^a-zA-Z0-9]/g, "-"),
-    `${item.sessionId}.jsonl`,
-  );
+  return join(claudeConfigDir(), "projects", item.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${item.sessionId}.jsonl`);
 }
 
 function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
@@ -219,7 +228,8 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
         workdir,
         startedAt: item.startedAt ?? startedAt(item.pid),
         lastActiveAt: claudeTranscriptActivity(item),
-        activity: claudeActivity(item.status),
+        // A failed listing has no status, and stays unknown rather than reading a stale record.
+        activity: claudeActivity(item.status === "busy" ? (claudeSessionStatus(item.pid) ?? "busy") : item.status),
       };
       switch (item.kind ?? "interactive") {
         case "interactive":

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sessionAction } from "./launcher";
 import {
+  claudeActivity,
   claudeListing,
+  claudeSessionStatus,
   deduplicateSessions,
   finishedClaudeJobs,
   inheritedCodexParent,
@@ -182,6 +187,18 @@ describe("finished Claude jobs", () => {
       ]),
     ).toEqual([]);
   });
+});
+
+test("a Claude turn that ended with a background shell running is idle, not working", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-claude-"));
+  mkdirSync(join(dir, "sessions"));
+  writeFileSync(join(dir, "sessions", "7.json"), JSON.stringify({ pid: 7, status: "shell" }));
+  writeFileSync(join(dir, "sessions", "8.json"), "{");
+  expect(claudeSessionStatus(7, dir)).toBe("shell");
+  expect(claudeSessionStatus(8, dir)).toBeUndefined();
+  expect(claudeSessionStatus(9, dir)).toBeUndefined();
+  expect(claudeActivity("shell")).toBe("idle");
+  expect(claudeActivity("busy")).toBe("working");
 });
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {

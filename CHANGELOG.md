@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **Sessions show the worktree they work in.** An agent started in one checkout and working in a worktree was listed under the checkout it started in, with that checkout's branch, so most rows said `main`. The list, the footer and the phone now show the checkout of the agent's latest file edit or `cd`, and its branch. Claude and OpenCode sessions are read this way; Codex already reported its own. Opening or resuming a session still starts it where it began.
+- **A Claude session waiting on a background command is idle.** Claude reports a session whose turn has ended while a shell it started keeps running as busy, so kiln listed it as working. Kiln now reads that session's own status record and lists it as idle until its next turn.
 
 ## [0.13.1] - 2026-11-02
 
