@@ -170,11 +170,12 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
 
   const withTerminal = useCallback(
     async <T,>(action: () => T | Promise<T>): Promise<T> => {
-      renderer.suspend();
+      // OpenTUI hands the terminal back asynchronously; tmux must not start until it has.
+      await renderer.suspend();
       try {
         return await action();
       } finally {
-        renderer.resume();
+        await renderer.resume();
         await refresh();
       }
     },
