@@ -48,6 +48,8 @@ export type Session = {
   /** Agent-reported status; terminal output never establishes activity. */
   activity?: Activity;
   lifecycle?: Lifecycle;
+  /** The OpenCode background service holds this conversation, so its web UI can open it. */
+  opencodeService?: boolean;
   /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
   branch?: string;
   place: Place;

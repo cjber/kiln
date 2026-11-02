@@ -42,3 +42,25 @@ test("native handoffs require exact provider identities", () => {
   });
   expect(phoneHandoff({ ...session, agent: "pi" })).toEqual({ reason: "Open this Pi session in kiln on your PC" });
 });
+
+test("an OpenCode session opens in the web UI only when the service holds it", () => {
+  const served: Session = {
+    agent: "opencode",
+    id: "ses_abc",
+    cwd: "/repo",
+    startedAt: 1,
+    opencodeService: true,
+    place: { kind: "thread", id: "ses_abc", attach: ["opencode", "--session", "ses_abc"] },
+  };
+  const origin = "https://machine.example.ts.net:4096";
+  expect(phoneHandoff(served, undefined, origin)).toEqual({
+    url: `${origin}/server/aHR0cHM6Ly9tYWNoaW5lLmV4YW1wbGUudHMubmV0OjQwOTY/session/ses_abc`,
+    label: "Open in OpenCode",
+    exact: true,
+  });
+  expect(phoneHandoff(served)).toEqual({ reason: "Run kiln setup to open OpenCode sessions on your phone" });
+  expect(phoneHandoff({ ...served, opencodeService: false }, undefined, origin)).toEqual({
+    reason: "Open this OpenCode session in kiln on your PC",
+  });
+  expect(phoneHandoff({ ...served, id: "ses_../x" }, undefined, origin)).not.toHaveProperty("url");
+});

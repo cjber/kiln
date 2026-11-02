@@ -448,6 +448,7 @@ export function withOpencodeSessions(
       activity: session ? session.activity : live ? ("idle" as const) : undefined,
       lastActiveAt: session?.updatedAt,
       parentSessionId: session?.parentId,
+      opencodeService: session !== undefined,
     };
   });
   // Stopped sessions are history, but one still running after its terminal left, or a helper, can be attached to.
@@ -467,6 +468,7 @@ export function withOpencodeSessions(
       startedAt: session.createdAt,
       lastActiveAt: session.updatedAt,
       activity: session.activity,
+      opencodeService: true,
       branch: gitBranch(session.cwd),
       place: {
         kind: "thread" as const,

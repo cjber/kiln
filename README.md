@@ -87,7 +87,7 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 <img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
-Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. Sessions without mobile access explain how to open them on the PC.
+Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. Opening a linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. OpenCode sessions open in OpenCode's own web UI on your PC, reached over Tailscale. Sessions without mobile access explain how to open them on the PC.
 
 ```sh
 kiln setup # installs a user service that survives reboots, configures Tailscale Serve and prints a pairing QR
@@ -107,6 +107,8 @@ kiln revoke <device-id>
 Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving another application is preserved; use `--origin` with a separate tunnel in that case. Keep the server running while using the phone.
 
 `kiln setup` writes `~/.config/systemd/user/kiln-serve.service`, enables it and reports each change; running it again changes nothing. A unit that is a symlink, for example into a dotfiles repository, is left alone and reported. The service listens on localhost only and never prints a pairing code to the journal. It records the current `PATH` so the agents' CLIs are found; run `kiln setup` again after moving them. To start before login, run `loginctl enable-linger`. `--port` and `--origin` work as they do for `kiln serve`.
+
+For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096, serves its web UI at `https://<your Tailscale name>:4096` and prints a second QR code. Scan that one with the phone's camera once to sign its browser in to OpenCode; afterwards "Open in OpenCode" goes straight to the session. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. The web UI is reachable only on your tailnet and asks for OpenCode's password, which the QR code hands over. To sign in another browser later, run `opencode pair --url https://<your Tailscale name>:4096`. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
 
 On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day.
 

@@ -36,7 +36,7 @@ function kilnCommand(): string[] {
   return process.execPath.endsWith("bun") ? [process.execPath, join(import.meta.dir, "index.tsx")] : [process.execPath];
 }
 
-async function spawn(argv: string[]): Promise<{ code: number; output: string }> {
+export async function spawn(argv: string[]): Promise<{ code: number; output: string }> {
   const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
