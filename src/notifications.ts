@@ -1,4 +1,4 @@
-import { agentName, type Session, sessionIdentity } from "./sessions";
+import { agentName, type Session, sessionDirectory, sessionIdentity } from "./sessions";
 
 /** Notify only observed native transitions; missing sessions and unknown states reset tracking. */
 export function nativeNotifications(send = notifySessionEvent) {
@@ -26,7 +26,7 @@ export function notifySessionEvent(session: Session): void {
         "--app-name=kiln",
         "--",
         `${session.title || `${agentName(session.agent)} session`} · ${session.activity === "waiting" ? "Needs input" : "Turn finished"}`,
-        `${agentName(session.agent)} · ${session.cwd}`
+        `${agentName(session.agent)} · ${sessionDirectory(session)}`
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;"),

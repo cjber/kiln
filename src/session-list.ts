@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { type SessionSort, sortSessions } from "./session-sort";
-import { agentName, type Session, sessionIdentity, sessionParents } from "./sessions";
+import { agentName, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
 
 export function sessionTitle(session: Session): string {
   const title = session.place.kind === "cloud" ? session.place.title : session.title;
@@ -59,7 +59,7 @@ export function sessionRows(
   const needle = filter.trim().toLowerCase();
   const matches = (session: Session): boolean =>
     !needle ||
-    `${sessionTitle(session)} ${session.agent} ${session.cwd} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${sessionStatus(session).label} ${session.place.kind}`
+    `${sessionTitle(session)} ${session.agent} ${sessionDirectory(session)} ${session.branch ?? ""} ${session.lifecycle ?? session.activity ?? ""} ${sessionStatus(session).label} ${session.place.kind}`
       .toLowerCase()
       .includes(needle);
   const matching = new Set(ordered.filter(matches));
@@ -76,7 +76,7 @@ export function sessionRows(
     const key = grouped
       ? root.place.kind === "cloud"
         ? `task:${root.agent}:${root.place.id}`
-        : `dir:${root.cwd}`
+        : `dir:${sessionDirectory(root)}`
       : "all";
     const group = groups.get(key) ?? [];
     group.push(root);
@@ -109,8 +109,11 @@ export function sessionRows(
       rows.push({
         kind: "header",
         key,
-        name: first.place.kind === "cloud" ? first.place.title : basename(first.cwd) || first.cwd,
-        directory: first.place.kind === "cloud" ? undefined : first.cwd,
+        name:
+          first.place.kind === "cloud"
+            ? first.place.title
+            : basename(sessionDirectory(first)) || sessionDirectory(first),
+        directory: first.place.kind === "cloud" ? undefined : sessionDirectory(first),
       });
     for (const session of group) append(session);
   }

@@ -1,4 +1,5 @@
 import type { Activity } from "./sessions";
+import { checkout, toolPath } from "./workdir";
 
 /** A conversation held by OpenCode's background service, which outlives the terminals attached to it. */
 export type OpencodeSession = {
@@ -175,6 +176,38 @@ export async function opencodeSessions(): Promise<OpencodeListing> {
     last = last.map(({ activity, ...session }) => session);
     return { sessions: last, live: false };
   }
+}
+
+type ToolPart = { type?: string; name?: string; state?: { input?: Record<string, unknown> } };
+const workdirs = new Map<string, { updatedAt: number; at: number; workdir?: string }>();
+
+/**
+ * The checkout a session's latest edit or `cd` was in. It is read again only when the session has changed,
+ * and at most every 30 s while it works, since a working session changes on every refresh.
+ */
+export async function opencodeWorkdir(session: OpencodeSession, now = Date.now()): Promise<string | undefined> {
+  const saved = workdirs.get(session.id);
+  if (saved && (saved.updatedAt === session.updatedAt || now - saved.at < 30_000)) return saved.workdir;
+  let workdir = saved?.workdir;
+  try {
+    const messages = await api<{ data: { content?: ToolPart[] }[] }>(
+      "session.message.list",
+      "--param",
+      `sessionID=${session.id}`,
+      "--param",
+      "limit=20",
+    );
+    for (const message of messages.data)
+      for (const part of message.content ?? []) {
+        const path = part.type === "tool" && part.name ? toolPath(part.name, part.state?.input ?? {}) : undefined;
+        const found = path && checkout(path);
+        if (found) workdir = found;
+      }
+  } catch {
+    return workdir;
+  }
+  workdirs.set(session.id, { updatedAt: session.updatedAt, at: now, workdir });
+  return workdir;
 }
 
 /** Stop any turn, then hide the conversation; a session that never took a prompt was never stored. */

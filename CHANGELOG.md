@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Sessions show the worktree they work in.** An agent started in one checkout and working in a worktree was listed under the checkout it started in, with that checkout's branch, so most rows said `main`. The list, the footer and the phone now show the checkout of the agent's latest file edit or `cd`, and its branch. Claude and OpenCode sessions are read this way; Codex already reported its own. Opening or resuming a session still starts it where it began.
+
 ## [0.13.1] - 2026-11-02
 
 - **The phone server's address explains itself in a browser.** Opening it showed `{"error":"Device is not paired"}`, which read as a lost pairing. It now says it is the kiln phone server, that sessions are in the phone app, and that `kiln pair` adds a phone.

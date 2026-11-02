@@ -5,7 +5,15 @@ import { servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
-import { type Discovered, discovery, type Place, type Session, sessionIdentity, sessionParents } from "./sessions";
+import {
+  type Discovered,
+  discovery,
+  type Place,
+  type Session,
+  sessionDirectory,
+  sessionIdentity,
+  sessionParents,
+} from "./sessions";
 import { loadSettings, SettingsError } from "./settings";
 
 /** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
@@ -29,7 +37,7 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     parentId: parent ? sessionIdentity(parent) : undefined,
     agent: session.agent,
     title: sessionTitle(session),
-    cwd: session.cwd,
+    cwd: sessionDirectory(session),
     branch: session.branch,
     activity: session.activity,
     lifecycle: session.lifecycle,

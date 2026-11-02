@@ -13,7 +13,16 @@ import {
   visibleSessions,
 } from "./session-list";
 import { sessionSorts } from "./session-sort";
-import { type Agent, agentName, agents, discovery, keepLast, type Session, sessionIdentity } from "./sessions";
+import {
+  type Agent,
+  agentName,
+  agents,
+  discovery,
+  keepLast,
+  type Session,
+  sessionDirectory,
+  sessionIdentity,
+} from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach } from "./tmux";
@@ -49,7 +58,7 @@ const toneColor: Record<Tone, string> = {
 };
 
 function label(session: Session): string {
-  return session.place.kind === "cloud" ? session.place.title : tilde(session.cwd);
+  return session.place.kind === "cloud" ? session.place.title : tilde(sessionDirectory(session));
 }
 
 /** Shorten with an ellipsis by terminal columns, keeping the end of a path or the start of a title. */
@@ -240,7 +249,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const closed = await closeSession(session);
       setNotice(
         closed === true && "verb" in action
-          ? `${{ close: "closed", archive: "archived", delete: "deleted", forget: "forgot" }[action.verb]} ${agentName(session.agent)} in ${tilde(session.cwd)}`
+          ? `${{ close: "closed", archive: "archived", delete: "deleted", forget: "forgot" }[action.verb]} ${agentName(session.agent)} in ${tilde(sessionDirectory(session))}`
           : closed === true
             ? "session closed"
             : closed,
@@ -460,7 +469,7 @@ function hints(mode: Mode, current: Session | undefined, width: number): string 
     case "confirm": {
       if (!current || !action) return "";
       if ("reason" in action) return action.reason;
-      return `${action.verb} ${agentName(current.agent)} in ${tilde(current.cwd)}? y to confirm, anything else cancels`;
+      return `${action.verb} ${agentName(current.agent)} in ${tilde(sessionDirectory(current))}? y to confirm, anything else cancels`;
     }
   }
 }

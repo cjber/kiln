@@ -41,7 +41,10 @@ export type Session = {
   parentSessionId?: string;
   parentSessionAgent?: Agent;
   agent: Agent;
+  /** Where the agent started; resuming a conversation needs it. */
   cwd: string;
+  /** The checkout the agent last edited or `cd`'d into, which is often a worktree rather than `cwd`. */
+  workdir?: string;
   startedAt: number;
   /** Last provider or transcript update, when available. */
   lastActiveAt?: number;
@@ -50,7 +53,7 @@ export type Session = {
   lifecycle?: Lifecycle;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
-  /** The branch checked out in `cwd`, or a short commit when HEAD is detached. */
+  /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */
   branch?: string;
   place: Place;
 };
@@ -61,6 +64,11 @@ export type Session = {
  */
 export function sessionIdentity(session: Session): string {
   return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
+}
+
+/** Where the agent works, for display and grouping; opening and resuming use `cwd`. */
+export function sessionDirectory(session: Session): string {
+  return session.workdir ?? session.cwd;
 }
 
 export function gitBranch(cwd: string): string | undefined {
