@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The footer shows relative time.** The selected session's hint says "updated 2m" like the list, instead of a raw ISO timestamp.
+
 ## [0.12.2] - 2026-11-02
 
 - **The phone app looks like the terminal list.** It is always dark, uses the terminal's colours and a monospace font, and shows each session as one line: the agent name in its colour, the title in its status colour (yellow needs input, green ready or completed) and the age in grey. Swiping to hide no longer leaves a green band behind every row.

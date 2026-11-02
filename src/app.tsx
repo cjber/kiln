@@ -433,7 +433,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
+            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${age(current.lastActiveAt, now)}`,
             Math.max(1, width - 2),
             "end",
           )}
