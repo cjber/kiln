@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cloudLink } from "./cloud-links";
-import { opencodeSessionLink } from "./opencode-web";
 import type { Session } from "./sessions";
 
 export type Handoff = { url: string; label: string; exact: boolean } | { reason: string };
@@ -23,8 +22,8 @@ export function claudeBridgeLink(
   }
 }
 
-/** `opencodeOrigin` is where Tailscale serves OpenCode's web UI, when `kiln setup` put it there. */
-export function phoneHandoff(session: Session, codexHost?: string, opencodeOrigin?: string): Handoff {
+/** `opencodeLink` gives a session's sign-in path on kiln's own address, once `kiln setup` has served OpenCode. */
+export function phoneHandoff(session: Session, codexHost?: string, opencodeLink?: (id: string) => string): Handoff {
   if (session.place.kind === "cloud") {
     return session.place.url
       ? { url: session.place.url, label: "Open task", exact: true }
@@ -55,8 +54,8 @@ export function phoneHandoff(session: Session, codexHost?: string, opencodeOrigi
     case "opencode":
       if (!session.opencodeService || !session.id || !/^ses_[A-Za-z0-9]+$/.test(session.id))
         return { reason: "Open this OpenCode session in kiln on your PC" };
-      return opencodeOrigin
-        ? { url: opencodeSessionLink(opencodeOrigin, session.id), label: "Open in OpenCode", exact: true }
+      return opencodeLink
+        ? { url: opencodeLink(session.id), label: "Open in OpenCode", exact: true }
         : { reason: "Run kiln setup to open OpenCode sessions on your phone" };
     case "pi":
       return { reason: "Open this Pi session in kiln on your PC" };
