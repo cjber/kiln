@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-11-02
+
 - **A Claude session waiting on a background command is idle.** Claude reports a session whose turn has ended while a shell it started keeps running as busy, so kiln listed it as working. Kiln now reads that session's own status record and lists it as idle until its next turn.
 - **Claude cloud sessions show working and needs input.** Kiln matched Claude's cloud worker states against names Claude does not send, so a running cloud session showed no status and one asking for input was not flagged. It now reads `running`, `requires_action` and `idle`.
 - **A crashed Claude background job stays listed.** A job that crashed disappeared from the list. It is now shown as stopped, and opening it attaches to read what happened.
