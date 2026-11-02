@@ -24,6 +24,16 @@ bun start
 
 Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
 
+## Set up with your agent
+
+kiln ships two skills: `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs both into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
+
+```sh
+npx skills add cjber/kiln
+```
+
+In Claude Code you can use the plugin instead: `/plugin marketplace add cjber/kiln`, then `/plugin install kiln@kiln`. The skills live in [`skills/`](skills).
+
 ## Terminal
 
 | Key | Action |
@@ -126,7 +136,7 @@ kiln skills share <name>
 kiln skills sync
 ```
 
-The bundled `kiln-config` and `kiln-skills` helpers are synced into the shared store before the terminal starts.
+The `kiln-config` and `kiln-skills` helpers in [`skills/`](skills) are synced into the shared store before the terminal starts.
 
 ## Verification
 

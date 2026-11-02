@@ -12,6 +12,7 @@ const usage = `usage: kiln            open the session list
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
        kiln skills list|share|sync    manage shared skills
+       agents: npx skills add cjber/kiln installs the kiln-config and kiln-skills skills
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */

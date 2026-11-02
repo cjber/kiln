@@ -1,0 +1,12 @@
+{
+  "name": "kiln",
+  "description": "Configure kiln's session list, native agent commands, cloud discovery and tmux settings, and inspect or repair the shared user and project skills kiln manages.",
+  "author": {
+    "name": "Cillian Berragan",
+    "url": "https://github.com/cjber"
+  },
+  "homepage": "https://kiln.cjber.dev",
+  "repository": "https://github.com/cjber/kiln",
+  "license": "MIT",
+  "keywords": ["agent-skills", "claude-code", "codex", "opencode", "pi", "tmux", "tui"]
+}

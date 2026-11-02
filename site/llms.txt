@@ -1,0 +1,23 @@
+# kiln
+
+> kiln opens native Claude Code, Codex, OpenCode and Pi terminal sessions from one vim-keyed list, reads each provider's own status, and pairs with an Android phone. It also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+
+Install on Arch: `paru -S kiln-agents-bin` (standalone binary) or `paru -S kiln-agents` (Bun source package). It needs fzf and tmux.
+
+## Agent skills
+
+kiln syncs two skills into the shared skill store each time it starts. Install them first with `npx skills add cjber/kiln`, or in Claude Code with `/plugin marketplace add cjber/kiln` then `/plugin install kiln@kiln`.
+
+- [kiln-config](https://github.com/cjber/kiln/blob/main/skills/kiln-config/SKILL.md): change the session list, native agent commands, cloud discovery and tmux settings in kiln's TOML config
+- [kiln-skills](https://github.com/cjber/kiln/blob/main/skills/kiln-skills/SKILL.md): inspect and repair shared user or project skills, including missing links and conflicting Claude or Pi copies
+
+## Commands
+
+- `kiln`: open the session list
+- `kiln status`: print session counts
+- `kiln skills list|share|sync`: manage shared skills
+- `kiln setup`, `kiln pair`, `kiln devices`, `kiln revoke <id>`: phone access
+
+## Docs
+
+- [README](https://github.com/cjber/kiln/blob/main/README.md)

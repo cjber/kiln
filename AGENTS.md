@@ -60,7 +60,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
-- `src/bundled-skills.ts`, `bundled-skills/` - embedded helpers synced to the shared user store before the TUI starts.
+- `src/bundled-skills.ts`, `skills/` - embedded helpers synced to the shared user store before the TUI starts.
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.

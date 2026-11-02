@@ -9,7 +9,7 @@ kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude,
 Bun (`bin/kiln` execs `src/index.tsx`); the source package is unbundled. `scripts/build.ts` also compiles Linux x64/arm64 binaries
 with embedded OpenTUI assets and tmux configuration for `kiln-agents-bin`. Arch users install it from the AUR as
 `kiln-agents`: a `v*` tag publishes a PKGBUILD (`scripts/render-aur.ts`) that copies `bin`, `src`,
-`node_modules` (production install), `bundled-skills`, `pi-extension`, `package.json` and `tmux.conf`. No other repository imports it.
+`node_modules` (production install), `skills`, `pi-extension`, `package.json` and `tmux.conf`. No other repository imports it.
 
 ## Gate
 
@@ -70,7 +70,7 @@ Things reached indirectly. The dead-code lens must treat these as referenced.
 
 ## Model-read text
 
-`bundled-skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
+`skills/*/SKILL.md` ships configuration and shared-skill repair guidance to installed
 harnesses; no eval covers it (`src/bundled-skills.test.ts` checks only syncing and backups). Keep its CLI commands and settings aligned with the implementation. Phones hand sessions off through verified provider HTTPS links, or a one-use `/opencode/<code>` path on kiln's server.
 
 ## Zones
