@@ -27,6 +27,7 @@ describe("isInteractiveCodex", () => {
 
   test("keeps a session whose opening prompt starts with a subcommand's name", () => {
     expect(isInteractiveCodex(["codex", "review the retry change"])).toBe(true);
+    expect(isInteractiveCodex(["codex", "-m", "gpt-reserve", "review the retry change"])).toBe(true);
   });
 
   test("drops the non-session subcommands", () => {
@@ -36,6 +37,8 @@ describe("isInteractiveCodex", () => {
       ["codex", "agents"],
       ["codex", "app-server"],
       ["codex", "mcp", "list"],
+      ["codex", "-c", "features.code_mode_host=true", "app-server"],
+      ["codex", "-m", "gpt-reserve", "--config=x=1", "review"],
     ]) {
       expect(isInteractiveCodex(command)).toBe(false);
     }

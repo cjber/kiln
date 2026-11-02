@@ -265,9 +265,25 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
 
 /** Decided on argv, so a quoted prompt that begins with a subcommand's name is still one argument. */
 export function isInteractiveCodex(args: readonly string[]): boolean {
-  const word = args.slice(1).find((arg) => !arg.startsWith("-"));
+  let word: string | undefined;
+  for (let index = 1; index < args.length; index++) {
+    const arg = args[index] as string;
+    if (!arg.startsWith("-")) {
+      word = arg;
+      break;
+    }
+    // `-c key=value app-server`: the value of an option is not the subcommand.
+    if (codexValueOptions.has(arg)) index++;
+  }
   return !word || !["exec", "e", "review", "agents", "app-server", "exec-server", "mcp", "cloud"].includes(word);
 }
+
+/** Codex's global options that take their value as the next argument, from `codex --help`. */
+const codexValueOptions = new Set(
+  "-c --config --enable --disable --remote --remote-auth-token-env -i --image -m --model --local-provider -p --profile -s --sandbox -C --cd --add-dir -a --ask-for-approval".split(
+    " ",
+  ),
+);
 
 async function pidsNamed(name: string): Promise<number[]> {
   const listed = Bun.spawn(["pgrep", "-x", name], { stdout: "pipe", stderr: "ignore" });
