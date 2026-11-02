@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-02
+
 - **The phone server's address explains itself in a browser.** Opening it showed `{"error":"Device is not paired"}`, which read as a lost pairing. It now says it is the kiln phone server, that sessions are in the phone app, and that `kiln pair` adds a phone.
 
 ## [0.13.0] - 2026-11-02
