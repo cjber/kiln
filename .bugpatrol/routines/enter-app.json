@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "enter-app",
+  "description": "Run /tmp/kiln-qa/drive.sh COLS ROWS SEED keys..., which starts scripts/list-tui-fixture.tsx on seeded sessions in a private tmux server, sends the keys and prints the pane.",
+  "platform": "cli",
+  "requires": [],
+  "steps": [
+    {
+      "kind": "run",
+      "command": "bun src/index.ts --help",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "timeout 8 bun start",
+      "input": "q\n",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "/tmp/kiln-qa/drive.sh 80 24 short j j j j j j j Tab",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "/tmp/kiln-qa/drive.sh 80 24 short G",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "/tmp/kiln-qa/drive.sh 34 10 short",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "/tmp/kiln-qa/drive.sh 80 8 short / z z z z",
+      "at": "terminal||e3b0c44298fc"
+    }
+  ],
+  "createdAt": "2026-11-01T18:18:06.277Z",
+  "updatedAt": "2026-11-01T18:18:06.277Z"
+}
