@@ -250,4 +250,32 @@ class SessionListTest {
         assertEquals(setOf("parent", "child"), sessionRestoreIds(rows, "child"))
         assertEquals(emptySet<String>(), hidden - sessionRestoreIds(rows, "child"))
     }
+
+    @Test
+    fun aHiddenSessionReturnsWhenItsActivityChanges() {
+        val working = listOf(parent.copy(activity = Activity.WORKING), child)
+        val hidden = hideWithActivity(working, emptyMap(), sessionTreeIds(working, "parent"))
+        assertEquals(mapOf("parent" to Activity.WORKING, "child" to Activity.IDLE), hidden)
+        assertEquals(hidden, hiddenEntries(storedHidden(hidden)))
+        assertEquals(hidden, settleHidden(working, hidden))
+        // Losing sight of it is not a change.
+        val unknown = listOf(parent.copy(activity = Activity.UNKNOWN), child)
+        assertEquals(hidden, settleHidden(unknown, hidden))
+        // The parent finishes: it comes back with its helper.
+        assertEquals(emptyMap<String, Activity?>(), settleHidden(listOf(parent, child), hidden))
+        // A helper that asks for input brings its parent back too.
+        val asking =
+            listOf(
+                parent.copy(activity = Activity.WORKING),
+                child.copy(activity = Activity.WAITING),
+            )
+        assertEquals(emptyMap<String, Activity?>(), settleHidden(asking, hidden))
+    }
+
+    @Test
+    fun sessionsHiddenBeforeActivityWasStoredLearnItOnTheNextSnapshot() {
+        val stored = hiddenEntries(setOf("parent"))
+        assertEquals(mapOf("parent" to null), stored)
+        assertEquals(mapOf("parent" to Activity.IDLE), settleHidden(listOf(parent, child), stored))
+    }
 }

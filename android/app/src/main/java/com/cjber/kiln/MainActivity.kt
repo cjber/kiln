@@ -90,24 +90,38 @@ class MainActivity : ComponentActivity() {
         val screenState = rememberSaveableStateHolder()
         val host = hosts.find { it.origin == selected }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
-        var hiddenIds by
+        var hidden by
             remember(host?.origin) {
                 mutableStateOf(
-                    viewPreferences
-                        .getStringSet("hidden:${host?.origin}", emptySet())
-                        .orEmpty()
-                        .toSet()
+                    hiddenEntries(
+                        viewPreferences
+                            .getStringSet("hidden:${host?.origin}", emptySet())
+                            .orEmpty()
+                            .toSet()
+                    )
                 )
             }
-        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hiddenIds)
-        fun setHidden(next: Set<String>): Boolean {
+        val effectiveHidden = hiddenSessionIds(snapshot?.rows.orEmpty(), hidden.keys)
+        fun saveHidden(next: Map<String, Activity?>): Boolean {
             if (host == null) return false
-            if (!viewPreferences.edit().putStringSet("hidden:${host.origin}", next).commit()) {
+            if (
+                !viewPreferences
+                    .edit()
+                    .putStringSet("hidden:${host.origin}", storedHidden(next))
+                    .commit()
+            ) {
                 error = "Could not save hidden sessions"
                 return false
             }
-            hiddenIds = next
+            hidden = next
             return true
+        }
+        fun setHidden(next: Set<String>): Boolean =
+            saveHidden(hideWithActivity(snapshot?.rows.orEmpty(), hidden, next))
+        LaunchedEffect(snapshot) {
+            val rows = snapshot?.rows ?: return@LaunchedEffect
+            val settled = settleHidden(rows, hidden)
+            if (settled != hidden) saveHidden(settled)
         }
         fun save(next: List<Host>): Boolean =
             try {

@@ -150,6 +150,46 @@ fun sessionTreeIds(rows: List<Row>, id: String): Set<String> {
 fun hiddenSessionIds(rows: List<Row>, hiddenIds: Set<String>): Set<String> =
     hiddenIds.flatMapTo(mutableSetOf()) { sessionTreeIds(rows, it) }
 
+/** Stored as `id` or `id<TAB>ACTIVITY`: the activity a session had when it was hidden. */
+fun hiddenEntries(stored: Set<String>): Map<String, Activity?> = stored.associate { entry ->
+    entry.substringBefore('\t') to
+        Activity.entries.find { it.name == entry.substringAfter('\t', "") }
+}
+
+fun storedHidden(entries: Map<String, Activity?>): Set<String> =
+    entries.mapTo(mutableSetOf()) { (id, activity) ->
+        if (activity == null) id else "$id\t${activity.name}"
+    }
+
+/** Hide `ids`, remembering each session's activity now; ids already hidden keep theirs. */
+fun hideWithActivity(
+    rows: List<Row>,
+    entries: Map<String, Activity?>,
+    ids: Set<String>,
+): Map<String, Activity?> {
+    val byId = rows.associateBy { it.id }
+    return ids.associateWith { id -> entries[id] ?: byId[id]?.activity }
+}
+
+/**
+ * A hidden session comes back, with its parents and helpers, once its activity changes, so a long
+ * job hidden while working returns when it finishes or needs input. An activity that becomes
+ * unknown is no change: the machine has only lost sight of it for now.
+ */
+fun settleHidden(rows: List<Row>, entries: Map<String, Activity?>): Map<String, Activity?> {
+    val byId = rows.associateBy { it.id }
+    val changed = entries.filter { (id, was) ->
+        val now = byId[id]?.activity
+        was != null && now != null && now != Activity.UNKNOWN && now != was
+    }
+    val restored = changed.keys.flatMapTo(mutableSetOf()) { sessionRestoreIds(rows, it) }
+    return entries
+        .filterKeys { it !in restored }
+        .mapValues { (id, was) ->
+            was ?: byId[id]?.activity?.takeIf { it != Activity.UNKNOWN }
+        }
+}
+
 fun sessionRestoreIds(rows: List<Row>, id: String): Set<String> {
     val ids = sessionTreeIds(rows, id).toMutableSet()
     val byId = rows.associateBy { it.id }
