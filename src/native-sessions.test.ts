@@ -262,6 +262,14 @@ describe("OpenCode pairing", () => {
     expect(headless[0]?.opencodeService).toBe(true);
   });
 
+  test("both a terminal's session and an unattached one carry the checkout they work in", () => {
+    const workdirs = new Map([["ses_a", "/worktrees/fix"]]);
+    const paired = withOpencodeSessions([{ ...process, id: "ses_a" }], { sessions: [stored], live: true }, workdirs);
+    expect(paired.processes[0]).toMatchObject({ cwd: "/repo/sub", workdir: "/worktrees/fix" });
+    const unattached = withOpencodeSessions([], { sessions: [stored], live: true }, workdirs);
+    expect(unattached.headless[0]).toMatchObject({ cwd: "/repo/sub", workdir: "/worktrees/fix" });
+  });
+
   test("stopped history, even a failed run, is not listed, but helpers keep their parent", () => {
     const { headless } = withOpencodeSessions([], {
       sessions: [

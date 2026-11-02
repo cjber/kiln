@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { checkout, toolPath } from "./workdir";
 
 const cache = new Map<
   string,
@@ -10,14 +11,17 @@ const cache = new Map<
     decoder: TextDecoder;
     title?: string;
     generated?: string;
+    workdir?: string;
   }
 >();
 
+export type TranscriptDetails = { title?: string; workdir?: string };
+
 /**
- * Read only title records, retaining the last complete line while a transcript is being appended.
- * A title the user set wins over the one Claude generates.
+ * Read only title and tool-call records, retaining the last complete line while a transcript is being appended.
+ * A title the user set wins over the one Claude generates. `workdir` is the checkout the latest edit or `cd` was in.
  */
-export function transcriptTitle(path: string): string | undefined {
+export function readTranscript(path: string): TranscriptDetails {
   try {
     const info = statSync(path);
     const key = path;
@@ -31,7 +35,7 @@ export function transcriptTitle(path: string): string | undefined {
       saved = { inode: info.ino, offset: 0, modified: 0, pending: "", decoder: new TextDecoder() };
       cache.set(key, saved);
     }
-    if (saved.modified === info.mtimeMs && saved.offset === info.size) return saved.title ?? saved.generated;
+    if (saved.modified === info.mtimeMs && saved.offset === info.size) return details(saved);
     const fd = openSync(path, "r");
     try {
       const bytes = Buffer.alloc(64 * 1024);
@@ -42,13 +46,19 @@ export function transcriptTitle(path: string): string | undefined {
         const lines = (saved.pending + saved.decoder.decode(bytes.subarray(0, count), { stream: true })).split("\n");
         saved.pending = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.includes('-title"')) continue;
+          if (!line.includes('-title"') && !line.includes('"tool_use"')) continue;
           try {
             const record = JSON.parse(line);
             if (record.type === "custom-title" && typeof record.customTitle === "string")
               saved.title = record.customTitle.trim() || undefined;
             else if (record.type === "ai-title" && typeof record.aiTitle === "string")
               saved.generated = record.aiTitle.trim() || undefined;
+            else if (record.type === "assistant" && Array.isArray(record.message?.content))
+              for (const part of record.message.content) {
+                const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
+                const found = path && checkout(path);
+                if (found) saved.workdir = found;
+              }
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
           }
@@ -60,9 +70,13 @@ export function transcriptTitle(path: string): string | undefined {
       closeSync(fd);
     }
     if (cache.size > 128) cache.delete(cache.keys().next().value ?? "");
-    return saved.title ?? saved.generated;
+    return details(saved);
   } catch (error) {
-    if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) return undefined;
+    if (["ENOENT", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) return {};
     throw error;
   }
+}
+
+function details(saved: { title?: string; generated?: string; workdir?: string }): TranscriptDetails {
+  return { title: saved.title ?? saved.generated, workdir: saved.workdir };
 }

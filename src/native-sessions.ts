@@ -3,12 +3,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
-import { isOpencodeService, type OpencodeListing, opencodeInvocation, opencodeSessions } from "./opencode";
+import {
+  isOpencodeService,
+  type OpencodeListing,
+  opencodeInvocation,
+  opencodeSessions,
+  opencodeWorkdir,
+} from "./opencode";
 import { piStatus } from "./pi-status";
 import { restartStopped } from "./saved-sessions";
-import { transcriptTitle } from "./session-titles";
 import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
+import { readTranscript } from "./transcript";
 
 /** Claude's own statuses, grouped; anything newer than this list shows as unknown rather than guessed. */
 function claudeActivity(status: string | undefined): Activity | undefined {
@@ -153,16 +159,19 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
       !item.cwd.startsWith("/")
     )
       return [];
+    const transcript = claudeTranscriptPath(item);
+    const { title, workdir } = transcript ? readTranscript(transcript) : {};
     return [
       {
         agent: "claude" as const,
         id: item.sessionId,
-        title: item.name,
+        title: title ?? item.name,
         cwd: item.cwd,
+        workdir,
         startedAt: item.startedAt ?? 0,
         lastActiveAt: claudeTranscriptActivity(item),
         lifecycle,
-        branch: gitBranch(item.cwd),
+        branch: gitBranch(workdir ?? item.cwd),
         place: { kind: "job" as const, id: item.id, attach: ["claude", "attach", item.id] },
       },
     ];
@@ -200,12 +209,14 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
     .flatMap((item) => {
       const transcript = claudeTranscriptPath(item);
+      const { title, workdir } = transcript ? readTranscript(transcript) : {};
       const session = {
         pid: item.pid,
         id: item.sessionId,
-        title: transcript ? (transcriptTitle(transcript) ?? item.name) : item.name,
+        title: title ?? item.name,
         agent: "claude" as const,
         cwd: processCwd(item.pid) ?? item.cwd,
+        workdir,
         startedAt: item.startedAt ?? startedAt(item.pid),
         lastActiveAt: claudeTranscriptActivity(item),
         activity: claudeActivity(item.status),
@@ -298,7 +309,19 @@ async function readOpencode() {
     return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
   });
   const running = found.some(({ args }) => isOpencodeService(args));
-  return withOpencodeSessions(processes, running ? await opencodeSessions() : { sessions: [], live: false });
+  const listing = running ? await opencodeSessions() : { sessions: [], live: false };
+  // Only the sessions the list shows: a terminal's own, and ones the service is running.
+  const shown = new Set(processes.flatMap((process) => (process.shared && process.id ? [process.id] : [])));
+  const workdirs = new Map<string, string>();
+  await Promise.all(
+    listing.sessions
+      .filter((session) => session.running || shown.has(session.id))
+      .map(async (session) => {
+        const workdir = await opencodeWorkdir(session);
+        if (workdir) workdirs.set(session.id, workdir);
+      }),
+  );
+  return withOpencodeSessions(processes, listing, workdirs);
 }
 
 function processArgs(pid: number): string[] | undefined {
@@ -434,6 +457,7 @@ export function withCodexThreads(
 export function withOpencodeSessions(
   processes: (AgentProcess & { shared: boolean })[],
   { sessions, live }: OpencodeListing,
+  workdirs: ReadonlyMap<string, string> = new Map(),
 ): { processes: AgentProcess[]; headless: Session[] } {
   const paired = new Set<string>();
   const located = processes.map(({ shared, ...process }) => {
@@ -444,6 +468,7 @@ export function withOpencodeSessions(
       ...process,
       title: session?.title,
       cwd: session?.cwd ?? process.cwd,
+      workdir: workdirs.get(process.id),
       // A session with no prompt yet is not stored, and one absent from `session.active` is inactive.
       activity: session ? session.activity : live ? ("idle" as const) : undefined,
       lastActiveAt: session?.updatedAt,
@@ -465,11 +490,12 @@ export function withOpencodeSessions(
       parentSessionId: session.parentId,
       title: session.title,
       cwd: session.cwd,
+      workdir: workdirs.get(session.id),
       startedAt: session.createdAt,
       lastActiveAt: session.updatedAt,
       activity: session.activity,
       opencodeService: true,
-      branch: gitBranch(session.cwd),
+      branch: gitBranch(workdirs.get(session.id) ?? session.cwd),
       place: {
         kind: "thread" as const,
         id: session.id,
@@ -522,7 +548,7 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
       ancestorSessionPid,
       parentSessionId: process.parentSessionId ?? inheritedParent,
       parentSessionAgent: inheritedParent ? ("codex" as const) : process.parentSessionAgent,
-      branch: gitBranch(process.cwd),
+      branch: gitBranch(process.workdir ?? process.cwd),
       place,
     };
   });

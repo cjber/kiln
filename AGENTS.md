@@ -44,6 +44,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
+- `src/transcript.ts`, `src/workdir.ts` - Claude transcript titles, and the checkout an agent last edited or `cd`'d into, shown in place of
+  where it started (`sessionDirectory`); `cwd` stays the start directory for resuming.
 - `src/session-sort.ts`, `src/session-list.ts` - ordering, directory/task groups with collapsed children, status wording and the cursor.
 - `src/app.tsx` - the whole UI and its keys.
 - `src/tui.ts` - the shared palette, text-key test and editor hand-off every view uses.
