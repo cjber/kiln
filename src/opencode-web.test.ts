@@ -23,12 +23,23 @@ test("only a root proxy to the pinned service counts as OpenCode's web UI", () =
   expect(opencodeWebOrigin({})).toBeUndefined();
 });
 
-function harness({ port, busy = false, config = {} }: { port?: number; busy?: boolean; config?: object }) {
+function harness({
+  port,
+  busy = false,
+  free = true,
+  config = {},
+}: {
+  port?: number;
+  busy?: boolean;
+  free?: boolean;
+  config?: object;
+}) {
   const calls: string[] = [];
   return {
     calls,
     options: {
       installed: true,
+      free: () => free,
       busy: async () => busy,
       execute: async (args: string[]) => {
         calls.push(`tailscale ${args.join(" ")}`);
@@ -56,12 +67,16 @@ test("setup changes nothing on a service that already runs on the pinned port", 
   expect(calls.some((call) => call.includes("service set") || call.includes("service start"))).toBe(false);
 });
 
-test("setup leaves a service running a turn, and a port another service holds", async () => {
+test("setup leaves a service running a turn, and a port something else holds", async () => {
   const busy = harness({ port: 49374, busy: true });
   expect(await setupOpencodeWeb(origin, busy.options)).toEqual({
     note: "OpenCode is running a turn; run kiln setup again when it finishes to open its sessions on the phone",
   });
   expect(busy.calls.some((call) => call.includes("service set") || call.includes("--https"))).toBe(false);
+
+  const occupied = harness({ port: 49374, free: false });
+  expect((await setupOpencodeWeb(origin, occupied.options)).origin).toBeUndefined();
+  expect(occupied.calls.some((call) => call.includes("service set"))).toBe(false);
 
   const taken = harness({
     port: 4096,

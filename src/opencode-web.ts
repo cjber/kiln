@@ -1,4 +1,4 @@
-import { opencodeSessions } from "./opencode";
+import { opencodeBusy } from "./opencode";
 import { tailscale } from "./serve";
 
 /** OpenCode's service is pinned to this port, and Tailscale serves its web UI on the same HTTPS port. */
@@ -38,8 +38,13 @@ export async function servedOpencodeOrigin(now = Date.now(), execute = tailscale
   return origin;
 }
 
-async function opencodeBusy(): Promise<boolean> {
-  return (await opencodeSessions()).sessions.some((session) => session.running);
+function portFree(): boolean {
+  try {
+    Bun.listen({ hostname: "127.0.0.1", port: opencodeWebPort, socket: { data() {} } }).stop(true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -53,7 +58,8 @@ export async function setupOpencodeWeb(
     execute = tailscale,
     busy = opencodeBusy,
     installed = Bun.which("opencode") !== null,
-  }: { run: Run; execute?: typeof tailscale; busy?: () => Promise<boolean>; installed?: boolean },
+    free = portFree,
+  }: { run: Run; execute?: typeof tailscale; busy?: () => Promise<boolean>; installed?: boolean; free?: () => boolean },
 ): Promise<{ origin?: string; note: string }> {
   if (!installed) return { note: "OpenCode is not installed, so its sessions open on the PC only" };
   const host = new URL(origin).hostname;
@@ -65,6 +71,8 @@ export async function setupOpencodeWeb(
 
   const running = (await run(["opencode", "service", "status"])).output.match(/http:\/\/127\.0\.0\.1:(\d+)/)?.[1];
   if (running !== String(opencodeWebPort)) {
+    // Moving the service onto a taken port would stop it and leave it unable to start.
+    if (!free()) return { note: `Port ${opencodeWebPort} is in use on this PC, so OpenCode stays on the PC` };
     if (running && (await busy()))
       return {
         note: "OpenCode is running a turn; run kiln setup again when it finishes to open its sessions on the phone",

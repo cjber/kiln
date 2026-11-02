@@ -117,6 +117,15 @@ async function api<T>(...args: string[]): Promise<T> {
   return (source.trim() ? JSON.parse(source) : undefined) as T;
 }
 
+/** Asked directly, since the listing is capped; a service that cannot answer is treated as busy. */
+export async function opencodeBusy(): Promise<boolean> {
+  try {
+    return Object.keys((await api<{ data: Record<string, Active> }>("session.active")).data).length > 0;
+  } catch {
+    return true;
+  }
+}
+
 let last: OpencodeSession[] = [];
 
 /** Prompts are read for active sessions only: a turn that stops to ask is still a running turn. */
