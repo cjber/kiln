@@ -432,7 +432,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${current.agent}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
+            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${current.lastActiveAt ? new Date(current.lastActiveAt).toISOString() : "unknown"}`,
             Math.max(1, width - 2),
             "end",
           )}
@@ -459,7 +459,7 @@ function hints(mode: Mode, current: Session | undefined, width: number): string 
     case "confirm": {
       if (!current || !action) return "";
       if ("reason" in action) return action.reason;
-      return `${action.verb} ${current.agent} in ${tilde(current.cwd)}? y to confirm, anything else cancels`;
+      return `${action.verb} ${agentName(current.agent)} in ${tilde(current.cwd)}? y to confirm, anything else cancels`;
     }
   }
 }

@@ -97,8 +97,9 @@ kiln serve
 kiln serve --origin https://your-machine.example
 # Localhost only, without tunnel setup or a printed invitation:
 kiln serve --local
-# Generate another invitation while the server is running:
-kiln pair https://your-machine.example --qr
+# Generate another invitation while the server is running (the origin defaults to your Tailscale HTTPS name):
+kiln pair
+kiln pair https://your-machine.example
 kiln devices
 kiln revoke <device-id>
 ```
