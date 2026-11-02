@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **OpenCode sessions open on the phone.** `kiln setup` serves OpenCode's web UI on your tailnet and prints a QR code that signs the phone's browser in once. OpenCode rows then get an "Open in OpenCode" button that goes straight to the session. The Android app accepts these links only for the machine it paired with, so it needs this release too.
+
 ## [0.12.3] - 2026-11-02
 
 - **The phone server rests while no phone is watching.** `kiln serve` looked for sessions every two seconds whether or not a phone was connected, starting the Claude, OpenCode and kitty command-line tools each time, which kept about one CPU core busy. With no phone connected it now looks once a minute, enough to remember running sessions across a restart, and goes back to every two seconds as soon as the app opens.

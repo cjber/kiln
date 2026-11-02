@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
+import { servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
@@ -22,7 +23,7 @@ function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" |
   }
 }
 
-export function phoneSession(session: Session, parent?: Session, codexHost?: string) {
+export function phoneSession(session: Session, parent?: Session, codexHost?: string, opencodeOrigin?: string) {
   return {
     id: sessionIdentity(session),
     parentId: parent ? sessionIdentity(parent) : undefined,
@@ -35,7 +36,7 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: wireKind(session.place),
-    handoff: phoneHandoff(session, codexHost),
+    handoff: phoneHandoff(session, codexHost, opencodeOrigin),
   };
 }
 
@@ -160,13 +161,14 @@ export function startServer({
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
+      const opencodeOrigin = sessions.some((row) => row.opencodeService) ? await servedOpencodeOrigin() : undefined;
       const parents = sessionParents(sessions);
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
         // Phones time freshness from this, so it moves only on a full successful load.
         updatedAt: stale ? snapshot.updatedAt : Date.now(),
-        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id)),
+        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeOrigin)),
         problem,
       };
     } catch (error) {

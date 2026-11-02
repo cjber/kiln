@@ -30,7 +30,7 @@ export function serveOptions(
   return { port, origin, local };
 }
 
-async function tailscale(args: string[]): Promise<string> {
+export async function tailscale(args: string[]): Promise<string> {
   if (!Bun.which("tailscale"))
     throw new Error(
       "Install and sign in to Tailscale, or use kiln serve --origin https://host with your own tunnel; --local serves localhost only",

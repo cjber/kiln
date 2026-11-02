@@ -103,13 +103,34 @@ fun invitation(value: String): Pair<String, String> {
     return httpsOrigin(parts["server"].orEmpty()) to code
 }
 
-fun safeLink(agent: Agent, value: String): String? {
+/** `kiln setup` serves OpenCode's web UI on the paired machine at this HTTPS port. */
+const val OPENCODE_WEB_PORT = 4096
+
+/** A session page of OpenCode's web UI on the machine this phone paired with, and nowhere else. */
+private fun opencodeLink(uri: URI, origin: String?): Boolean {
+    val host = origin?.let { runCatching { URI(it).host }.getOrNull() } ?: return false
+    val key =
+        java.util.Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString("https://$host:$OPENCODE_WEB_PORT".toByteArray())
+    return uri.scheme == "https" &&
+        uri.rawUserInfo == null &&
+        uri.rawQuery == null &&
+        uri.rawFragment == null &&
+        uri.host == host &&
+        uri.port == OPENCODE_WEB_PORT &&
+        uri.rawPath.matches(Regex("/server/$key/session/ses_[A-Za-z0-9]+"))
+}
+
+/** `origin` is the paired kiln server, the only host an OpenCode link may point at. */
+fun safeLink(agent: Agent, value: String, origin: String? = null): String? {
     val uri =
         try {
             URI(value)
         } catch (_: Exception) {
             return null
         }
+    if (agent == Agent.OPENCODE) return value.takeIf { opencodeLink(uri, origin) }
     if (
         uri.scheme != "https" ||
             uri.rawUserInfo != null ||
@@ -144,7 +165,7 @@ fun safeLink(agent: Agent, value: String): String? {
     }
 }
 
-fun parseSnapshot(source: String): Snapshot {
+fun parseSnapshot(source: String, origin: String? = null): Snapshot {
     val json = JSONObject(source)
     require(json.getInt("version") == 1)
     val array = json.getJSONArray("sessions")
@@ -154,7 +175,8 @@ fun parseSnapshot(source: String): Snapshot {
             val item = array.getJSONObject(index)
             val agent = item.getString("agent").let { id -> Agent.entries.first { it.id == id } }
             val handoff = item.getJSONObject("handoff")
-            val url = if (handoff.has("url")) safeLink(agent, handoff.getString("url")) else null
+            val url =
+                if (handoff.has("url")) safeLink(agent, handoff.getString("url"), origin) else null
             Row(
                 item.getString("id"),
                 agent,

@@ -111,7 +111,7 @@ class Connection(
                             return
                         }
                         try {
-                            val next = parseSnapshot(text)
+                            val next = parseSnapshot(text, host.origin)
                             val old = previous
                             if (
                                 old == null ||

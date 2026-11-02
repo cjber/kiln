@@ -242,7 +242,13 @@ describe("OpenCode pairing", () => {
       sessions: [stored],
       live: true,
     });
-    expect(processes[0]).toMatchObject({ title: "Fix", cwd: "/repo/sub", activity: "working", lastActiveAt: 5 });
+    expect(processes[0]).toMatchObject({
+      title: "Fix",
+      cwd: "/repo/sub",
+      activity: "working",
+      lastActiveAt: 5,
+      opencodeService: true,
+    });
     expect(headless).toEqual([]);
   });
 
@@ -253,6 +259,7 @@ describe("OpenCode pairing", () => {
     });
     expect(processes[0]?.activity).toBeUndefined();
     expect(headless[0]?.place).toEqual({ kind: "thread", id: "ses_a", attach: ["opencode", "--session", "ses_a"] });
+    expect(headless[0]?.opencodeService).toBe(true);
   });
 
   test("stopped history, even a failed run, is not listed, but helpers keep their parent", () => {
@@ -279,6 +286,7 @@ describe("OpenCode pairing", () => {
       live: true,
     });
     expect(processes[0]?.activity).toBeUndefined();
+    expect(processes[0]?.opencodeService).toBeUndefined();
     expect(headless).toHaveLength(1);
   });
 
