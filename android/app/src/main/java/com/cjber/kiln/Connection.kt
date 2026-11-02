@@ -20,7 +20,10 @@ class Connection(
             .connectTimeout(10, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)
             .pingInterval(15, TimeUnit.SECONDS)
-            .build()
+            .build(),
+    private val unreachable: () -> String = {
+        "Cannot reach the machine. Check Tailscale and kiln serve."
+    },
 ) {
     private var socket: WebSocket? = null
     private var call: Call? = null
@@ -42,10 +45,7 @@ class Connection(
                     object : Callback {
                         override fun onFailure(call: Call, e: java.io.IOException) {
                             if (current == generation && !call.isCanceled())
-                                done(
-                                    null,
-                                    "Cannot reach the machine. Check Tailscale and kiln serve.",
-                                )
+                                done(null, unreachable())
                         }
 
                         override fun onResponse(call: Call, response: Response) {

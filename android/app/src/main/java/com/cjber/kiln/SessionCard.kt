@@ -1,21 +1,18 @@
 package com.cjber.kiln
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.ZoneId
@@ -49,36 +46,6 @@ fun relativeTime(time: Long, now: Long): String =
 fun tildePath(path: String): String = path.replace(Regex("^/(home|Users)/[^/]+(?=/|$)"), "~")
 
 @Composable
-fun AgentMark(agent: Agent, modifier: Modifier = Modifier) {
-    when (agent) {
-        Agent.CLAUDE,
-        Agent.CODEX ->
-            Icon(
-                painter =
-                    androidx.compose.ui.res.painterResource(
-                        if (agent == Agent.CLAUDE) R.drawable.agent_claude
-                        else R.drawable.agent_codex
-                    ),
-                contentDescription = agentName(agent),
-                modifier = modifier.size(22.dp),
-                tint =
-                    if (agent == Agent.CLAUDE) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-            )
-        Agent.OPENCODE,
-        Agent.PI ->
-            Box(modifier.size(22.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    if (agent == Agent.PI) "π" else "O",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.semantics { contentDescription = agentName(agent) },
-                )
-            }
-    }
-}
-
-@Composable
 fun SessionCard(
     item: SessionItem.Entry,
     now: Long,
@@ -88,72 +55,69 @@ fun SessionCard(
     toggle: () -> Unit,
 ) {
     val row = item.row
-    val openable = row.url != null
+    val status = activityColor(row.activity)
+    val place =
+        if (row.where == Place.CLOUD) "cloud"
+        else row.branch.ifBlank { row.cwd.trimEnd('/').substringAfterLast('/') }
     Row(
         modifier =
             Modifier.fillMaxWidth()
-                .heightIn(min = 44.dp)
+                .background(MaterialTheme.colorScheme.background)
+                .heightIn(min = 48.dp)
                 .combinedClickable(
-                    onClick = { if (openable) open() else details() },
+                    onClick = { if (row.url != null) open() else details() },
                     onLongClickLabel = "Details",
                     onLongClick = details,
                 )
-                .padding(start = if (item.depth > 0) 20.dp else 0.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        AgentMark(row.agent, Modifier.size(18.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            agentName(row.agent),
+            color = agentColor(row.agent),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            modifier = Modifier.width(84.dp),
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                row.title,
-                color = activityColor(row.activity),
+                (if (item.depth > 0) "↳ " else "") + row.title,
+                color = status,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                listOfNotNull(
-                        if (row.where == Place.CLOUD) "Cloud"
-                        else
-                            listOf(
-                                    row.cwd.trimEnd('/').substringAfterLast('/'),
-                                    row.branch.takeIf { it.isNotBlank() },
-                                )
-                                .filterNotNull()
-                                .joinToString(" / ")
-                                .takeIf { it.isNotBlank() },
-                        activityName(row.activity),
-                        if (row.active > 0) elapsed(row.active, now) else null,
-                    )
-                    .joinToString("  ·  "),
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = status)) {
+                        append(activityName(row.activity).lowercase())
+                    }
+                    if (place.isNotBlank()) append("  $place")
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Tui.comment,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         if (item.children > 0)
-            Row(
+            Text(
+                "[${if (expanded) "−" else "+"}${item.children}]",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Tui.fgDim,
                 modifier =
-                    Modifier.clip(RoundedCornerShape(6.dp))
-                        .clickable(onClick = toggle)
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    item.children.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowDown
-                    else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    null,
-                    Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+                    Modifier.clip(MaterialTheme.shapes.small)
+                        .clickable(
+                            onClickLabel = if (expanded) "Collapse helpers" else "Show helpers",
+                            onClick = toggle,
+                        )
+                        .padding(horizontal = 6.dp),
+            )
+        Text(
+            if (row.active > 0) elapsed(row.active, now) else "",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Tui.comment,
+            modifier = Modifier.padding(start = 8.dp),
+        )
     }
 }

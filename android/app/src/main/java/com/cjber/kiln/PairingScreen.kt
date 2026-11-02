@@ -25,6 +25,8 @@ fun PairingScreen(
     setInvitation: (String) -> Unit,
     busy: Boolean,
     canCancel: Boolean,
+    tailscaleOn: Boolean,
+    openTailscale: () -> Unit,
     pair: () -> Unit,
     scan: () -> Unit,
     cancel: () -> Unit,
@@ -81,11 +83,19 @@ fun PairingScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (!tailscaleOn)
+                    ConnectionNotice(
+                        "Tailscale is off",
+                        "Turn on Tailscale on this phone to reach your computer.",
+                        retry = null,
+                        action = "Open Tailscale" to openTailscale,
+                    )
                 ErrorNotice(error, onDismissError)
                 FilledTonalButton(
                     onClick = scan,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    shape = MaterialTheme.shapes.small,
                 ) {
                     Text("Scan pairing QR code")
                 }
@@ -116,6 +126,7 @@ fun PairingScreen(
                     onClick = pair,
                     enabled = !busy && invitation.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = MaterialTheme.shapes.small,
                 ) {
                     if (busy) {
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -135,7 +146,7 @@ fun PairingScreen(
                     ) {
                         Text("First time setting up?", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Run kiln serve on your computer, then scan its QR code. The invitation expires after five minutes and works once.",
+                            "Run kiln pair on your computer, then scan its QR code. The invitation expires after five minutes and works once.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -152,11 +163,11 @@ fun PairingScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "2. Start phone access on your computer",
+                                "2. Set up phone access on your computer, once",
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             Text(
-                                "kiln serve",
+                                "kiln setup",
                                 fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.bodySmall,
                             )
@@ -165,7 +176,7 @@ fun PairingScreen(
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             Text(
-                                "Keep kiln serve running while using your phone. You can also paste its invitation above.",
+                                "kiln setup shows one. For another phone, run kiln pair. You can also paste the invitation above.",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
