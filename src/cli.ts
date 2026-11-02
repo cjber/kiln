@@ -8,7 +8,7 @@ const usage = `usage: kiln            open the session list
                                   start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
                                   keep phone access running as a user service and print a pairing QR
-       kiln pair <https-origin> [--qr]   print a five-minute phone invitation
+       kiln pair [https-origin]          print a five-minute phone invitation; the origin defaults to your Tailscale HTTPS name
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
        kiln skills list|share|sync    manage shared skills
@@ -73,19 +73,17 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         }
         return 0;
       }
-      if (
-        (command === "pair" && args.length !== 2 && (args.length !== 3 || args[2] !== "--qr")) ||
-        (command === "devices" && args.length !== 1) ||
-        (command === "revoke" && args.length !== 2)
-      )
+      if ((command === "devices" && args.length !== 1) || (command === "revoke" && args.length !== 2))
         throw new Error(usage);
       const pairing = new Pairing();
       try {
         switch (command) {
           case "pair": {
-            const origin = serverOrigin(args[1] ?? "");
-            const { printInvitation } = await import("./serve");
-            await printInvitation(pairing, origin, args[2] === "--qr");
+            const positional = args.slice(1).filter((arg) => arg !== "--qr");
+            if (positional.length > 1) throw new Error(usage);
+            const { printInvitation, tailscaleOrigin } = await import("./serve");
+            const origin = positional[0] ? serverOrigin(positional[0] ?? "") : await tailscaleOrigin();
+            await printInvitation(pairing, origin);
             return 0;
           }
           case "devices":

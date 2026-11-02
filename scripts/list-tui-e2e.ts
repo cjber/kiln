@@ -82,8 +82,8 @@ try {
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("/tmp/atlas"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#6a9955")).includes("Finished task"));
   assert.match(await drive("snapshot", "--trim", "--fg", "#6a9955"), /Background job\s+completed/);
-  assert.ok((await drive("snapshot", "--trim", "--fg", "#5f8787")).includes("codex"));
-  assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("claude"));
+  assert.ok((await drive("snapshot", "--trim", "--fg", "#5f8787")).includes("Codex"));
+  assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("Claude"));
   await drive("screenshot", "-o", join(output, "tui-actions.png"));
   await press("tab", "Check tests");
   await press("j", "needs your input");
@@ -95,8 +95,8 @@ try {
   assert.ok((await screen()).includes("status unavailable from provider"));
   await press("esc", "Review changes");
   for (const order of ["last active", "age", "harness", "directory", "directory / task"]) await press("o", order);
-  await press("n", "[claude]");
-  await press("l", "[codex]");
+  await press("n", "[Claude]");
+  await press("l", "[Codex]");
   await press("esc", "q quit");
   await press("S", "kiln skills");
   await press("esc", "Review changes");

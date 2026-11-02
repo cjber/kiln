@@ -9,6 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
+- **Agent names keep their proper casing.** The list, status line, prompts and notifications say Claude, Codex, OpenCode and Pi.
+
+- **`kiln pair` needs no origin on Tailscale.** With no argument it uses this machine's Tailscale HTTPS name, and the invitation always prints with its QR code.
+
+- **Stopped OpenCode sessions leave the list.** A conversation with no terminal is listed only while the OpenCode service is still running it, so one whose last run failed no longer stays as "needs input" when there is nothing to open.
+
 ## [0.12.0] - 2026-11-01
 
 - **OpenCode is a fourth agent.** `n` starts OpenCode, the list shows its titles and whether it is working, waiting or ready, helpers nest under their parent, and a session a restart stopped resumes in place. Closing a session interrupts and archives it, and a conversation still running with no terminal can be attached. It shares `.agents/skills` without links. On the phone these rows open on the PC, and the Android app must be updated with the desktop to read them.

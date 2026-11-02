@@ -7,6 +7,11 @@ export type Agent = "claude" | "codex" | "opencode" | "pi";
 
 export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi"];
 
+/** The name shown to people; ids stay lowercase for matching, filtering and sorting. */
+export function agentName(agent: Agent): string {
+  return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi" }[agent];
+}
+
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
 export type Activity = "working" | "waiting" | "idle";
 

@@ -1,11 +1,13 @@
 import { basename } from "node:path";
 import { type SessionSort, sortSessions } from "./session-sort";
-import { type Session, sessionIdentity, sessionParents } from "./sessions";
+import { agentName, type Session, sessionIdentity, sessionParents } from "./sessions";
 
 export function sessionTitle(session: Session): string {
   const title = session.place.kind === "cloud" ? session.place.title : session.title;
   return (
-    title?.replace(/\s+/g, " ").trim() || session.id || `${session.agent}${session.pid ? ` · pid ${session.pid}` : ""}`
+    title?.replace(/\s+/g, " ").trim() ||
+    session.id ||
+    `${agentName(session.agent)}${session.pid ? ` · pid ${session.pid}` : ""}`
   );
 }
 

@@ -50,12 +50,17 @@ async function tailscale(args: string[]): Promise<string> {
   }
 }
 
-/** Keep other services intact; only claim an unused HTTPS root or kiln's existing proxy. */
-export async function setupTailscale(port: number, execute = tailscale): Promise<string> {
+/** The HTTPS origin of this machine on the tailnet, without changing the Serve config. */
+export async function tailscaleOrigin(execute = tailscale): Promise<string> {
   const status = JSON.parse(await execute(["status", "--json"]));
   if (status.BackendState !== "Running" || typeof status.Self?.DNSName !== "string")
-    throw new Error("Tailscale is not connected; run tailscale up, or use kiln serve --origin https://host");
-  const origin = serverOrigin(`https://${status.Self.DNSName.replace(/\.$/, "")}`);
+    throw new Error("Tailscale is not connected; run tailscale up, or pass the HTTPS origin");
+  return serverOrigin(`https://${status.Self.DNSName.replace(/\.$/, "")}`);
+}
+
+/** Keep other services intact; only claim an unused HTTPS root or kiln's existing proxy. */
+export async function setupTailscale(port: number, execute = tailscale): Promise<string> {
+  const origin = await tailscaleOrigin(execute);
   const config = JSON.parse(await execute(["serve", "status", "--json"]));
   const address = `${new URL(origin).hostname}:443`;
   const handlers = config.Web?.[address]?.Handlers;
