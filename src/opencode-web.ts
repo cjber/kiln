@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { opencodeBusy } from "./opencode";
 import { tailscale } from "./serve";
 
@@ -89,10 +90,74 @@ export async function setupOpencodeWeb(
   return { origin: served, note: `OpenCode sessions open at ${served}` };
 }
 
-/** A one-time link that signs a browser in to the service; scanning it once lets session links open directly. */
-export async function opencodePairingLink(origin: string, run: Run): Promise<string> {
+/** A fresh OpenCode sign-in token, from a one-time pairing code redeemed on the local service. */
+export async function opencodeToken(origin: string, run: Run): Promise<string> {
   const result = await run(["opencode", "pair", "--url", origin]);
-  const link = result.output.match(/https:\/\/\S+\/auth\/connect\/[A-Za-z0-9_-]+/)?.[0];
-  if (result.code || !link) throw new Error(result.output || "OpenCode did not print a pairing link");
-  return link;
+  const code = result.output.match(/\/auth\/connect\/([A-Za-z0-9_-]+)/)?.[1];
+  if (result.code || !code) throw new Error("OpenCode did not print a pairing link");
+  const response = await fetch(`${target}/auth/connect/${code}`, { headers: { Accept: "application/json" } });
+  const token = response.ok ? ((await response.json()) as { token?: unknown }).token : undefined;
+  if (typeof token !== "string" || !/^\d+\.[A-Za-z0-9_-]+$/.test(token))
+    throw new Error("OpenCode did not accept its own pairing code");
+  return token;
+}
+
+const linkLifetime = 15 * 60_000;
+
+/**
+ * One-use kiln paths that sign the phone's browser in to OpenCode and land on a session. Each session keeps the
+ * same path until it is used or half its lifetime has passed, so snapshots do not change on every refresh.
+ */
+export function opencodeLinks(signIn: (origin: string) => Promise<string>) {
+  const links = new Map<string, { session: string; at: number }>();
+  const current = new Map<string, string>();
+  return {
+    path(session: string, now = Date.now()): string {
+      for (const [code, link] of links) if (now - link.at >= linkLifetime) links.delete(code);
+      const code = current.get(session);
+      const link = code ? links.get(code) : undefined;
+      if (code && link && now - link.at < linkLifetime / 2) return `/opencode/${code}`;
+      const fresh = randomBytes(24).toString("base64url");
+      links.set(fresh, { session, at: now });
+      current.set(session, fresh);
+      return `/opencode/${fresh}`;
+    },
+    /**
+     * Browsers scope cookies by host, not port, so the cookie set here on kiln's address reaches OpenCode's.
+     * It is the one OpenCode sets itself when a browser opens a pairing link.
+     */
+    async open(code: string, origin: string | undefined, now = Date.now()): Promise<Response> {
+      const link = links.get(code);
+      links.delete(code);
+      if (!link || now - link.at >= linkLifetime)
+        return text("This link has been used or has expired. Tap Open in OpenCode in kiln again.\n", 404);
+      if (!origin) return text("OpenCode's web UI is not set up on this computer. Run kiln setup.\n", 503);
+      let token: string;
+      try {
+        token = await signIn(origin);
+      } catch {
+        return text("OpenCode's service did not sign this browser in. Check that it is running.\n", 502);
+      }
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: opencodeSessionLink(origin, link.session),
+          "Set-Cookie": `opencode_session_${opencodeWebPort}=${token}; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax`,
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    },
+  };
+}
+
+function text(body: string, status: number): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }

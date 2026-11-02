@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { opencodePairingLink, opencodeSessionLink, opencodeWebOrigin, setupOpencodeWeb } from "./opencode-web";
+import { opencodeLinks, opencodeSessionLink, opencodeWebOrigin, setupOpencodeWeb } from "./opencode-web";
 
 const origin = "https://machine.example.ts.net";
 const served = { Web: { "machine.example.ts.net:4096": { Handlers: { "/": { Proxy: "http://127.0.0.1:4096" } } } } };
@@ -92,12 +92,28 @@ test("setup without OpenCode installed touches nothing", async () => {
   expect(calls).toEqual([]);
 });
 
-test("the pairing link is read from OpenCode's output", async () => {
-  const output = "Open a link to connect.\n\n  https://machine.example.ts.net:4096/auth/connect/abc_DEF-1\n";
-  expect(await opencodePairingLink("https://machine.example.ts.net:4096", async () => ({ code: 0, output }))).toBe(
-    "https://machine.example.ts.net:4096/auth/connect/abc_DEF-1",
-  );
-  await expect(opencodePairingLink(origin, async () => ({ code: 1, output: "no service" }))).rejects.toThrow(
-    "no service",
-  );
+test("a sign-in link is used once, sets OpenCode's cookie and lands on the session", async () => {
+  const served = "https://machine.example.ts.net:4096";
+  const links = opencodeLinks(async () => "1796211887.signed");
+  const path = links.path("ses_abc", 0);
+  expect(links.path("ses_abc", 1_000)).toBe(path);
+  const code = path.replace("/opencode/", "");
+  expect(code).toMatch(/^[A-Za-z0-9_-]{32}$/);
+
+  const opened = await links.open(code, served, 2_000);
+  expect(opened.status).toBe(302);
+  expect(opened.headers.get("Location")).toBe(opencodeSessionLink(served, "ses_abc"));
+  expect(opened.headers.get("Set-Cookie")).toStartWith("opencode_session_4096=1796211887.signed; Max-Age=2592000;");
+  expect((await links.open(code, served, 3_000)).status).toBe(404);
+  expect(links.path("ses_abc", 4_000)).not.toBe(path);
+});
+
+test("a sign-in link ages out, and needs OpenCode served and answering", async () => {
+  const links = opencodeLinks(async () => {
+    throw new Error("service down");
+  });
+  const code = (path: string) => path.replace("/opencode/", "");
+  expect((await links.open(code(links.path("ses_a", 0)), origin, 15 * 60_000)).status).toBe(404);
+  expect((await links.open(code(links.path("ses_b", 0)), undefined, 0)).status).toBe(503);
+  expect((await links.open(code(links.path("ses_c", 0)), origin, 0)).status).toBe(502);
 });
