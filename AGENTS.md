@@ -54,7 +54,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts` - localhost phone API, one-use pairing and provider handoffs.
-- `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet; phone links open its session pages.
+- `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet. Phone links are one-use
+  `/opencode/<code>` paths on kiln's server that set OpenCode's sign-in cookie and redirect to the session page.
 - `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.
 - `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
 - `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
@@ -77,7 +78,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - Quality: load `.agents/skills/sift-project/SKILL.md` before cleanup, dead-code or refactoring
   work.
 
-Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links, or an OpenCode session page on the paired machine's own host at port 4096.
+Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links, or a one-use `/opencode/<code>` path the phone resolves against the kiln server it paired with.
 
 Android releases use repository signing secrets and attach a signed APK. CI checks both debug
 and release variants; private signing material stays outside the repository.

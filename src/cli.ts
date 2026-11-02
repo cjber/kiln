@@ -75,18 +75,8 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         }
         // A tunnel of your own has no Tailscale Serve to put OpenCode's web UI on.
         if (!args.includes("--origin")) {
-          const { setupOpencodeWeb, opencodePairingLink } = await import("./opencode-web");
-          const opencode = await setupOpencodeWeb(origin, { run: spawn });
-          console.log(`kiln: ${opencode.note}`);
-          if (opencode.origin) {
-            const link = await opencodePairingLink(opencode.origin, spawn);
-            const { default: QRCode } = await import("qrcode");
-            console.log(`\n${link}`);
-            console.log(await QRCode.toString(link, { type: "terminal", small: true }));
-            console.log(
-              "Scan this with your phone's camera once to sign its browser in to OpenCode. It expires in five minutes and works once.",
-            );
-          }
+          const { setupOpencodeWeb } = await import("./opencode-web");
+          console.log(`kiln: ${(await setupOpencodeWeb(origin, { run: spawn })).note}`);
         }
         return 0;
       }

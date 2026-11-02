@@ -103,34 +103,30 @@ fun invitation(value: String): Pair<String, String> {
     return httpsOrigin(parts["server"].orEmpty()) to code
 }
 
-/** `kiln setup` serves OpenCode's web UI on the paired machine at this HTTPS port. */
-const val OPENCODE_WEB_PORT = 4096
-
-/** A session page of OpenCode's web UI on the machine this phone paired with, and nowhere else. */
-private fun opencodeLink(uri: URI, origin: String?): Boolean {
-    val host = origin?.let { runCatching { URI(it).host }.getOrNull() } ?: return false
-    val key =
-        java.util.Base64.getUrlEncoder()
-            .withoutPadding()
-            .encodeToString("https://$host:$OPENCODE_WEB_PORT".toByteArray())
-    return uri.scheme == "https" &&
-        uri.rawUserInfo == null &&
-        uri.rawQuery == null &&
-        uri.rawFragment == null &&
-        uri.host == host &&
-        uri.port == OPENCODE_WEB_PORT &&
-        uri.rawPath.matches(Regex("/server/$key/session/ses_[A-Za-z0-9]+"))
+/**
+ * OpenCode sessions open through a one-use sign-in path on the paired kiln server, which signs the
+ * browser in to OpenCode and redirects to the session. Resolving it against `origin` keeps it on
+ * the paired machine.
+ */
+private fun opencodeLink(value: String, origin: String?): String? {
+    if (origin == null || !value.matches(Regex("/opencode/[A-Za-z0-9_-]{32}"))) return null
+    val base = runCatching { URI(origin) }.getOrNull() ?: return null
+    if (
+        base.scheme != "https" || base.rawUserInfo != null || base.rawPath.trimEnd('/').isNotEmpty()
+    )
+        return null
+    return origin.trimEnd('/') + value
 }
 
 /** `origin` is the paired kiln server, the only host an OpenCode link may point at. */
 fun safeLink(agent: Agent, value: String, origin: String? = null): String? {
+    if (agent == Agent.OPENCODE) return opencodeLink(value, origin)
     val uri =
         try {
             URI(value)
         } catch (_: Exception) {
             return null
         }
-    if (agent == Agent.OPENCODE) return value.takeIf { opencodeLink(uri, origin) }
     if (
         uri.scheme != "https" ||
             uri.rawUserInfo != null ||

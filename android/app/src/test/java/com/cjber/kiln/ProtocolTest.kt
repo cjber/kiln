@@ -30,23 +30,19 @@ class ProtocolTest {
     @Test
     fun opencodeLinksOnlyReachThePairedMachine() {
         val origin = "https://machine.example.ts.net"
-        val link =
-            "https://machine.example.ts.net:4096/server/" +
-                "aHR0cHM6Ly9tYWNoaW5lLmV4YW1wbGUudHMubmV0OjQwOTY/session/ses_abc"
-        assertEquals(link, safeLink(Agent.OPENCODE, link, origin))
-        assertNull(safeLink(Agent.OPENCODE, link))
-        assertNull(safeLink(Agent.OPENCODE, link, "https://other.example.ts.net"))
-        for (url in
+        val path = "/opencode/" + "a".repeat(32)
+        assertEquals("$origin$path", safeLink(Agent.OPENCODE, path, origin))
+        assertEquals("$origin$path", safeLink(Agent.OPENCODE, path, "$origin/"))
+        assertNull(safeLink(Agent.OPENCODE, path))
+        assertNull(safeLink(Agent.OPENCODE, path, "http://machine.example.ts.net"))
+        for (value in
             listOf(
-                link.replace(":4096", ":4097"),
-                link.replace("https://", "http://"),
-                link.replace("https://", "https://user@"),
-                "$link?token=x",
-                "$link#x",
-                link.replace("ses_abc", "ses_../x"),
-                "https://machine.example.ts.net:4096/server/" +
-                    "aHR0cHM6Ly9ldmlsLmV4YW1wbGU6NDA5Ng/session/ses_abc",
-            )) assertNull(safeLink(Agent.OPENCODE, url, origin))
+                "https://evil.example$path",
+                "//evil.example$path",
+                "$path?x=1",
+                "/opencode/" + "a".repeat(31),
+                "/opencode/../" + "a".repeat(29),
+            )) assertNull(safeLink(Agent.OPENCODE, value, origin))
     }
 
     @Test

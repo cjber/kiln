@@ -52,15 +52,15 @@ test("an OpenCode session opens in the web UI only when the service holds it", (
     opencodeService: true,
     place: { kind: "thread", id: "ses_abc", attach: ["opencode", "--session", "ses_abc"] },
   };
-  const origin = "https://machine.example.ts.net:4096";
-  expect(phoneHandoff(served, undefined, origin)).toEqual({
-    url: `${origin}/server/aHR0cHM6Ly9tYWNoaW5lLmV4YW1wbGUudHMubmV0OjQwOTY/session/ses_abc`,
+  const link = (id: string) => `/opencode/for-${id}`;
+  expect(phoneHandoff(served, undefined, link)).toEqual({
+    url: "/opencode/for-ses_abc",
     label: "Open in OpenCode",
     exact: true,
   });
   expect(phoneHandoff(served)).toEqual({ reason: "Run kiln setup to open OpenCode sessions on your phone" });
-  expect(phoneHandoff({ ...served, opencodeService: false }, undefined, origin)).toEqual({
+  expect(phoneHandoff({ ...served, opencodeService: false }, undefined, link)).toEqual({
     reason: "Open this OpenCode session in kiln on your PC",
   });
-  expect(phoneHandoff({ ...served, id: "ses_../x" }, undefined, origin)).not.toHaveProperty("url");
+  expect(phoneHandoff({ ...served, id: "ses_../x" }, undefined, link)).not.toHaveProperty("url");
 });

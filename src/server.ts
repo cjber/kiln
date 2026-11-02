@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
-import { servedOpencodeOrigin } from "./opencode-web";
+import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { sessionTitle } from "./session-list";
@@ -15,6 +15,7 @@ import {
   sessionParents,
 } from "./sessions";
 import { loadSettings, SettingsError } from "./settings";
+import { spawn } from "./setup";
 
 /** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
 function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
@@ -31,7 +32,12 @@ function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" |
   }
 }
 
-export function phoneSession(session: Session, parent?: Session, codexHost?: string, opencodeOrigin?: string) {
+export function phoneSession(
+  session: Session,
+  parent?: Session,
+  codexHost?: string,
+  opencodeLink?: (id: string) => string,
+) {
   return {
     id: sessionIdentity(session),
     parentId: parent ? sessionIdentity(parent) : undefined,
@@ -44,7 +50,7 @@ export function phoneSession(session: Session, parent?: Session, codexHost?: str
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: wireKind(session.place),
-    handoff: phoneHandoff(session, codexHost, opencodeOrigin),
+    handoff: phoneHandoff(session, codexHost, opencodeLink),
   };
 }
 
@@ -60,10 +66,12 @@ export function startServer({
   discover = settingsDiscovery(),
   interval = 2_000,
   idleInterval = 60_000,
+  opencode = opencodeLinks((origin) => opencodeToken(origin, spawn)),
 }: {
   port: number;
   pairing: Pairing;
   discover?: () => Promise<Discovered>;
+  opencode?: ReturnType<typeof opencodeLinks>;
   interval?: number;
   /** Refresh period with no phone connected; it keeps the saved-session records current. */
   idleInterval?: number;
@@ -93,8 +101,11 @@ export function startServer({
     port,
     maxRequestBodySize: 4096,
     async fetch(request, server) {
-      if (request.headers.has("Origin")) return response({ error: "Browser requests are not supported" }, 403);
       const path = new URL(request.url).pathname;
+      // The phone opens this in its browser; the one-use code in the path is the authorization.
+      const opencodeCode = path.match(/^\/opencode\/([A-Za-z0-9_-]{32})$/)?.[1];
+      if (opencodeCode && request.method === "GET") return opencode.open(opencodeCode, await servedOpencodeOrigin());
+      if (request.headers.has("Origin")) return response({ error: "Browser requests are not supported" }, 403);
       // Opened in a browser, the address explains itself instead of reading as a lost pairing.
       if (path === "/" && request.method === "GET")
         return new Response(
@@ -175,14 +186,17 @@ export function startServer({
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
-      const opencodeOrigin = sessions.some((row) => row.opencodeService) ? await servedOpencodeOrigin() : undefined;
+      const opencodeLink =
+        sessions.some((row) => row.opencodeService) && (await servedOpencodeOrigin())
+          ? (id: string) => opencode.path(id)
+          : undefined;
       const parents = sessionParents(sessions);
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
         // Phones time freshness from this, so it moves only on a full successful load.
         updatedAt: stale ? snapshot.updatedAt : Date.now(),
-        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeOrigin)),
+        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeLink)),
         problem,
       };
     } catch (error) {
