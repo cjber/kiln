@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: daily
     cooldown:
-      default-days: 7
+      default-days: 1
     groups:
       actions:
         patterns: ["*"]
@@ -15,7 +15,17 @@ updates:
     schedule:
       interval: daily
     cooldown:
-      default-days: 7
+      default-days: 1
     groups:
       dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 1
+    groups:
+      android:
         patterns: ["*"]
