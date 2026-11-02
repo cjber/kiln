@@ -21,6 +21,8 @@ verbatim.
 
 - **`kiln setup` uses a phone server unit from your dotfiles.** When `kiln-serve.service` is a link to a unit kiln did not write, setup leaves it as it is and goes on to the tunnel and the pairing QR instead of stopping.
 
+- **The terminal UI runs on OpenTUI 0.8.1.** Opening a session from the list hands the terminal over once the list has fully let go of it.
+
 ## [0.12.0] - 2026-11-01
 
 - **OpenCode is a fourth agent.** `n` starts OpenCode, the list shows its titles and whether it is working, waiting or ready, helpers nest under their parent, and a session a restart stopped resumes in place. Closing a session interrupts and archives it, and a conversation still running with no terminal can be attached. It shares `.agents/skills` without links. On the phone these rows open on the PC, and the Android app must be updated with the desktop to read them.
