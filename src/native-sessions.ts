@@ -41,6 +41,8 @@ function claudeLifecycle(state: string | undefined): Lifecycle | undefined {
     case "done":
       return "completed";
     case "stopped":
+    // A job that crashed has ended without finishing; it can still be attached to read why.
+    case "crashed":
       return "stopped";
     default:
       return undefined;

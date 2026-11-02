@@ -15,22 +15,12 @@ const session = {
 const page = (data: unknown[], next_cursor: string | null = null) => JSON.stringify({ data, next_cursor });
 
 test("Claude cloud maps current states, leaves unknown ones unknown, and excludes archived, pooled and bridge sessions", () => {
-  const states = [
-    "working",
-    "waiting",
-    "idle",
-    "completed",
-    "archived",
-    "cancelled",
-    "rejected",
-    "WORKER_STATUS_UNSPECIFIED",
-    "new",
-  ];
+  const states = ["running", "requires_action", "idle", "working", "WORKER_STATUS_UNSPECIFIED"];
   expect(
     parseClaudeCloudPage(page(states.map((worker_status) => ({ ...session, worker_status })))).sessions.map(
       (s) => s.activity,
     ),
-  ).toEqual(["working", "waiting", "idle", "idle", "idle", "idle", "waiting", undefined, undefined]);
+  ).toEqual(["working", "waiting", "idle", undefined, undefined]);
   expect(
     parseClaudeCloudPage(
       page([

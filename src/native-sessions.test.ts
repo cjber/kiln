@@ -156,10 +156,11 @@ test("duplicate clients keep an openable terminal regardless of process order", 
 describe("finished Claude jobs", () => {
   const job = { kind: "background", id: "82f7d7c3", sessionId: "provider-id", name: "Finished", cwd: "/repo" };
 
-  test("lists completed and stopped jobs without a process or an activity", () => {
-    const [done, stopped] = finishedClaudeJobs([
+  test("lists completed, stopped and crashed jobs without a process or an activity", () => {
+    const [done, stopped, crashed] = finishedClaudeJobs([
       { ...job, state: "done", startedAt: 5 },
       { ...job, id: "0b276145", state: "stopped" },
+      { ...job, id: "1c387256", state: "crashed" },
     ]);
     expect(done).toMatchObject({
       agent: "claude",
@@ -172,6 +173,7 @@ describe("finished Claude jobs", () => {
     expect(done?.activity).toBeUndefined();
     expect(done?.pid).toBeUndefined();
     expect(stopped?.lifecycle).toBe("stopped");
+    expect(crashed?.lifecycle).toBe("stopped");
     expect(sessionAction(done as Session)).toEqual({ verb: "delete" });
   });
 
