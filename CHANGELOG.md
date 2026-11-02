@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-02
+
 - **The phone app looks like the terminal list.** It is always dark, uses the terminal's colours and a monospace font, and shows each session as one line: the agent name in its colour, the title in its status colour (yellow needs input, green ready or completed) and the age in grey. Swiping to hide no longer leaves a green band behind every row.
 
 - **A hidden session comes back when its status changes.** Hide a long job while it works and it returns to the list once it finishes, stops or needs input, along with its parent and helpers. Losing sight of it for a moment does not count as a change.
