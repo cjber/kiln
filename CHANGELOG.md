@@ -15,6 +15,10 @@ verbatim.
 
 - **Stopped OpenCode sessions leave the list.** A conversation with no terminal is listed only while the OpenCode service is still running it, so one whose last run failed no longer stays as "needs input" when there is nothing to open.
 
+- **A long title keeps its helper count.** The `[+N]` count of nested sessions stays on the line, and only the title is shortened to fit.
+
+- **`kiln setup` uses a phone server unit from your dotfiles.** When `kiln-serve.service` is a link to a unit kiln did not write, setup leaves it as it is and goes on to the tunnel and the pairing QR instead of stopping.
+
 ## [0.12.0] - 2026-11-01
 
 - **OpenCode is a fourth agent.** `n` starts OpenCode, the list shows its titles and whether it is working, waiting or ready, helpers nest under their parent, and a session a restart stopped resumes in place. Closing a session interrupts and archives it, and a conversation still running with no terminal can be attached. It shares `.agents/skills` without links. On the phone these rows open on the PC, and the Android app must be updated with the desktop to read them.
