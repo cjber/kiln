@@ -7,7 +7,7 @@ import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
-import type { Agent, Session } from "./sessions";
+import { type Agent, agentName, type Session } from "./sessions";
 import type { Settings } from "./settings";
 import { exists, kill, start } from "./tmux";
 import { tilde } from "./tui";
@@ -34,9 +34,10 @@ function isDirectory(path: string): boolean {
 function attachNative(session: Session, id: string, attach: string[]): Outcome {
   const name = `${session.agent}-bg-${id.slice(0, 16)}`;
   if (!exists(name)) {
-    if (!attach[0] || !Bun.which(attach[0])) return notice(`${session.agent} is not on PATH`);
+    if (!attach[0] || !Bun.which(attach[0])) return notice(`${agentName(session.agent)} is not on PATH`);
     if (!isDirectory(session.cwd)) return notice(`${tilde(session.cwd)} is not a directory`);
-    if (!start(name, session.cwd, attach, sessionTitle(session))) return notice(`could not attach to ${session.agent}`);
+    if (!start(name, session.cwd, attach, sessionTitle(session)))
+      return notice(`could not attach to ${agentName(session.agent)}`);
   }
   return { kind: "attach", name };
 }
@@ -125,9 +126,10 @@ async function launch(agent: Agent, cwd: string, settings: Settings, title: stri
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
     const command = settings.agents[agent];
-    if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agent} is not on PATH`);
+    if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agentName(agent)} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
-    if (!start(name, cwd, agentCommand(agent, settings, resume), title)) throw new Error(`could not start ${agent}`);
+    if (!start(name, cwd, agentCommand(agent, settings, resume), title))
+      throw new Error(`could not start ${agentName(agent)}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
   } catch (error) {
@@ -213,6 +215,6 @@ export async function closeSession(session: Session): Promise<true | string> {
     forget(session);
     return true;
   } catch (error) {
-    return `could not ${action.verb} ${session.agent}: ${error instanceof Error ? error.message : String(error)}`;
+    return `could not ${action.verb} ${agentName(session.agent)}: ${error instanceof Error ? error.message : String(error)}`;
   }
 }

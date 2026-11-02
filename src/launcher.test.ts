@@ -106,7 +106,7 @@ test("deleting a finished job runs claude rm and reports its refusal", async () 
       ["claude", "rm", "82f7d7c3"],
     ]);
     code = 1;
-    expect(await closeSession(job)).toBe("could not delete claude: worktree has unpushed commits");
+    expect(await closeSession(job)).toBe("could not delete Claude: worktree has unpushed commits");
   } finally {
     spawn.mockRestore();
   }

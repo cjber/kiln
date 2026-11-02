@@ -13,7 +13,7 @@ import {
   visibleSessions,
 } from "./session-list";
 import { sessionSorts } from "./session-sort";
-import { type Agent, agents, discovery, keepLast, type Session, sessionIdentity } from "./sessions";
+import { type Agent, agentName, agents, discovery, keepLast, type Session, sessionIdentity } from "./sessions";
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach } from "./tmux";
@@ -239,7 +239,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const closed = await closeSession(session);
       setNotice(
         closed === true && "verb" in action
-          ? `${{ close: "closed", archive: "archived", delete: "deleted", forget: "forgot" }[action.verb]} ${session.agent} in ${tilde(session.cwd)}`
+          ? `${{ close: "closed", archive: "archived", delete: "deleted", forget: "forgot" }[action.verb]} ${agentName(session.agent)} in ${tilde(session.cwd)}`
           : closed === true
             ? "session closed"
             : closed,
@@ -395,7 +395,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
               <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
-                  <span fg={agentColor[session.agent]}>{session.agent.padEnd(9)}</span>
+                  <span fg={agentColor[session.agent]}>{agentName(session.agent).padEnd(9)}</span>
                   <span fg={toneColor[sessionStatus(session).tone]}>
                     {padToWidth(
                       `${fit(title, Math.max(1, titleWidth - displayWidth(childrenMark)), "end")}${childrenMark}`,
@@ -424,7 +424,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
               fg={index === agentIndex ? agentColor[agent] : color.comment}
               attributes={index === agentIndex ? 1 : 0}
             >
-              {index === agentIndex ? `[${agent}]` : ` ${agent} `}{" "}
+              {index === agentIndex ? `[${agentName(agent)}]` : ` ${agentName(agent)} `}{" "}
             </span>
           ))}
         </text>
