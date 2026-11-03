@@ -259,8 +259,9 @@ export function dashboardData({
         ],
         job.root,
       )
+        .then((output) => parsePullRequest(output, queueLabel(job.root)))
         .then(
-          (output) => store(prs, job.key, parsePullRequest(output, queueLabel(job.root)), true),
+          (pr) => store(prs, job.key, pr, true),
           () => store(prs, job.key, undefined, false),
         )
         .finally(() => {
@@ -269,8 +270,10 @@ export function dashboardData({
         });
     }
   };
+  const used = new Set<string>();
   const lookUpPr = (root: string, branch: string) => {
     const key = `${commonGitDir(root)}\0${branch}`;
+    used.add(key);
     if (!fresh(prs, key, prAge)) {
       prs.set(key, { ...(prs.get(key) ?? { checkedAt: 0 }), pending: true });
       queue.push({ key, root, branch });
@@ -283,10 +286,11 @@ export function dashboardData({
     const directory = sessionDirectory(session);
     const root = checkout(directory);
     const branch = root ? gitBranch(directory) : undefined;
-    // A default or detached branch is shared by many sessions, so a pull request found for it says nothing about this one.
-    const ownBranch = branch && !["main", "master"].includes(branch) && !/^[0-9a-f]{7}$/.test(branch);
+    // A default branch is shared by many sessions, so a pull request found for it says nothing about this one.
+    const ownBranch = branch && !["main", "master"].includes(branch);
     let pr: PullRequest | undefined;
     if (root) {
+      used.add(root);
       countChanges(root);
       if (ownBranch && gh) pr = lookUpPr(root, branch);
     }
@@ -305,7 +309,11 @@ export function dashboardData({
 
   return async (): Promise<DashboardSnapshot> => {
     const { sessions, problem } = await discover();
+    used.clear();
     const rows = sessions.filter((session) => session.place.kind !== "cloud").map(row);
+    // Forget checkouts and branches no session works in any more; a lookup in flight finishes first.
+    for (const cache of [changes, prs] as Map<string, Cached<unknown>>[])
+      for (const [key, entry] of cache) if (!used.has(key) && !entry.pending) cache.delete(key);
     return {
       updatedAt: Date.now(),
       problem: [problem, gh ? "" : "Install the GitHub CLI (gh) to see pull requests"].filter(Boolean).join(" · "),
