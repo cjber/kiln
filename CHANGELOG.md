@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-03
+
 - **The dashboard counts a session once.** A session whose pull request has merged was counted both as running and as finished. It now counts only as finished.
 
 ## [0.15.0] - 2026-11-03
