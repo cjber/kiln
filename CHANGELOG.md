@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-11-03
+
 - **Only sessions kiln can open are listed.** A session running in a terminal kiln cannot reach, such as a plain terminal or another tmux server, no longer shows up as a row that only says to open it in its terminal. It still comes back as `stopped` after a restart, since that row resumes in kiln.
 
 ## [0.14.0] - 2026-11-03
