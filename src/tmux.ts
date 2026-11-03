@@ -42,6 +42,21 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
     });
 }
 
+/**
+ * Paste text into a session's pane as one bracketed paste, then press Enter, as if it were typed. A paste keeps
+ * newlines from submitting early; the pause lets the agent's TUI take the paste before the key that sends it.
+ */
+export async function submitText(name: string, text: string): Promise<void> {
+  const buffer = `kiln-${crypto.randomUUID()}`;
+  const target = `=${name}:`;
+  if (!run("set-buffer", "-b", buffer, "--", text) || !run("paste-buffer", "-p", "-d", "-b", buffer, "-t", target)) {
+    run("delete-buffer", "-b", buffer);
+    throw new Error(`could not type into ${name}`);
+  }
+  await Bun.sleep(300);
+  if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
+}
+
 export function exists(name: string): boolean {
   // `=` matches the name exactly rather than as a prefix.
   return run("has-session", "-t", `=${name}`);

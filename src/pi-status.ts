@@ -5,7 +5,7 @@ import extension from "../pi-extension/kiln-status.js" with { type: "text" };
 import type { Activity } from "./sessions";
 
 /** Where the extension in each kiln-started Pi writes its status; the extension computes the same path. */
-function statusDirectory(): string {
+export function statusDirectory(): string {
   return Bun.env.KILN_PI_STATUS_DIR || join(Bun.env.XDG_RUNTIME_DIR || tmpdir(), "kiln-pi");
 }
 
@@ -50,4 +50,9 @@ export function piStatus(pid: number, startedAt: number): PiStatus {
   } catch {
     return {};
   }
+}
+
+/** Where kiln leaves messages for a Pi it started; the extension creates it, so a Pi without it cannot take one. */
+export function piInbox(pid: number): string {
+  return join(statusDirectory(), `${pid}.inbox`);
 }

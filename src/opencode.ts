@@ -273,3 +273,17 @@ export async function archiveOpencodeSession(id: string): Promise<void> {
     if (!(error instanceof Error && error.message.includes("SessionNotFoundError"))) throw error;
   }
 }
+
+/** The service admits a prompt durably and runs it after any turn in progress, so a busy session can take one. */
+export async function promptOpencodeSession(id: string, text: string): Promise<void> {
+  const { url, authorization } = opencodeService();
+  const response = await fetch(`${url}/api/session/${encodeURIComponent(id)}/prompt`, {
+    method: "POST",
+    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    redirect: "error",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok)
+    throw new Error((await response.text()).split("\n")[0] || `the OpenCode service answered ${response.status}`);
+}

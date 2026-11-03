@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "kiln",
-      "description": "Change kiln's settings and repair the shared skills it manages.",
+      "description": "Let agents message each other, change kiln's settings and repair the shared skills it manages.",
       "source": "./",
       "category": "productivity"
     }

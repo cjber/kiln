@@ -70,7 +70,7 @@ for line in sys.stdin:
   run([executable, "status"]);
   run([executable, "skills", "sync"]);
   const installedSkills = JSON.parse(run([executable, "skills", "list"])).skills;
-  for (const name of ["kiln-config", "kiln-skills"]) {
+  for (const name of ["kiln-agents", "kiln-config", "kiln-skills"]) {
     const skill = installedSkills.find((entry: { name: string }) => entry.name === name);
     if (skill?.claude !== "shared" || skill.pi !== "shared")
       throw new Error(`bundled ${name} was not installed and shared`);
