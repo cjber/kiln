@@ -57,6 +57,20 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 
 Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered by the next `kiln msg send`, and on each refresh of the list or the phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
 
+## Dashboard
+
+```sh
+kiln dashboard            # serves http://127.0.0.1:7438/
+kiln dashboard --open     # and opens it in your browser
+kiln dashboard --port 8000
+```
+
+A web page of every running session's progress, for keeping an eye on many agents at once. It shows how many sessions are running and how many have finished, a bar per project split by stage, a bar per open pull request with its passed, failed and running checks, and a table of every session with its agent, project, stage, pull request and number of uncommitted files.
+
+A session's project is the repository its directory belongs to, so worktrees count as their repository. Its stage comes from the pull request for its branch: Working with no pull request or a closed one, PR failing when a check failed, PR checks running, PR green, and Done once it is merged. A pull request labelled for the MergeLoop queue (the `label` in `.mergepatrol/mergepatrol.yml`, `mergepatrol` by default) is marked queued. Sessions on `main` or `master` have no pull request of their own.
+
+The page updates itself over a server-sent event stream: session status every two seconds while it is open, uncommitted files every ten seconds, and pull requests at most once a minute per branch, fetched in the background with the GitHub CLI (`gh`). Nothing is read while no page is open. The server listens on 127.0.0.1 only, answers only requests addressed to that name, and is separate from the phone server and its tunnel.
+
 ## Terminal
 
 | Key | Action |

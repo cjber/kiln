@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A live dashboard of every session.** `kiln dashboard` serves a page on 127.0.0.1 that shows each running session's progress: sessions running and finished, a bar per project split into Working, PR failing, PR checks running, PR green and Done, the checks of every open pull request, and a table of every session with its uncommitted files. It updates itself every few seconds without reloading, and reads pull requests from GitHub at most once a minute per branch, in the background.
+
 ## [0.14.1] - 2026-11-03
 
 - **Only sessions kiln can open are listed.** A session running in a terminal kiln cannot reach, such as a plain terminal or another tmux server, no longer shows up as a row that only says to open it in its terminal. It still comes back as `stopped` after a restart, since that row resumes in kiln.
