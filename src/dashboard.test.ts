@@ -1,0 +1,119 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type DashboardSnapshot, parsePullRequest, projectName, stageOf, startDashboard } from "./dashboard";
+import type { Session } from "./sessions";
+
+const directories: string[] = [];
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+const run = (name: string, conclusion: string | null, status = "COMPLETED") => ({
+  __typename: "CheckRun",
+  name,
+  status,
+  conclusion,
+});
+const pr = (state: string, checks: object[], labels: string[] = []) => ({
+  number: 7,
+  url: "https://github.com/cjber/kiln/pull/7",
+  state,
+  isDraft: false,
+  additions: 12,
+  deletions: 3,
+  labels: labels.map((name) => ({ name })),
+  statusCheckRollup: checks,
+});
+
+test.each([
+  ["no pull request", [], "working"],
+  ["a merged pull request", [pr("MERGED", [run("ci", "FAILURE")])], "done"],
+  ["a closed pull request", [pr("CLOSED", [])], "working"],
+  ["an open one with a check running", [pr("OPEN", [run("ci", "SUCCESS"), run("e2e", null, "IN_PROGRESS")])], "checks"],
+  ["an open one with a failed check", [pr("OPEN", [run("ci", "TIMED_OUT"), run("e2e", null, "QUEUED")])], "failing"],
+  ["an open one with a failed status", [pr("OPEN", [{ __typename: "StatusContext", state: "ERROR" }])], "failing"],
+  ["an open one all green", [pr("OPEN", [run("ci", "SUCCESS"), run("lint", "SKIPPED")])], "green"],
+  ["the open one over an older merged one", [pr("OPEN", [run("ci", "SUCCESS")]), pr("MERGED", [])], "green"],
+] as const)("%s sets the stage", (_, found, stage) => {
+  expect(stageOf(parsePullRequest(JSON.stringify(found), "mergepatrol"))).toBe(stage);
+});
+
+test("a pull request reports its counts and the repository's queue label", () => {
+  const parsed = parsePullRequest(
+    JSON.stringify([pr("OPEN", [run("ci", "SUCCESS"), run("e2e", "FAILURE")], ["land"])]),
+    "land",
+  );
+  expect(parsed).toMatchObject({ additions: 12, deletions: 3, queued: true, checks: { passed: 1, failed: 1 } });
+});
+
+function repository() {
+  const root = mkdtempSync(join(tmpdir(), "kiln-dashboard-test-"));
+  directories.push(root);
+  const main = join(root, "kiln");
+  mkdirSync(join(main, ".git", "worktrees", "feature"), { recursive: true });
+  writeFileSync(join(main, ".git", "HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(main, ".git", "worktrees", "feature", "HEAD"), "ref: refs/heads/cb/feature\n");
+  writeFileSync(join(main, ".git", "worktrees", "feature", "commondir"), "../..\n");
+  const worktree = join(root, "worktrees", "kiln-feature");
+  mkdirSync(join(worktree, "src"), { recursive: true });
+  writeFileSync(join(worktree, ".git"), `gitdir: ${join(main, ".git", "worktrees", "feature")}\n`);
+  return { root, main, worktree };
+}
+
+test("a linked worktree counts as its repository's project", () => {
+  const { main, worktree } = repository();
+  expect(projectName(join(worktree, "src"))).toBe("kiln");
+  expect(projectName(main)).toBe("kiln");
+});
+
+test("the server streams sessions with their pull requests and answers only to its loopback name", async () => {
+  const { worktree } = repository();
+  const session: Session = {
+    agent: "claude",
+    id: "a1",
+    title: "Ship it",
+    cwd: worktree,
+    startedAt: 1,
+    place: { kind: "kiln", name: "k" },
+  };
+  const calls: string[][] = [];
+  const dashboard = startDashboard({
+    port: 0,
+    interval: 50,
+    gh: true,
+    discover: async () => ({ sessions: [session], problem: "", stale: false }),
+    exec: async (argv) => {
+      calls.push(argv);
+      if (argv[0] === "git") return " M src/a.ts\n?? b.ts\n";
+      return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["mergepatrol"])]);
+    },
+  });
+  try {
+    const origin = `http://127.0.0.1:${dashboard.port}`;
+    const page = await fetch(`${origin}/`);
+    expect(page.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+    expect(await page.text()).toContain("EventSource");
+    expect((await fetch(`${origin}/`, { headers: { Host: `attacker.example:${dashboard.port}` } })).status).toBe(403);
+
+    const events = await fetch(`${origin}/v1/events`);
+    const reader = events.body?.pipeThrough(new TextDecoderStream()).getReader();
+    let row: DashboardSnapshot["rows"][number] | undefined;
+    for (let buffer = ""; !row?.pr; ) {
+      const chunk = await reader?.read();
+      if (!chunk || chunk.done) throw new Error("stream ended");
+      buffer += chunk.value;
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) row = (JSON.parse(frame.replace(/^data: /, "")) as DashboardSnapshot).rows[0];
+    }
+    await reader?.cancel();
+    expect(row).toMatchObject({ project: "kiln", branch: "cb/feature", changes: 2, stage: "checks" });
+    expect(row.pr?.queued).toBe(true);
+    // Refreshes every 50 ms reuse the cached answer instead of asking GitHub again.
+    expect(calls.filter((argv) => argv[0] === "gh")).toHaveLength(1);
+  } finally {
+    dashboard.stop();
+  }
+});
