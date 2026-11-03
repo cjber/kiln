@@ -6,8 +6,10 @@ import configText from "../tmux.conf" with { type: "text" };
 
 import type { Settings } from "./settings";
 
-/** The executable tmux's status bar calls for `kiln status`. */
-const kiln = import.meta.dir.startsWith("/$bunfs/") ? process.execPath : join(import.meta.dir, "..", "bin", "kiln");
+/** This kiln's own executable: tmux's status bar calls it for `kiln status`, and messages name it for replies. */
+export const kiln = import.meta.dir.startsWith("/$bunfs/")
+  ? process.execPath
+  : join(import.meta.dir, "..", "bin", "kiln");
 const tmux = ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
 let config: string | undefined;
 
@@ -40,6 +42,31 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
       const [name = "", pid] = line.split("\t");
       return { name, pid: Number(pid) };
     });
+}
+
+/**
+ * Paste text into a session's pane as one bracketed paste, then press Enter, as if it were typed. A paste keeps
+ * newlines from submitting early; the pause lets the agent's TUI take the paste before the key that sends it.
+ */
+export async function submitText(name: string, text: string): Promise<void> {
+  const buffer = `kiln-${crypto.randomUUID()}`;
+  const target = `=${name}:`;
+  if (!run("set-buffer", "-b", buffer, "--", text) || !run("paste-buffer", "-p", "-d", "-b", buffer, "-t", target)) {
+    run("delete-buffer", "-b", buffer);
+    throw new Error(`could not type into ${name}`);
+  }
+  await Bun.sleep(300);
+  if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
+}
+
+/** How many terminals have the session open; none when it has closed. */
+export function attachedClients(name: string): number | undefined {
+  if (!exists(name)) return undefined;
+  const shown = Bun.spawnSync([...tmux, "display-message", "-p", "-t", `=${name}:`, "#{session_attached}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return shown.exitCode === 0 ? Number(shown.stdout.toString().trim()) : undefined;
 }
 
 export function exists(name: string): boolean {

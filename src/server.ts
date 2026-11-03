@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
+import { flushInBackground } from "./messages";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
@@ -183,6 +184,7 @@ export function startServer({
     refreshedAt = Date.now();
     try {
       const { sessions, problem, stale } = await discover();
+      if (!stale) flushInBackground(sessions);
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};

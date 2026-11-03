@@ -1,6 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
+import { flushInBackground } from "./messages";
 import { nativeNotifications } from "./notifications";
 import {
   resolveSelection,
@@ -151,13 +152,17 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
-      if (!found.stale) notifyNative(found.sessions, getSettings().notifications);
+      if (!found.stale) {
+        notifyNative(found.sessions, getSettings().notifications);
+        // Fixture sessions in tests are not real recipients.
+        if (!loadSessions) flushInBackground(found.sessions);
+      }
       // Re-anchor the cursor so it rests beside its session if that session later goes away.
       setSelection(resolveSelection(view(found.sessions), getSelection()));
     } finally {
       refreshing.current = false;
     }
-  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative]);
+  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative, loadSessions]);
 
   useEffect(() => {
     void refresh();

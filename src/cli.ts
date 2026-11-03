@@ -12,7 +12,8 @@ const usage = `usage: kiln            open the session list
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
        kiln skills list|share|sync    manage shared skills
-       agents: npx skills add cjber/kiln installs the kiln-config and kiln-skills skills
+       kiln msg list|send|inbox|whoami    let running agents message each other
+       agents: npx skills add cjber/kiln installs the kiln-config, kiln-skills and kiln-agents skills
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */
@@ -26,6 +27,16 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return 0;
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "skills command failed"}`);
+      return 2;
+    }
+  }
+  if (command === "msg") {
+    try {
+      const { runMsgCli } = await import("./msg-cli");
+      await runMsgCli(args.slice(1));
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "msg command failed"}`);
       return 2;
     }
   }

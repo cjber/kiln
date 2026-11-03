@@ -26,13 +26,36 @@ Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provide
 
 ## Set up with your agent
 
-kiln ships two skills: `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs both into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
+kiln ships three skills: `kiln-agents` lets running agents message each other, `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs them into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
 
 ```sh
 npx skills add cjber/kiln
 ```
 
 In Claude Code you can use the plugin instead: `/plugin marketplace add cjber/kiln`, then `/plugin install kiln@kiln`. The skills live in [`skills/`](skills).
+
+## Agents talking to each other
+
+Any running session kiln lists can message another one:
+
+```sh
+kiln msg list                       # names, status, directory and how a message would arrive
+kiln msg send codex:019a "Run the API tests on cb/login and tell me what fails"
+kiln msg send --all -               # every other session, text from stdin
+kiln msg inbox                      # messages kiln could not type into this session
+kiln msg whoami
+```
+
+Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln puts a message in front of its recipient as a new prompt, starting with the sender's name and the command to reply:
+
+| Recipient | Delivery |
+| --- | --- |
+| OpenCode on its background service | queued in OpenCode right away |
+| Pi started by kiln | queued as a follow-up right away |
+| Codex on its shared daemon | a new turn once it is idle |
+| Claude started by kiln | pasted into its terminal once it is idle and nobody has it open |
+
+Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered by the next `kiln msg send`, and on each refresh of the list or the phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
 
 ## Terminal
 
@@ -136,7 +159,7 @@ kiln skills share <name>
 kiln skills sync
 ```
 
-The `kiln-config` and `kiln-skills` helpers in [`skills/`](skills) are synced into the shared store before the terminal starts.
+The `kiln-agents`, `kiln-config` and `kiln-skills` helpers in [`skills/`](skills) are synced into the shared store before the terminal starts.
 
 ## Verification
 

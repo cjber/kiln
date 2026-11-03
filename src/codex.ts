@@ -240,3 +240,8 @@ export async function codexRemoteHost(): Promise<{ id?: string; problem?: string
     return { problem: "Cannot read Codex Remote Control status; open ChatGPT manually" };
   }
 }
+
+/** Start a turn on a loaded daemon thread; every client attached to it, such as its terminal, shows the turn. */
+export async function startCodexTurn(threadId: string, text: string): Promise<void> {
+  await rpc(controlSocket(), (call) => call("turn/start", { threadId, input: [{ type: "text", text }] }));
+}
