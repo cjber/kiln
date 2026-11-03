@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "screen-pairing",
+  "description": "First-run screen to pair the phone with kiln via QR code or an invitation link.",
+  "platform": "android",
+  "requires": [],
+  "steps": [],
+  "screenId": "pairing",
+  "expect": {
+    "elements": [
+      "com.android.systemui:id/status_bar_launch_animation_container",
+      "com.android.systemui:id/status_bar_container",
+      "com.android.systemui:id/status_bar",
+      "com.android.systemui:id/status_bar_contents",
+      "com.android.systemui:id/status_bar_start_side_container",
+      "com.android.systemui:id/status_bar_start_side_content"
+    ]
+  },
+  "createdAt": "2026-11-03T12:06:51.123Z",
+  "updatedAt": "2026-11-03T12:06:51.123Z"
+}

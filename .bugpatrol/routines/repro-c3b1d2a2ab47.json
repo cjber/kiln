@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "id": "repro-c3b1d2a2ab47",
+  "description": "Reproduces: Narrow terminals cut header, prompt and hint lines mid-word, hiding key info",
+  "platform": "cli",
+  "requires": [
+    "screen-session-list"
+  ],
+  "steps": [],
+  "screenId": "session-list",
+  "bug": {
+    "shows": "· 1 ne"
+  },
+  "createdAt": "2026-11-03T12:07:51.761Z",
+  "updatedAt": "2026-11-03T12:07:51.761Z"
+}

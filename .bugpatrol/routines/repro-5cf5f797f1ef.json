@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "id": "repro-5cf5f797f1ef",
+  "description": "Reproduces: \"Nothing hidden\" empty state centers the title but left-aligns its hint text",
+  "platform": "cli",
+  "requires": [
+    "enter-app"
+  ],
+  "steps": [
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "[+1]",
+        "text": "[+1]",
+        "point": {
+          "x": 909,
+          "y": 516
+        }
+      }
+    },
+    {
+      "kind": "wait",
+      "ms": 10000
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "history",
+        "text": "history",
+        "point": {
+          "x": 296.5,
+          "y": 325.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "hidden",
+        "text": "hidden",
+        "point": {
+          "x": 506.5,
+          "y": 325.5
+        }
+      }
+    }
+  ],
+  "screenId": "session-list",
+  "bug": {
+    "shows": "Nothing hidden"
+  },
+  "createdAt": "2026-11-03T12:12:37.917Z",
+  "updatedAt": "2026-11-03T12:12:37.917Z"
+}

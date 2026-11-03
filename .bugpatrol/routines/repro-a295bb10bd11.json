@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "repro-a295bb10bd11",
+  "description": "Reproduces: Rows with emoji titles push status and updated columns one cell right",
+  "platform": "cli",
+  "requires": [
+    "screen-session-list"
+  ],
+  "steps": [
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 160 40 many"
+    }
+  ],
+  "screenId": "session-list",
+  "createdAt": "2026-11-03T12:08:01.613Z",
+  "updatedAt": "2026-11-03T12:08:01.613Z"
+}

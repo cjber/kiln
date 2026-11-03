@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "id": "repro-a26918fb12ab",
+  "description": "Reproduces: Harness sort puts a session with unknown update time between known times",
+  "platform": "cli",
+  "requires": [
+    "screen-session-list"
+  ],
+  "steps": [
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 160 40 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 60 12 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short Tab"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short Tab j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short j j j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short j j j j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short G"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short x"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short x"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n l l l l"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n l"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short n"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n Escape"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / ready"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / zzzz"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / zzzz Enter"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 empty"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short o"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short o o"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 80 12 many C-d C-d"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 80 24 many G"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 80 70 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 60 8 short"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 60 8 short j j j j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short / blog"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / blog Escape"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short / blog"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 41 10 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 14 short Tab Tab r"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 14 short Tab o"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 14 short o o o"
+    }
+  ],
+  "screenId": "session-list",
+  "createdAt": "2026-11-03T12:08:07.220Z",
+  "updatedAt": "2026-11-03T12:08:07.220Z"
+}

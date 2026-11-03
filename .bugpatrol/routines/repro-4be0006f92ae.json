@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "id": "repro-4be0006f92ae",
+  "description": "Reproduces: Empty session list still offers j/k move and enter open, and no esc clear",
+  "platform": "cli",
+  "requires": [
+    "screen-session-list"
+  ],
+  "steps": [
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 160 40 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 60 12 many"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short Tab"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short Tab j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short j j j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short j j j j"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short G"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short x"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short x"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n l l l l"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n l"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short n"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short n Escape"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / ready"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / zzzz"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 100 20 short / zzzz Enter"
+    }
+  ],
+  "screenId": "session-list",
+  "bug": {
+    "shows": "j/k move · enter open · n new · / filter · q quit"
+  },
+  "createdAt": "2026-11-03T12:07:57.212Z",
+  "updatedAt": "2026-11-03T12:07:57.212Z"
+}

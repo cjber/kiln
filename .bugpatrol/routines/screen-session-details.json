@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "id": "screen-session-details",
+  "description": "Bottom sheet with a session's agent, status, directory, branch, times, hide and copy-ID actions.",
+  "platform": "android",
+  "requires": [
+    "screen-pairing"
+  ],
+  "steps": [
+    {
+      "kind": "scroll",
+      "direction": "down",
+      "at": "ca5fdde6cd40"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Show setup steps",
+        "text": "Show setup steps",
+        "point": {
+          "x": 326.5,
+          "y": 2158.5
+        }
+      },
+      "at": "8ff61eb27ca5"
+    },
+    {
+      "kind": "scroll",
+      "direction": "down",
+      "at": "7ed00813c4d3"
+    },
+    {
+      "kind": "scroll",
+      "direction": "up",
+      "at": "6b92c5b4f632"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Connect machine",
+        "text": "Connect machine",
+        "point": {
+          "x": 540.5,
+          "y": 2024.5
+        }
+      },
+      "at": "a881158b0d5e"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "[+1]",
+        "text": "[+1]",
+        "point": {
+          "x": 909,
+          "y": 516
+        }
+      },
+      "at": "d4992a17e55d"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "history",
+        "text": "history",
+        "point": {
+          "x": 296.5,
+          "y": 325.5
+        }
+      },
+      "at": "146f5ee52887"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "hidden",
+        "text": "hidden",
+        "point": {
+          "x": 506.5,
+          "y": 325.5
+        }
+      },
+      "at": "b2586866f4d0"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "live",
+        "text": "live",
+        "point": {
+          "x": 109,
+          "y": 325.5
+        }
+      },
+      "at": "f28f914aa0fa"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "barry",
+        "text": "barry",
+        "point": {
+          "x": 807.5,
+          "y": 199.5
+        }
+      },
+      "at": "3c9c944b8146"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Reconnect",
+        "text": "Reconnect",
+        "point": {
+          "x": 186,
+          "y": 1150.5
+        }
+      },
+      "at": "f1266f82744c"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Pair a machine",
+        "text": "Pair a machine",
+        "point": {
+          "x": 582.5,
+          "y": 878.5
+        }
+      },
+      "at": "5717655d2a6c"
+    },
+    {
+      "kind": "type",
+      "target": {
+        "role": "text",
+        "name": "Pairing invitation",
+        "text": "Pairing invitation",
+        "point": {
+          "x": 342,
+          "y": 1640.5
+        }
+      },
+      "value": "not-a-link",
+      "submit": false,
+      "at": "6c097d67a7f6"
+    },
+    {
+      "kind": "back",
+      "at": "87ef4732944b"
+    },
+    {
+      "kind": "scroll",
+      "direction": "down",
+      "at": "87ef4732944b"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Connect machine",
+        "text": "Connect machine",
+        "point": {
+          "x": 540.5,
+          "y": 1613.5
+        }
+      },
+      "at": "c414bee989ee"
+    },
+    {
+      "kind": "back",
+      "at": "25f1143f5a98"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "barry",
+        "text": "barry",
+        "point": {
+          "x": 275.5,
+          "y": 630.5
+        }
+      },
+      "at": "207f456fb61e"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Paste a valid kiln invitation with an HTTPS server URL",
+        "text": "Paste a valid kiln invitation with an HTTPS server URL",
+        "point": {
+          "x": 493,
+          "y": 325
+        }
+      },
+      "at": "207f456fb61e"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Finished task",
+        "text": "Finished task",
+        "point": {
+          "x": 411,
+          "y": 1001.5
+        }
+      },
+      "at": "55572340d15e"
+    }
+  ],
+  "screenId": "session-details",
+  "expect": {
+    "elements": [
+      "com.android.systemui:id/status_bar_launch_animation_container",
+      "com.android.systemui:id/status_bar_container",
+      "com.android.systemui:id/status_bar",
+      "com.android.systemui:id/status_bar_contents",
+      "com.android.systemui:id/status_bar_start_side_container",
+      "com.android.systemui:id/status_bar_start_side_content"
+    ]
+  },
+  "createdAt": "2026-11-03T12:09:01.710Z",
+  "updatedAt": "2026-11-03T12:09:01.710Z"
+}
