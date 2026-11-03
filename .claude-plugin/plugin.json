@@ -1,6 +1,6 @@
 {
   "name": "kiln",
-  "description": "Configure kiln's session list, native agent commands, cloud discovery and tmux settings, and inspect or repair the shared user and project skills kiln manages.",
+  "description": "Let running agents message each other, configure kiln's session list, native agent commands, cloud discovery and tmux settings, and inspect or repair the shared user and project skills kiln manages.",
   "author": {
     "name": "Cillian Berragan",
     "url": "https://github.com/cjber"

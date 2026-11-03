@@ -1,14 +1,41 @@
 // kiln loads this into the Pi sessions it starts (`pi -e`). It reports the session's identity,
-// title and activity to a private file that kiln's session list reads.
-import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+// title and activity to a private file that kiln's session list reads, and passes on messages
+// other agents leave for it through `kiln msg send`.
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export default function status(pi) {
   const directory = process.env.KILN_PI_STATUS_DIR || join(process.env.XDG_RUNTIME_DIR || tmpdir(), "kiln-pi");
   const path = join(directory, `${process.pid}.json`);
+  const inbox = join(directory, `${process.pid}.inbox`);
   let running = false;
   let prompts = 0;
+  let watcher;
+
+  // Each message is one file, removed before it is sent so it is never sent twice. A follow-up waits for
+  // any turn in progress and starts one when Pi is idle.
+  function deliver() {
+    let names;
+    try {
+      names = readdirSync(inbox)
+        .filter((name) => name.endsWith(".json"))
+        .sort();
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = join(inbox, name);
+      let text;
+      try {
+        text = JSON.parse(readFileSync(path, "utf8")).text;
+        rmSync(path);
+      } catch {
+        continue;
+      }
+      if (typeof text === "string" && text) pi.sendUserMessage(text, { deliverAs: "followUp" });
+    }
+  }
 
   function firstPrompt(manager) {
     for (const entry of manager.getBranch()) {
@@ -37,7 +64,15 @@ export default function status(pi) {
     renameSync(`${path}.tmp`, path);
   }
 
-  pi.on("session_start", (_event, ctx) => write(ctx));
+  pi.on("session_start", (_event, ctx) => {
+    write(ctx);
+    // Started here rather than in the factory, which can run without a session.
+    if (!watcher) {
+      mkdirSync(inbox, { recursive: true, mode: 0o700 });
+      watcher = watch(inbox, deliver);
+      deliver();
+    }
+  });
   pi.on("session_info_changed", (_event, ctx) => write(ctx));
   pi.on("agent_start", (_event, ctx) => {
     running = true;
@@ -56,5 +91,9 @@ export default function status(pi) {
     prompts = Math.max(0, prompts - 1);
     write(ctx);
   });
-  pi.on("session_shutdown", () => rmSync(path, { force: true }));
+  pi.on("session_shutdown", () => {
+    watcher?.close();
+    rmSync(path, { force: true });
+    rmSync(inbox, { recursive: true, force: true });
+  });
 }

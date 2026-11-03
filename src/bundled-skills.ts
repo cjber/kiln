@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import agents from "../skills/kiln-agents/SKILL.md" with { type: "text" };
 import config from "../skills/kiln-config/SKILL.md" with { type: "text" };
 import skills from "../skills/kiln-skills/SKILL.md" with { type: "text" };
 import { shareSkill, skillStore } from "./skills";
 
-const bundled = { "kiln-config": config, "kiln-skills": skills };
+const bundled = { "kiln-agents": agents, "kiln-config": config, "kiln-skills": skills };
 const digest = (source: string) => createHash("sha256").update(source).digest("hex");
 
 /** Only kiln-owned skills are updated; changed managed instructions are kept in backups. */

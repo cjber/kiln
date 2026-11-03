@@ -56,7 +56,11 @@ const headlessCommands = new Set([
 ]);
 const flagsWithValues = new Set(["--session", "-s", "--prompt", "--server", "--log-level"]);
 
-/** Decided on argv, so a directory or prompt named after a subcommand is still one argument. */
+/**
+ * Decided on argv, so a directory or prompt named after a subcommand is still one argument. A tab
+ * opened inside the TUI leaves argv naming the tab it started with, so only that tab is a terminal's
+ * own conversation; the service lists the rest on their own.
+ */
 export function opencodeInvocation(args: readonly string[]): { id?: string; shared: boolean } | undefined {
   let id: string | undefined;
   let shared = true;
@@ -175,6 +179,14 @@ export async function opencodeBusy(): Promise<boolean> {
 
 let last: OpencodeSession[] = [];
 
+/**
+ * A conversation closed in OpenCode is history, but one that is still running is work with a bill:
+ * hiding it leaves it spending where nobody can see or stop it, so a running one stays listed.
+ */
+export function opencodeShown(archived: number | undefined, running: boolean): boolean {
+  return archived === undefined || running;
+}
+
 /** Prompts are read for active sessions only: a turn that stops to ask is still a running turn. */
 async function read(): Promise<OpencodeSession[]> {
   const [active, listed] = await Promise.all([
@@ -194,22 +206,22 @@ async function read(): Promise<OpencodeSession[]> {
       )
     ).flat(),
   );
-  return listed.data.flatMap((info) =>
-    info.time.archived === undefined
-      ? [
-          {
-            id: info.id,
-            cwd: info.location.directory,
-            createdAt: info.time.created,
-            updatedAt: info.time.updated,
-            activity: opencodeActivity(active.data[info.id], waiting.has(info.id), info.outcome),
-            running: info.id in active.data,
-            title: info.title,
-            parentId: info.parentID,
-          },
-        ]
-      : [],
-  );
+  return listed.data.flatMap((info) => {
+    const running = info.id in active.data;
+    if (!opencodeShown(info.time.archived, running)) return [];
+    return [
+      {
+        id: info.id,
+        cwd: info.location.directory,
+        createdAt: info.time.created,
+        updatedAt: info.time.updated,
+        activity: opencodeActivity(active.data[info.id], waiting.has(info.id), info.outcome),
+        running,
+        title: info.title,
+        parentId: info.parentID,
+      },
+    ];
+  });
 }
 
 /** A failed read keeps the last names with their status unknown. */
@@ -260,4 +272,18 @@ export async function archiveOpencodeSession(id: string): Promise<void> {
   } catch (error) {
     if (!(error instanceof Error && error.message.includes("SessionNotFoundError"))) throw error;
   }
+}
+
+/** The service admits a prompt durably and runs it after any turn in progress, so a busy session can take one. */
+export async function promptOpencodeSession(id: string, text: string): Promise<void> {
+  const { url, authorization } = opencodeService();
+  const response = await fetch(`${url}/api/session/${encodeURIComponent(id)}/prompt`, {
+    method: "POST",
+    headers: { Authorization: authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    redirect: "error",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok)
+    throw new Error((await response.text()).split("\n")[0] || `the OpenCode service answered ${response.status}`);
 }
