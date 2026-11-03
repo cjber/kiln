@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **Agents can install kiln's skills without running kiln.** `npx skills add cjber/kiln` and the Claude Code plugin (`/plugin marketplace add cjber/kiln`) now install `kiln-config` and `kiln-skills`, which moved to `skills/`. `kiln --help` and kiln.cjber.dev point agents to them, and the site serves an `llms.txt`.
+- **A closed OpenCode session that is still running stays in the list.** Closing a session archives it in OpenCode, which hides it, so anything the service kept doing afterwards had no row left and spent without anyone seeing it or stopping it. A conversation the service is still working on is now listed whatever its archive state, so it can be watched, opened or interrupted.
 
 ## [0.13.4] - 2026-11-02
 

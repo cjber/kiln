@@ -9,6 +9,7 @@ import {
   opencodeInvocation,
   opencodeService,
   opencodeSessions,
+  opencodeShown,
 } from "./opencode";
 
 function serviceFile(dir: string, record: unknown): string {
@@ -110,4 +111,11 @@ test("a prompt outranks a running turn, and states kiln does not know stay unkno
   expect(opencodeActivity(undefined, false, "interrupted")).toBe("idle");
   expect(opencodeActivity(undefined, false, "failed")).toBe("waiting");
   expect(opencodeActivity(undefined, false, "cancelled")).toBeUndefined();
+});
+
+test("a closed conversation is history, unless it is still running and spending", () => {
+  expect(opencodeShown(undefined, false)).toBe(true);
+  expect(opencodeShown(undefined, true)).toBe(true);
+  expect(opencodeShown(1_793_696_431_870, true)).toBe(true);
+  expect(opencodeShown(1_793_696_431_870, false)).toBe(false);
 });
