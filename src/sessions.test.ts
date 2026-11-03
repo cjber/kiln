@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nestSessions, type Session, sessionParents } from "./sessions";
+import { nestSessions, openable, type Session, sessionParents } from "./sessions";
 
 describe("nested sessions", () => {
   const parent: Session = { pid: 1, agent: "codex", cwd: "/z", startedAt: 1, place: { kind: "kiln", name: "parent" } };
@@ -91,4 +91,10 @@ test("every provider pair nests by process or explicit provider identity", () =>
       expect(nestSessions([cyclicParent, cyclicChild])).toEqual([cyclicParent, cyclicChild]);
     }
   }
+});
+
+test("a session in a terminal kiln cannot reach is not listed", () => {
+  const base = { agent: "claude", cwd: "/w", startedAt: 0 } as const;
+  expect(openable({ ...base, place: { kind: "elsewhere", source: "tmux main" } } as Session)).toBe(false);
+  expect(openable({ ...base, place: { kind: "kiln", name: "a" } } as Session)).toBe(true);
 });

@@ -32,7 +32,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 ## Layout
 
-- `src/sessions.ts` - `discovery()` merges native and cached cloud rows; each source keeps its last rows while it fails.
+- `src/sessions.ts` - `discovery()` merges native and cached cloud rows and drops `elsewhere` ones kiln cannot open; each source keeps its last rows while it fails.
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
   `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.

@@ -12,6 +12,7 @@ verbatim.
 ## [0.14.0] - 2026-11-03
 
 - **Running agents can message each other.** `kiln msg list` shows every running session an agent can reach, `kiln msg send` messages one or all of them, and `kiln msg inbox` reads what could not be delivered. Kiln puts a message in front of an OpenCode, Pi, Codex or kiln-started Claude session as a new prompt that names the sender and how to reply, and waits until a session is idle before typing into it. The new `kiln-agents` skill teaches agents to use it.
+- **Only sessions kiln can open are listed.** A session running in a terminal kiln cannot reach, such as a plain terminal or another tmux server, no longer shows up as a row that only says to open it in its terminal. It still comes back as `stopped` after a restart, since that row resumes in kiln.
 - **Agents can install kiln's skills without running kiln.** `npx skills add cjber/kiln` and the Claude Code plugin (`/plugin marketplace add cjber/kiln`) now install `kiln-config` and `kiln-skills`, which moved to `skills/`. `kiln --help` and kiln.cjber.dev point agents to them, and the site serves an `llms.txt`.
 - **A closed OpenCode session that is still running stays in the list.** Closing a session archives it in OpenCode, which hides it, so anything the service kept doing afterwards had no row left and spent without anyone seeing it or stopping it. A conversation the service is still working on is now listed whatever its archive state, so it can be watched, opened or interrupted.
 
