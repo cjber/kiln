@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **Only sessions kiln can open are listed.** A session running in a terminal kiln cannot reach, such as a plain terminal or another tmux server, no longer shows up as a row that only says to open it in its terminal. It still comes back as `stopped` after a restart, since that row resumes in kiln.
 - **Agents can install kiln's skills without running kiln.** `npx skills add cjber/kiln` and the Claude Code plugin (`/plugin marketplace add cjber/kiln`) now install `kiln-config` and `kiln-skills`, which moved to `skills/`. `kiln --help` and kiln.cjber.dev point agents to them, and the site serves an `llms.txt`.
 
 ## [0.13.4] - 2026-11-02

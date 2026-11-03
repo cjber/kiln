@@ -119,6 +119,11 @@ export function keepLast<A extends unknown[]>(
   };
 }
 
+/** A terminal kiln cannot reach is not listed; a child under it is listed at the top level instead. */
+export function openable(session: Session): boolean {
+  return session.place.kind !== "elsewhere";
+}
+
 /**
  * Every source of sessions, merged into one list. Each source fails on its own: the others stay
  * live, and the failed one keeps its last rows. The TUI and the phone server each hold one.
@@ -131,9 +136,10 @@ export function discovery() {
   return async ({ cloud = false, claudeCloud = false, kitty = true } = {}): Promise<Discovered> => {
     const seen = await observed(kitty);
     const clouds = [...(cloud ? [cloudSnapshot()] : []), ...(cloud && claudeCloud ? [claudeCloudSnapshot()] : [])];
-    const merged = [...seen.sessions, ...clouds.flatMap((snapshot) => snapshot.sessions)].sort(
-      (left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt,
-    );
+    const merged = [...seen.sessions, ...clouds.flatMap((snapshot) => snapshot.sessions)]
+      // Without the kitty lookup a kitty window reads as elsewhere, so only a full lookup can tell.
+      .filter((session) => !kitty || openable(session))
+      .sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt);
     return {
       sessions: nestSessions([...new Map(merged.map((session) => [sessionIdentity(session), session])).values()]),
       problem: [seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
