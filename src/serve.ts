@@ -1,5 +1,11 @@
 import { type Pairing, serverOrigin } from "./pairing";
 
+export function parsePort(value = ""): number {
+  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
+    throw new Error("port must be between 1 and 65535");
+  return Number(value);
+}
+
 export function serveOptions(
   args: readonly string[],
   usage = "usage: kiln serve [--port 7437] [--origin https://host | --local]",
@@ -9,13 +15,9 @@ export function serveOptions(
   let local = false;
   for (let index = 0; index < args.length; index++) {
     switch (args[index]) {
-      case "--port": {
-        const value = args[++index] ?? "";
-        if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
-          throw new Error("port must be between 1 and 65535");
-        port = Number(value);
+      case "--port":
+        port = parsePort(args[++index]);
         break;
-      }
       case "--origin":
         origin = serverOrigin(args[++index] ?? "");
         break;

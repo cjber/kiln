@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kiln dashboard</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #e2e5eb;
+  --working: #8a93a6; --failing: #d64545; --checks: #d99a1e; --green: #2f9e5b; --done: #7c5cc4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b1f27; --text: #e6e8ee; --muted: #949cb0; --line: #2b313c;
+    --working: #6f7890; --failing: #e05d5d; --checks: #e0a83a; --green: #3fb46d; --done: #9479dc;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+#status { color: var(--muted); font-size: 12px; }
+#status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--checks); }
+#status.live::before { background: var(--green); }
+#problem { color: var(--failing); font-size: 13px; margin: 8px 0 0; }
+#problem:empty { display: none; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.tile, section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.tile { padding: 12px 14px; }
+.tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 12px; }
+section { padding: 14px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.grid section { margin: 0; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.legend i, .pill i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+.bars { display: grid; grid-template-columns: minmax(70px, max-content) 1fr auto; gap: 6px 10px; align-items: center; }
+.bars .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.bars .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.bar span { display: block; height: 100%; transition: width .3s; }
+.empty { color: var(--muted); font-size: 13px; }
+.table { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.title { white-space: normal; min-width: 140px; overflow-wrap: anywhere; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+.pill { display: inline-flex; align-items: center; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); }
+.sub { color: var(--muted); font-size: 12px; }
+a { color: inherit; }
+@media (max-width: 600px) { .wide { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>kiln dashboard</h1><span id="status">connecting</span></header>
+  <p id="problem"></p>
+  <div class="tiles" id="tiles"></div>
+  <div class="grid">
+    <section><h2>Projects</h2><div class="legend" id="legend"></div><div id="projects"></div></section>
+    <section><h2>Open pull requests</h2><div class="legend" id="check-legend"></div><div id="prs"></div></section>
+  </div>
+  <section><h2>Sessions</h2><div class="table" id="sessions"></div></section>
+</main>
+<script>
+"use strict";
+const stages = [
+  ["working", "Working"],
+  ["failing", "PR failing"],
+  ["checks", "PR checks running"],
+  ["green", "PR green"],
+  ["done", "Done"],
+];
+const stageName = Object.fromEntries(stages);
+const checkKinds = [["passed", "Passed", "green"], ["failed", "Failed", "failing"], ["running", "Running", "checks"]];
+const esc = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const swatch = (stage) => `<i style="background:var(--${stage})"></i>`;
+const link = (pr) => /^https:\/\/github\.com\//.test(pr.url) ? `<a href="${esc(pr.url)}" target="_blank" rel="noreferrer">#${pr.number}</a>` : `#${pr.number}`;
+const segments = (parts, total) => parts.filter(([, n]) => n).map(([color, n, tip]) =>
+  `<span style="width:${(n / total) * 100}%;background:var(--${color})" title="${esc(tip)}"></span>`).join("");
+
+document.getElementById("legend").innerHTML = stages.map(([id, name]) => `<span>${swatch(id)}${name}</span>`).join("");
+document.getElementById("check-legend").innerHTML = checkKinds.map(([, name, color]) => `<span>${swatch(color)}${name}</span>`).join("");
+
+function render(data) {
+  document.getElementById("problem").textContent = data.problem;
+  const rows = data.rows;
+  // Sessions sharing a branch share its pull request; count and draw it once.
+  const open = [...new Map(rows.filter((row) => row.pr && row.pr.state === "OPEN").map((row) => [row.pr.url, row])).values()];
+  const tiles = [
+    [rows.filter((row) => !row.lifecycle).length, "sessions running"],
+    [open.length, "open PRs from sessions"],
+    [open.filter((row) => row.stage === "green").length, "PRs fully green"],
+    [open.filter((row) => row.pr.checks.failed).length, "PRs with a failed check"],
+    [rows.filter((row) => row.stage === "done").length, "sessions finished"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([n, label]) => `<div class="tile"><b>${n}</b><span>${label}</span></div>`).join("");
+
+  const projects = new Map();
+  for (const row of rows) {
+    const counts = projects.get(row.project) ?? Object.fromEntries(stages.map(([id]) => [id, 0]));
+    counts[row.stage]++;
+    projects.set(row.project, counts);
+  }
+  const ranked = [...projects].sort((a, b) => sum(b[1]) - sum(a[1]) || a[0].localeCompare(b[0]));
+  const widest = Math.max(1, ...ranked.map(([, counts]) => sum(counts)));
+  document.getElementById("projects").innerHTML = ranked.length
+    ? `<div class="bars">${ranked.map(([name, counts]) => {
+        const total = sum(counts);
+        const bar = segments(stages.map(([id, label]) => [id, counts[id], `${counts[id]} ${label}`]), widest);
+        return `<span class="label" title="${esc(name)}">${esc(name)}</span><div class="bar">${bar}</div><span class="count">${total}</span>`;
+      }).join("")}</div>`
+    : `<p class="empty">No sessions running.</p>`;
+
+  document.getElementById("prs").innerHTML = open.length
+    ? `<div class="bars">${open.map((row) => {
+        const { checks } = row.pr;
+        const total = checks.passed + checks.failed + checks.running;
+        const tip = `+${row.pr.additions} / -${row.pr.deletions} lines${row.pr.draft ? ", draft" : ""}${row.pr.queued ? ", queued in MergeLoop" : ""}`;
+        const bar = total
+          ? segments(checkKinds.map(([kind, name, color]) => [color, checks[kind], `${checks[kind]} ${name.toLowerCase()}, ${tip}`]), total)
+          : "";
+        return `<span class="label" title="${esc(`${row.project}: ${tip}`)}">${esc(row.project)} ${link(row.pr)}${row.pr.queued ? ` <span class="sub">queued</span>` : ""}</span>` +
+          `<div class="bar" title="${esc(total ? tip : `no checks, ${tip}`)}">${bar}</div><span class="count">${checks.passed}/${total}</span>`;
+      }).join("")}</div>`
+    : `<p class="empty">No open pull requests from sessions.</p>`;
+
+  const order = Object.fromEntries(stages.map(([id], index) => [id, index]));
+  const sorted = [...rows].sort((a, b) => order[a.stage] - order[b.stage] || a.project.localeCompare(b.project) || a.title.localeCompare(b.title));
+  document.getElementById("sessions").innerHTML = sorted.length
+    ? `<table><thead><tr><th>Session</th><th class="wide">Agent</th><th class="wide">Project</th><th>Stage</th><th>PR</th><th class="wide">Uncommitted</th></tr></thead><tbody>${sorted.map((row) => `<tr>
+        <td class="title">${esc(row.title)}<div class="sub">${esc(row.lifecycle ?? row.activity ?? "unknown")}${row.branch ? ` · ${esc(row.branch)}` : ""}</div></td>
+        <td class="wide">${esc(row.agent)}</td>
+        <td class="wide">${esc(row.project)}</td>
+        <td><span class="pill">${swatch(row.stage)}${stageName[row.stage]}</span></td>
+        <td>${row.pr ? link(row.pr) : ""}</td>
+        <td class="num wide">${row.changes ?? ""}</td>
+      </tr>`).join("")}</tbody></table>`
+    : `<p class="empty">No sessions running.</p>`;
+}
+function sum(counts) { return Object.values(counts).reduce((a, b) => a + b, 0); }
+
+const status = document.getElementById("status");
+const events = new EventSource("/v1/events");
+let shown = "";
+events.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  // Redrawing an unchanged page would drop text selections and open tooltips every refresh.
+  const content = JSON.stringify([data.problem, data.rows]);
+  if (content !== shown) render(data);
+  shown = content;
+  status.className = "live";
+  const checking = data.checking ? `, checking ${data.checking} pull requests` : "";
+  status.textContent = `live, updated ${new Date(data.updatedAt).toLocaleTimeString()}${checking}`;
+};
+events.onerror = () => {
+  status.className = "";
+  status.textContent = "reconnecting";
+};
+</script>
+</body>
+</html>

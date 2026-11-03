@@ -11,6 +11,8 @@ const usage = `usage: kiln            open the session list
        kiln pair [https-origin]          print a five-minute phone invitation; the origin defaults to your Tailscale HTTPS name
        kiln devices               list paired phones
        kiln revoke <device-id>    revoke a phone
+       kiln dashboard [--port 7438] [--open]
+                                  serve a live progress page of every session on 127.0.0.1
        kiln skills list|share|sync    manage shared skills
        kiln msg list|send|inbox|whoami    let running agents message each other
        agents: npx skills add cjber/kiln installs the kiln-config, kiln-skills and kiln-agents skills
@@ -37,6 +39,28 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return 0;
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "msg command failed"}`);
+      return 2;
+    }
+  }
+  if (command === "dashboard") {
+    try {
+      const { dashboardOptions, startDashboard } = await import("./dashboard");
+      const options = dashboardOptions(args.slice(1));
+      const dashboard = startDashboard({ port: options.port });
+      const url = `http://127.0.0.1:${dashboard.port}/`;
+      console.log(`kiln: dashboard at ${url}`);
+      if (options.open && Bun.which("xdg-open"))
+        Bun.spawn(["xdg-open", url], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+      else if (options.open) console.error("kiln: xdg-open is not on PATH; open the address yourself");
+      const stop = () => {
+        dashboard.stop();
+        process.exit(0);
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      await new Promise(() => {});
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "dashboard failed"}`);
       return 2;
     }
   }
