@@ -57,6 +57,16 @@ export async function submitText(name: string, text: string): Promise<void> {
   if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
 }
 
+/** How many terminals have the session open; none when it has closed. */
+export function attachedClients(name: string): number | undefined {
+  if (!exists(name)) return undefined;
+  const shown = Bun.spawnSync([...tmux, "display-message", "-p", "-t", `=${name}:`, "#{session_attached}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return shown.exitCode === 0 ? Number(shown.stdout.toString().trim()) : undefined;
+}
+
 export function exists(name: string): boolean {
   // `=` matches the name exactly rather than as a prefix.
   return run("has-session", "-t", `=${name}`);

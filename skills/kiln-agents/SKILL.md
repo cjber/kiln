@@ -17,7 +17,8 @@ with `kiln msg inbox`.
 2. `kiln msg send <name> "<text>"`. Pass `-` instead of the text to read a long message from
    stdin. `--all` sends to every other session, so keep it for something every one of them needs.
 3. Each recipient is reported as `delivered` or `queued` with the reason. A queued message is
-   delivered once the recipient is idle, or read the next time it checks its inbox.
+   delivered once the recipient is idle while the kiln list or phone server runs, or read the
+   next time it checks its inbox.
 
 The recipient sees nothing of your conversation, so write each message to stand on its own:
 the goal, the absolute paths, the branch, what you already tried, and what you want back.

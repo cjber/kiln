@@ -14,6 +14,8 @@ export type Message = {
   deliveredAt?: number;
   /** Read with `kiln msg inbox`. */
   readAt?: number;
+  /** A delivery failed in a way that may still have reached the agent, so it is left for the inbox, never sent twice. */
+  failedAt?: number;
 };
 
 /** A message nobody delivered or read in this long is dropped: its sender has long moved on. */
@@ -34,7 +36,7 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      'PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=2000; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, "from" TEXT NOT NULL, "to" TEXT NOT NULL, body TEXT NOT NULL, createdAt REAL NOT NULL, deliveredAt REAL, readAt REAL);',
+      'PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=2000; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, "from" TEXT NOT NULL, "to" TEXT NOT NULL, body TEXT NOT NULL, createdAt REAL NOT NULL, deliveredAt REAL, readAt REAL, failedAt REAL);',
     );
     databases.set(path, db);
   }
@@ -46,26 +48,32 @@ const message = (row: Row): Message => ({
   ...(row as Message),
   deliveredAt: row.deliveredAt ?? undefined,
   readAt: row.readAt ?? undefined,
+  failedAt: row.failedAt ?? undefined,
 });
 
 export function post(from: string, to: string, body: string, path = mailboxPath(), now = Date.now()): Message {
   const db = open(path);
-  const { sent } = db
-    .query<{ sent: number }, [string, string, number]>(
-      'SELECT count(*) AS sent FROM messages WHERE "from" = ? AND "to" = ? AND createdAt > ?',
-    )
-    .get(from, to, now - sendLimit.perMs) ?? { sent: 0 };
-  if (sent >= sendLimit.count)
-    throw new Error(`${sendLimit.count} messages to ${to} in ten minutes; wait before sending more`);
-  const created = { id: crypto.randomUUID(), from, to, body, createdAt: now };
-  db.query('INSERT INTO messages (id, "from", "to", body, createdAt) VALUES (?, ?, ?, ?, ?)').run(
-    created.id,
-    from,
-    to,
-    body,
-    now,
-  );
-  return created;
+  // Immediate, so two senders cannot both count 19 and both insert.
+  return db
+    .transaction(() => {
+      const { sent } = db
+        .query<{ sent: number }, [string, string, number]>(
+          'SELECT count(*) AS sent FROM messages WHERE "from" = ? AND "to" = ? AND createdAt > ?',
+        )
+        .get(from, to, now - sendLimit.perMs) ?? { sent: 0 };
+      if (sent >= sendLimit.count)
+        throw new Error(`${sendLimit.count} messages to ${to} in ten minutes; wait before sending more`);
+      const created = { id: crypto.randomUUID(), from, to, body, createdAt: now };
+      db.query('INSERT INTO messages (id, "from", "to", body, createdAt) VALUES (?, ?, ?, ?, ?)').run(
+        created.id,
+        from,
+        to,
+        body,
+        now,
+      );
+      return created;
+    })
+    .immediate();
 }
 
 /** Messages nobody has delivered or read yet, oldest first, after dropping expired ones. */
@@ -75,7 +83,9 @@ export function pending(path = mailboxPath(), now = Date.now()): Message[] {
   const db = open(path);
   db.query("DELETE FROM messages WHERE createdAt < ?").run(now - keepMs);
   return db
-    .query<Row, []>("SELECT * FROM messages WHERE deliveredAt IS NULL AND readAt IS NULL ORDER BY createdAt")
+    .query<Row, []>(
+      "SELECT * FROM messages WHERE deliveredAt IS NULL AND readAt IS NULL AND failedAt IS NULL ORDER BY createdAt",
+    )
     .all()
     .map(message);
 }
@@ -89,9 +99,14 @@ export function claim(id: string, path = mailboxPath(), now = Date.now()): boole
   );
 }
 
-/** A delivery that failed goes back to waiting. */
-export function release(id: string, path = mailboxPath()): void {
-  open(path).query("UPDATE messages SET deliveredAt = NULL WHERE id = ?").run(id);
+/**
+ * A delivery that did not happen. One kiln refused before sending goes back to waiting; one that failed on the way
+ * may have arrived, so it stays for the recipient's inbox rather than risk a second copy.
+ */
+export function release(id: string, sent: boolean, path = mailboxPath(), now = Date.now()): void {
+  open(path)
+    .query("UPDATE messages SET deliveredAt = NULL, failedAt = ? WHERE id = ?")
+    .run(sent ? now : null, id);
 }
 
 /** The recipient's undelivered messages, marked read as they are handed over. */

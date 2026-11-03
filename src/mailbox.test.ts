@@ -14,15 +14,19 @@ function mailbox(): string {
   return join(root, "mailbox.sqlite");
 }
 
-test("a message is delivered once, by whichever caller claims it, and goes back if delivery fails", () => {
+test("a message is delivered once, by whichever caller claims it, and never sent again once it may have arrived", () => {
   const path = mailbox();
   const message = post("claude:a", "codex:b", "hello", path, 1_000);
   expect(pending(path, 1_000).map((item) => item.id)).toEqual([message.id]);
   expect(claim(message.id, path)).toBe(true);
   expect(claim(message.id, path)).toBe(false);
   expect(pending(path, 1_000)).toEqual([]);
-  release(message.id, path);
+  release(message.id, false, path);
   expect(pending(path, 1_000)).toHaveLength(1);
+  expect(claim(message.id, path)).toBe(true);
+  release(message.id, true, path);
+  expect(pending(path, 1_000)).toEqual([]);
+  expect(takeUnread("codex:b", path).map((item) => item.body)).toEqual(["hello"]);
 });
 
 test("the inbox hands over only undelivered messages for its owner, once", () => {

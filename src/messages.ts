@@ -5,7 +5,7 @@ import { claim, type Message, mailboxPath, pending, release } from "./mailbox";
 import { promptOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity } from "./sessions";
-import { submitText } from "./tmux";
+import { attachedClients, submitText } from "./tmux";
 import { tilde } from "./tui";
 
 /** The name a message from a person at a shell, rather than an agent, carries. */
@@ -129,6 +129,9 @@ export function frame(message: Message, sender: Session | undefined): string {
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;
 }
 
+/** A transport throws this when it refused before sending anything, so the message can simply wait. */
+export class NotNow extends Error {}
+
 export type Transports = Record<
   "codex" | "opencode" | "pi" | "tmux",
   (session: Session, text: string) => Promise<void>
@@ -145,7 +148,11 @@ const transports: Transports = {
     renameSync(join(directory, `${name}.tmp`), join(directory, `${name}.json`));
   },
   tmux: async (session, text) => {
-    if (session.place.kind !== "kiln") throw new Error("not a kiln session");
+    if (session.place.kind !== "kiln") throw new NotNow("not a kiln session");
+    const clients = attachedClients(session.place.name);
+    if (clients === undefined) throw new NotNow("its terminal has closed");
+    // Someone there may be writing a prompt, which the paste would join and Enter would send.
+    if (clients) throw new NotNow("someone has it open; it is delivered once they leave");
     await submitText(session.place.name, text);
   },
 };
@@ -179,8 +186,14 @@ export async function flush(
       await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)));
       outcomes.push({ message, delivered: true });
     } catch (error) {
-      release(message.id, path);
-      outcomes.push({ message, delivered: false, reason: error instanceof Error ? error.message : String(error) });
+      const refused = error instanceof NotNow;
+      release(message.id, !refused, path);
+      const reason = error instanceof Error ? error.message : String(error);
+      outcomes.push({
+        message,
+        delivered: false,
+        reason: refused ? reason : `${reason}; it may have arrived, so it is left for kiln msg inbox`,
+      });
     }
   }
   return outcomes;
@@ -190,9 +203,11 @@ let flushing = false;
 
 /** For the list and the phone server: deliver in the background, at most one pass at a time, never throwing. */
 export function flushInBackground(sessions: readonly Session[]): void {
-  if (flushing || !pending().length) return;
+  if (flushing) return;
   flushing = true;
-  void flush(sessions)
+  // A locked or broken mailbox must not take the list or the phone server down with it.
+  void Promise.resolve()
+    .then(() => (pending().length ? flush(sessions) : undefined))
     .catch(() => {})
     .finally(() => {
       flushing = false;

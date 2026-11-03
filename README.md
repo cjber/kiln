@@ -53,9 +53,9 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 | OpenCode on its background service | queued in OpenCode right away |
 | Pi started by kiln | queued as a follow-up right away |
 | Codex on its shared daemon | a new turn once it is idle |
-| Claude started by kiln | pasted into its terminal once it is idle |
+| Claude started by kiln | pasted into its terminal once it is idle and nobody has it open |
 
-Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered when `kiln msg` runs, and on each refresh of the list or the phone server. Kiln never types into a session that is working or asking a question. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
+Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered by the next `kiln msg send`, and on each refresh of the list or the phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
 
 ## Terminal
 

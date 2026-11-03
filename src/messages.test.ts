@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pending, post } from "./mailbox";
-import { callerIdentity, findRecipient, flush, frame, processAgent, route, type Transports } from "./messages";
+import { callerIdentity, findRecipient, flush, frame, NotNow, processAgent, route, type Transports } from "./messages";
 import type { Session } from "./sessions";
 
 const roots: string[] = [];
@@ -81,14 +81,16 @@ test("flush types each deliverable message once, framed with its sender, and kee
   const send = {
     tmux: async (target: Session, text: string) => {
       if (target.id === "broken") throw new Error("pane closed");
+      if (target.id === "open") throw new NotNow("someone has it open");
       typed.push(`${target.id}: ${text}`);
     },
   } as unknown as Transports;
-  const sessions = [sender, idle, busy, session({ id: "broken" })];
+  const sessions = [sender, idle, busy, session({ id: "broken" }), session({ id: "open" })];
   post("codex:s1", "claude:idle", "please review", path);
   post("codex:s1", "claude:busy", "later", path);
   post("codex:s1", "claude:broken", "lost?", path);
   post("codex:s1", "claude:missing", "nobody", path);
+  post("codex:s1", "claude:open", "after you", path);
   const outcomes = await flush(sessions, { path, send });
   expect(typed).toEqual([
     'idle: [kiln message from codex:s1 ("Fix login" in /work)]\n\nplease review\n\n[Reply with: kiln msg send codex:s1 "<your reply>"]',
@@ -96,10 +98,11 @@ test("flush types each deliverable message once, framed with its sender, and kee
   expect(outcomes.map((outcome) => (outcome.delivered ? "delivered" : outcome.reason))).toEqual([
     "delivered",
     "Claude is working",
-    "pane closed",
+    "pane closed; it may have arrived, so it is left for kiln msg inbox",
     "it is not running; it can read it later",
+    "someone has it open",
   ]);
-  expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:broken", "claude:missing"]);
+  expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:missing", "claude:open"]);
   expect(await flush(sessions, { path, send })).toHaveLength(3);
   expect(typed).toHaveLength(1);
 });
