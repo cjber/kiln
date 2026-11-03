@@ -1,0 +1,29 @@
+version: 1
+
+# The phone app on a dedicated emulator, paired to seeded sessions over local TLS.
+# Run with: npx bugpatrol explore --config .bugpatrol/android.yml
+app:
+  platform: android
+  source: .
+  setup:
+    - run: 'bun install --frozen-lockfile'
+    - run: 'bun scripts/qa-phone.ts short'
+      background: true
+      readyWhen: 'kiln QA phone ready'
+      timeoutMs: 900000
+  connect:
+    appId: com.cjber.kiln
+    device: emulator-5562
+  instructions: .bugpatrol/android-instructions.md
+  secrets: []
+
+agents:
+  explorer:
+    use: claude
+  judge:
+    use: claude
+  fixer:
+    enabled: false
+    use: claude
+  github:
+    enabled: false

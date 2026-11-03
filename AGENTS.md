@@ -67,6 +67,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
+- `scripts/qa-drive.ts`, `scripts/qa-phone.ts` - seeded list and phone app for Bugpatrol (`.bugpatrol/bugpatrol.yml`, `.bugpatrol/android.yml`); never the real sessions or a paired phone.
 - `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
   The binaries embed OpenTUI assets and `tmux.conf`; AUR `kiln-agents-bin` needs no Bun.
 

@@ -68,6 +68,7 @@ export function startServer({
   interval = 2_000,
   idleInterval = 60_000,
   opencode = opencodeLinks((origin) => opencodeToken(origin, spawn)),
+  tls,
 }: {
   port: number;
   pairing: Pairing;
@@ -76,6 +77,8 @@ export function startServer({
   interval?: number;
   /** Refresh period with no phone connected; it keeps the saved-session records current. */
   idleInterval?: number;
+  /** Only the QA harness serves TLS itself; a real server sits behind Tailscale Serve or the user's tunnel. */
+  tls?: Bun.TLSOptions;
 }) {
   const instance = randomUUID();
   let snapshot = {
@@ -100,6 +103,7 @@ export function startServer({
   const server = Bun.serve<{ token: string }>({
     hostname: "127.0.0.1",
     port,
+    tls,
     maxRequestBodySize: 4096,
     async fetch(request, server) {
       const path = new URL(request.url).pathname;
