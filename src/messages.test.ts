@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pending, post } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, NotNow, processAgent, route, type Transports } from "./messages";
 import type { Session } from "./sessions";
+import { kiln } from "./tmux";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -93,7 +94,7 @@ test("flush types each deliverable message once, framed with its sender, and kee
   post("codex:s1", "claude:open", "after you", path);
   const outcomes = await flush(sessions, { path, send });
   expect(typed).toEqual([
-    'idle: [kiln message from codex:s1 ("Fix login" in /work)]\n\nplease review\n\n[Reply with: kiln msg send codex:s1 "<your reply>"]',
+    `idle: [kiln message from codex:s1 ("Fix login" in /work)]\n\nplease review\n\n[Reply with: ${kiln} msg send codex:s1 "<your reply>"]`,
   ]);
   expect(outcomes.map((outcome) => (outcome.delivered ? "delivered" : outcome.reason))).toEqual([
     "delivered",
@@ -110,4 +111,8 @@ test("flush types each deliverable message once, framed with its sender, and kee
 test("a message from a person at a shell offers no reply command", () => {
   const message = { id: "1", from: "terminal", to: "claude:a", body: "hi", createdAt: 0 };
   expect(frame(message, undefined)).toBe("[kiln message from terminal]\n\nhi");
+  // The reply names the exact executable, quoted when its path needs it.
+  expect(frame({ ...message, from: "pi:p" }, undefined, "/opt/my kiln/kiln")).toBe(
+    "[kiln message from pi:p]\n\nhi\n\n[Reply with: '/opt/my kiln/kiln' msg send pi:p \"<your reply>\"]",
+  );
 });

@@ -5,7 +5,7 @@ import { claim, type Message, mailboxPath, pending, release } from "./mailbox";
 import { promptOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity } from "./sessions";
-import { attachedClients, submitText } from "./tmux";
+import { attachedClients, kiln, submitText } from "./tmux";
 import { tilde } from "./tui";
 
 /** The name a message from a person at a shell, rather than an agent, carries. */
@@ -95,7 +95,10 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
     case "opencode":
       return session.opencodeService
         ? { push: "opencode" }
-        : { inbox: "it runs outside OpenCode's background service" };
+        : {
+            inbox:
+              "OpenCode's background service holds no conversation for it: it has had no prompt yet, or runs on its own server",
+          };
     case "pi":
       return session.pid !== undefined && inboxExists(session.pid)
         ? { push: "pi" }
@@ -120,12 +123,16 @@ function isPiInbox(pid: number): boolean {
   }
 }
 
-/** What the recipient reads: who wrote, from where, and how to answer. */
-export function frame(message: Message, sender: Session | undefined): string {
+/**
+ * What the recipient reads: who wrote, from where, and how to answer. The reply names this kiln's executable, since
+ * an agent's commands may run with a PATH that has no `kiln` on it, or an older one, as under Codex's daemon.
+ */
+export function frame(message: Message, sender: Session | undefined, command = kiln): string {
   const where = sender
     ? ` (${[sender.title && `"${sender.title}"`, tilde(sessionDirectory(sender))].filter(Boolean).join(" in ")})`
     : "";
-  const reply = message.from === terminal ? "" : `\n\n[Reply with: kiln msg send ${message.from} "<your reply>"]`;
+  const quoted = /^[\w./-]+$/.test(command) ? command : `'${command.replaceAll("'", "'\\''")}'`;
+  const reply = message.from === terminal ? "" : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;
 }
 

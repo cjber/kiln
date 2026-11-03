@@ -6,8 +6,10 @@ import configText from "../tmux.conf" with { type: "text" };
 
 import type { Settings } from "./settings";
 
-/** The executable tmux's status bar calls for `kiln status`. */
-const kiln = import.meta.dir.startsWith("/$bunfs/") ? process.execPath : join(import.meta.dir, "..", "bin", "kiln");
+/** This kiln's own executable: tmux's status bar calls it for `kiln status`, and messages name it for replies. */
+export const kiln = import.meta.dir.startsWith("/$bunfs/")
+  ? process.execPath
+  : join(import.meta.dir, "..", "bin", "kiln");
 const tmux = ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
 let config: string | undefined;
 
