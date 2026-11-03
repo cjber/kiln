@@ -94,7 +94,8 @@ function render(data) {
   // Sessions sharing a branch share its pull request; count and draw it once.
   const open = [...new Map(rows.filter((row) => row.pr && row.pr.state === "OPEN").map((row) => [row.pr.url, row])).values()];
   const tiles = [
-    [rows.filter((row) => !row.lifecycle).length, "sessions running"],
+    // A session whose pull request merged is finished, even while its agent is still open.
+    [rows.filter((row) => !row.lifecycle && row.stage !== "done").length, "sessions running"],
     [open.length, "open PRs from sessions"],
     [open.filter((row) => row.stage === "green").length, "PRs fully green"],
     [open.filter((row) => row.pr.checks.failed).length, "PRs with a failed check"],
