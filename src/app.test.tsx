@@ -1,7 +1,11 @@
 import { expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
 import { App, ageColor } from "./app";
+import { pullRequests } from "./dashboard";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 import { color } from "./tui";
@@ -146,4 +150,66 @@ test("a narrow terminal keeps the waiting count, the typed query and the way out
   expect(await frameAfter([waitingSession], size, ["/", "a", "t", "l"], "/atl")).toContain("esc clear");
   expect(await frameAfter([waitingSession], size, ["n"], "esc cancel")).toContain("enter dir");
   expect(await frameAfter([waitingSession], size, ["x"], "y confirms")).toContain("else cancels");
+});
+
+test("rows on a branch with a pull request show its number and stage, and the details line its checks", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kiln-app-pr-"));
+  mkdirSync(join(directory, ".git"));
+  writeFileSync(join(directory, ".git", "HEAD"), "ref: refs/heads/cb/retry\n");
+  const sessions: Session[] = [
+    {
+      agent: "claude",
+      cwd: directory,
+      title: "Fix retry backoff",
+      startedAt: Date.now(),
+      activity: "idle",
+      place: { kind: "kiln", name: "retry" },
+    },
+  ];
+  const prs = pullRequests({
+    gh: true,
+    exec: async () =>
+      JSON.stringify([
+        {
+          number: 212,
+          url: "https://github.com/o/r/pull/212",
+          state: "OPEN",
+          isDraft: false,
+          additions: 1,
+          deletions: 1,
+          labels: [],
+          statusCheckRollup: [
+            { status: "COMPLETED", conclusion: "SUCCESS" },
+            { status: "COMPLETED", conclusion: "FAILURE" },
+          ],
+        },
+      ]),
+  });
+  let setup!: Awaited<ReturnType<typeof testRender>>;
+  try {
+    await act(async () => {
+      setup = await testRender(
+        <App
+          initialSettings={{ ...defaults, cloud: false }}
+          onQuit={() => {}}
+          loadSessions={async () => sessions}
+          prs={prs}
+        />,
+        { width: 100, height: 10 },
+      );
+    });
+    await act(async () => {
+      await Bun.sleep(50);
+      await setup.mockInput.pressKeys(["r"]);
+      await Bun.sleep(100);
+    });
+    await setup.waitForFrame((frame) => frame.includes("#212 ✗"));
+    expect(setup.captureCharFrame()).toContain("PR #212 failing (1 passed, 1 failed)");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    if (setup)
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+  }
 });

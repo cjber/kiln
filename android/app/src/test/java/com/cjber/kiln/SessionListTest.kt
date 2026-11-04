@@ -310,4 +310,37 @@ class SessionListTest {
         // Within a project, the most recently active comes first.
         assertEquals(listOf("kiln", "tree", "main"), ids(items))
     }
+
+    @Test
+    fun progressGroupsTopLevelSessionsByStageMostUrgentFirst() {
+        val now = 100_000L
+        val rows =
+            listOf(
+                parent.copy(id = "green", stage = Stage.GREEN, active = 50),
+                parent.copy(id = "failing", stage = Stage.FAILING, active = 10),
+                parent.copy(id = "helper", stage = Stage.FAILING, parent = "failing"),
+                parent.copy(id = "working-old", stage = Stage.WORKING, active = 20),
+                parent.copy(id = "working-new", stage = Stage.WORKING, active = 90),
+                parent.copy(id = "cloud", where = Place.CLOUD),
+                parent.copy(id = "hidden", stage = Stage.CHECKS),
+            )
+        val items = progressItems(rows, now = now, hiddenIds = setOf("hidden"))
+        assertEquals(
+            listOf(
+                "stage:failing",
+                "failing",
+                "stage:green",
+                "green",
+                "stage:working",
+                "working-new",
+                "working-old",
+            ),
+            items.map { it.key },
+        )
+        assertEquals(2, (items[4] as SessionItem.StageHeader).count)
+        val numbered = rows.map {
+            if (it.id == "green") it.copy(pr = PullInfo(7, "u", false, false, 1, 0, 0)) else it
+        }
+        assertEquals(listOf("green"), ids(progressItems(numbered, "#7", now)))
+    }
 }

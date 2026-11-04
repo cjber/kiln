@@ -9,9 +9,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 /**
- * Debug-only host for README screenshots: `--es screen list` (default), `--es screen pair` or `--es
- * screen handoff`. It renders the production composables from seeded rows and a fixed clock;
- * nothing touches the network or saved credentials.
+ * Debug-only host for README screenshots: `--es screen list` (default), `--es screen progress`,
+ * `--es screen pair` or `--es screen handoff`. It renders the production composables from seeded
+ * rows and a fixed clock; nothing touches the network or saved credentials.
  */
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,6 +62,8 @@ class ScreenshotActivity : ComponentActivity() {
                         open = {},
                         details = {},
                         toggle = {},
+                        initialScope =
+                            if (screen == "progress") SessionScope.PROGRESS else SessionScope.LIVE,
                     )
                 LaunchedEffect(Unit) { Log.i("KilnScreenshot", READY) }
             }
@@ -121,69 +123,95 @@ private fun demo(
         parent,
     )
 
+private fun pull(number: Int, passed: Int, failed: Int, running: Int, queued: Boolean = false) =
+    PullInfo(
+        number,
+        "https://github.com/demo/repo/pull/$number",
+        false,
+        queued,
+        passed,
+        failed,
+        running,
+    )
+
+/** Each demo session's stage and pull request, as `kiln serve` reports them. */
+private val demoProgress =
+    mapOf(
+        "claude:101" to (Stage.CHECKS to pull(214, 6, 0, 5)),
+        "codex:102" to (Stage.FAILING to pull(212, 9, 2, 0)),
+        "claude:105" to (Stage.FAILING to pull(212, 9, 2, 0)),
+        "opencode:104" to (Stage.GREEN to pull(41, 4, 0, 0, queued = true)),
+        "claude:106" to (Stage.DONE to pull(131, 14, 0, 0)),
+    )
+
 private val demoRows =
     listOf(
-        demo(
-            "claude:101",
-            Agent.CLAUDE,
-            "Cache map tiles",
-            "/home/demo/code/atlas",
-            Activity.WORKING,
-            2,
-            42,
-            "feat/tile-cache",
-        ),
-        demo(
-            "codex:102",
-            Agent.CODEX,
-            "Fix retry backoff",
-            "/home/demo/code/atlas",
-            Activity.WAITING,
-            2,
-            18,
-            "fix/retry-backoff",
-        ),
-        demo(
-            "claude:105",
-            Agent.CLAUDE,
-            "Review the retry fix",
-            "/home/demo/code/kiln",
-            Activity.WAITING,
-            2,
-            64,
-            parent = "codex:102",
-        ),
-        demo(
-            "pi:103",
-            Agent.PI,
-            "Update shell bindings",
-            "/home/demo/code/dotfiles",
-            Activity.WORKING,
-            2,
-            7,
-        ),
-        demo(
-            "opencode:104",
-            Agent.OPENCODE,
-            "Draft terminal tools post",
-            "/home/demo/code/blog",
-            Activity.IDLE,
-            130,
-            190,
-            "draft/terminal-tools",
-        ),
-        demo(
-                "claude:106",
+            demo(
+                "claude:101",
                 Agent.CLAUDE,
-                "Summarise release notes",
-                "/home/demo/code/kiln",
-                Activity.COMPLETED,
-                300,
-                320,
-            )
-            .copy(
-                where = Place.BACKGROUND,
-                url = null,
-                label = "This job has finished; attach to it in kiln on your computer",
+                "Cache map tiles",
+                "/home/demo/code/atlas",
+                Activity.WORKING,
+                2,
+                42,
+                "feat/tile-cache",
             ),
-    )
+            demo(
+                "codex:102",
+                Agent.CODEX,
+                "Fix retry backoff",
+                "/home/demo/code/atlas",
+                Activity.WAITING,
+                2,
+                18,
+                "fix/retry-backoff",
+            ),
+            demo(
+                "claude:105",
+                Agent.CLAUDE,
+                "Review the retry fix",
+                "/home/demo/code/kiln",
+                Activity.WAITING,
+                2,
+                64,
+                parent = "codex:102",
+            ),
+            demo(
+                "pi:103",
+                Agent.PI,
+                "Update shell bindings",
+                "/home/demo/code/dotfiles",
+                Activity.WORKING,
+                2,
+                7,
+            ),
+            demo(
+                "opencode:104",
+                Agent.OPENCODE,
+                "Draft terminal tools post",
+                "/home/demo/code/blog",
+                Activity.IDLE,
+                130,
+                190,
+                "draft/terminal-tools",
+            ),
+            demo(
+                    "claude:106",
+                    Agent.CLAUDE,
+                    "Summarise release notes",
+                    "/home/demo/code/kiln",
+                    Activity.COMPLETED,
+                    300,
+                    320,
+                )
+                .copy(
+                    where = Place.BACKGROUND,
+                    url = null,
+                    label = "This job has finished; attach to it in kiln on your computer",
+                    branch = "cb/release-notes",
+                ),
+        )
+        .map { row ->
+            demoProgress[row.id]?.let { (stage, pr) -> row.copy(stage = stage, pr = pr) }
+                ?: row.copy(stage = Stage.WORKING)
+        }

@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,6 +75,18 @@ fun SessionDetails(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (row.where != Place.CLOUD) DetailField("Directory", tildePath(row.cwd))
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
+                    if (row.pr != null)
+                        DetailField(
+                            "Pull request",
+                            listOfNotNull(
+                                    "#${row.pr.number}",
+                                    row.stage?.label?.lowercase(),
+                                    checkCounts(row.pr).text.ifEmpty { null },
+                                    "draft".takeIf { row.pr.draft },
+                                    "queued".takeIf { row.pr.queued },
+                                )
+                                .joinToString(" · "),
+                        )
                     DetailField(
                         "Location",
                         when (row.where) {
@@ -103,6 +116,21 @@ fun SessionDetails(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            if (row.pr != null) {
+                val links = LocalUriHandler.current
+                OutlinedButton(
+                    onClick = { links.openUri(row.pr.url) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    colors =
+                        ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
+                ) {
+                    Text("Open pull request #${row.pr.number}")
+                }
+            }
             if (send != null) SendBox(row.id, send)
             TextButton(onClick = changeHidden, modifier = Modifier.fillMaxWidth()) {
                 Text(if (hidden) "Restore on this phone" else "Hide on this phone")

@@ -2,7 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type DashboardSnapshot, parsePullRequest, projectName, stageOf, startDashboard } from "./dashboard";
+import {
+  type DashboardSnapshot,
+  parsePullRequest,
+  projectName,
+  pullRequests,
+  stageOf,
+  startDashboard,
+} from "./dashboard";
 import type { Session } from "./sessions";
 
 const directories: string[] = [];
@@ -115,5 +122,42 @@ test("the server streams sessions with their pull requests and answers only to i
     expect(calls.filter((argv) => argv[0] === "gh")).toHaveLength(1);
   } finally {
     dashboard.stop();
+  }
+});
+
+test("cancelled pull request lookups that have not started never run", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-prs-"));
+  try {
+    mkdirSync(join(root, ".git"));
+    writeFileSync(join(root, ".git", "HEAD"), "ref: refs/heads/cb/a\n");
+    let finish = () => {};
+    const calls: string[] = [];
+    const prs = pullRequests({
+      gh: true,
+      ghSlots: 1,
+      exec: (argv) => {
+        calls.push(argv[4] ?? "");
+        return new Promise((resolve) => (finish = () => resolve("[]")));
+      },
+    });
+    const session = (cwd: string): Session => ({
+      id: cwd,
+      agent: "claude",
+      cwd,
+      startedAt: 1,
+      place: { kind: "elsewhere" },
+    });
+    const other = join(root, "other");
+    mkdirSync(join(other, ".git"), { recursive: true });
+    writeFileSync(join(other, ".git", "HEAD"), "ref: refs/heads/cb/b\n");
+    prs.of(session(root));
+    prs.of(session(other));
+    prs.cancel();
+    finish();
+    await Bun.sleep(10);
+    expect(calls).toEqual(["cb/a"]);
+    expect(prs.pending()).toBe(0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

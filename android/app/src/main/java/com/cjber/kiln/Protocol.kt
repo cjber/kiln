@@ -31,6 +31,27 @@ enum class Activity(val id: String) {
     UNKNOWN("unknown"),
 }
 
+/** How far a session's branch has got, most urgent first, as the progress tab orders it. */
+enum class Stage(val id: String, val label: String) {
+    FAILING("failing", "PR failing"),
+    CHECKS("checks", "Checks running"),
+    GREEN("green", "PR green"),
+    WORKING("working", "Working"),
+    DONE("done", "Merged"),
+}
+
+/** The pull request for a session's branch and its check counts. */
+data class PullInfo(
+    val number: Int,
+    val url: String,
+    val draft: Boolean,
+    /** Labelled for the merge queue. */
+    val queued: Boolean,
+    val passed: Int,
+    val failed: Int,
+    val running: Int,
+)
+
 enum class ConnectionState {
     CONNECTING,
     CONNECTED,
@@ -59,6 +80,9 @@ data class Row(
     val seen: Long = 0,
     /** The repository a worktree belongs to, when the machine says; project groups gather by it. */
     val repository: String? = null,
+    /** Null for cloud tasks and machines that do not report it. */
+    val stage: Stage? = null,
+    val pr: PullInfo? = null,
 )
 
 data class Snapshot(
@@ -225,6 +249,24 @@ fun safeLink(agent: Agent, value: String, origin: String? = null): String? {
     }
 }
 
+/** A pull request the machine reported, kept only when its link is a GitHub pull request. */
+private fun parsePull(json: JSONObject?): PullInfo? {
+    if (json == null) return null
+    val url = json.optString("url")
+    if (!url.matches(Regex("https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+")))
+        return null
+    val checks = json.optJSONObject("checks")
+    return PullInfo(
+        json.getInt("number"),
+        url,
+        json.optBoolean("draft"),
+        json.optBoolean("queued"),
+        checks?.optInt("passed") ?: 0,
+        checks?.optInt("failed") ?: 0,
+        checks?.optInt("running") ?: 0,
+    )
+}
+
 fun parseSnapshot(source: String, origin: String? = null): Snapshot {
     val json = JSONObject(source)
     require(json.getInt("version") == 1)
@@ -260,6 +302,8 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 item.optString("terminal").takeIf { it.isNotEmpty() },
                 item.optLong("seenAt"),
                 item.optString("repository").takeIf { it.isNotEmpty() },
+                item.optString("stage").let { id -> Stage.entries.find { it.id == id } },
+                runCatching { parsePull(item.optJSONObject("pr")) }.getOrNull(),
             )
         }
     return Snapshot(

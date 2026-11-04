@@ -192,52 +192,44 @@ function queueLabel(root: string): string {
 
 type Cached<T> = { value?: T; checkedAt: number; pending: boolean };
 
-/**
- * Sessions with their git and GitHub state. Session rows are read on every refresh; uncommitted counts
- * and pull requests come from caches filled in the background, so a slow `gh` never holds up the page.
- */
-export function dashboardData({
-  discover = (() => {
-    const discover = discovery();
-    return () => discover({ kitty: false });
-  })(),
-  exec = run,
-  statusAge = 10_000,
-  prAge = 60_000,
-  ghSlots = 3,
-  gh = Bun.which("gh") !== null,
-}: {
-  discover?: () => Promise<Discovered>;
+const fresh = <T>(cache: Map<string, Cached<T>>, key: string, age: number) => {
+  const entry = cache.get(key);
+  return entry && (entry.pending || Date.now() - entry.checkedAt < age);
+};
+const store = <T>(cache: Map<string, Cached<T>>, key: string, value: T | undefined, ok: boolean) => {
+  const last = cache.get(key);
+  // A failed lookup keeps the last answer and waits a full period before trying again.
+  cache.set(key, { value: ok ? value : last?.value, checkedAt: Date.now(), pending: false });
+};
+/** Drops entries not used since the last sweep; a lookup in flight finishes first. */
+const sweep = (cache: Map<string, Cached<unknown>>, used: Set<string>) => {
+  for (const [key, entry] of cache) if (!used.has(key) && !entry.pending) cache.delete(key);
+  used.clear();
+};
+
+export type PullRequestOptions = {
   exec?: Run;
-  statusAge?: number;
   prAge?: number;
   /** How many `gh` calls may run at once. */
   ghSlots?: number;
   /** The GitHub CLI is installed. */
   gh?: boolean;
-} = {}) {
-  const changes = new Map<string, Cached<number>>();
+};
+
+/**
+ * Each session branch's pull request, from a cache `gh` fills in the background, so a slow `gh` never
+ * holds up a refresh. A branch is looked up at most once per `prAge`.
+ */
+export function pullRequests({
+  exec = run,
+  prAge = 60_000,
+  ghSlots = 3,
+  gh = Bun.which("gh") !== null,
+}: PullRequestOptions = {}) {
   const prs = new Map<string, Cached<PullRequest | undefined>>();
   const queue: { key: string; root: string; branch: string }[] = [];
+  const used = new Set<string>();
   let running = 0;
-
-  const fresh = <T>(cache: Map<string, Cached<T>>, key: string, age: number) => {
-    const entry = cache.get(key);
-    return entry && (entry.pending || Date.now() - entry.checkedAt < age);
-  };
-  const store = <T>(cache: Map<string, Cached<T>>, key: string, value: T | undefined, ok: boolean) => {
-    const last = cache.get(key);
-    // A failed lookup keeps the last answer and waits a full period before trying again.
-    cache.set(key, { value: ok ? value : last?.value, checkedAt: Date.now(), pending: false });
-  };
-  const countChanges = (root: string) => {
-    if (fresh(changes, root, statusAge)) return;
-    changes.set(root, { ...(changes.get(root) ?? { checkedAt: 0 }), pending: true });
-    exec(["git", "status", "--porcelain"], root).then(
-      (output) => store(changes, root, output.split("\n").filter(Boolean).length, true),
-      () => store(changes, root, undefined, false),
-    );
-  };
   const drain = () => {
     while (running < ghSlots) {
       const job = queue.shift();
@@ -270,37 +262,84 @@ export function dashboardData({
         });
     }
   };
+  return {
+    gh,
+    /**
+     * The pull request for the branch a session works on, as last looked up; cloud tasks have none. A
+     * default branch is shared by many sessions, so a pull request found for it says nothing about one
+     * of them. With `lookUp` false it only reads the cache.
+     */
+    of(session: Session, lookUp = true): PullRequest | undefined {
+      if (!gh || session.place.kind === "cloud") return undefined;
+      const directory = sessionDirectory(session);
+      const root = checkout(directory);
+      // Read from the checkout each time, so a session that switches branch is looked up on its new one.
+      const branch = root && gitBranch(directory);
+      if (!root || !branch || ["main", "master"].includes(branch)) return undefined;
+      const key = `${commonGitDir(root)}\0${branch}`;
+      used.add(key);
+      if (lookUp && !fresh(prs, key, prAge)) {
+        prs.set(key, { ...(prs.get(key) ?? { checkedAt: 0 }), pending: true });
+        queue.push({ key, root, branch });
+        drain();
+      }
+      return prs.get(key)?.value;
+    },
+    /** Lookups still running, so a row may yet leave Working. */
+    pending: () => [...prs.values()].filter((entry) => entry.pending).length,
+    /** Forgets branches no session asked about since the last sweep. */
+    sweep: () => sweep(prs, used),
+    /** Drops lookups not started yet, so `gh` stops once nobody is watching; they queue again when asked for. */
+    cancel() {
+      for (const job of queue.splice(0)) {
+        const entry = prs.get(job.key);
+        if (entry) prs.set(job.key, { ...entry, pending: false });
+      }
+    },
+  };
+}
+
+/**
+ * Sessions with their git and GitHub state. Session rows are read on every refresh; uncommitted counts
+ * and pull requests come from caches filled in the background, so a slow `gh` never holds up the page.
+ */
+export function dashboardData({
+  discover = (() => {
+    const discover = discovery();
+    return () => discover({ kitty: false });
+  })(),
+  exec = run,
+  statusAge = 10_000,
+  ...options
+}: {
+  discover?: () => Promise<Discovered>;
+  statusAge?: number;
+} & PullRequestOptions = {}) {
+  const changes = new Map<string, Cached<number>>();
   const used = new Set<string>();
-  const lookUpPr = (root: string, branch: string) => {
-    const key = `${commonGitDir(root)}\0${branch}`;
-    used.add(key);
-    if (!fresh(prs, key, prAge)) {
-      prs.set(key, { ...(prs.get(key) ?? { checkedAt: 0 }), pending: true });
-      queue.push({ key, root, branch });
-      drain();
-    }
-    return prs.get(key)?.value;
+  const prs = pullRequests({ exec, ...options });
+  const countChanges = (root: string) => {
+    used.add(root);
+    if (fresh(changes, root, statusAge)) return;
+    changes.set(root, { ...(changes.get(root) ?? { checkedAt: 0 }), pending: true });
+    exec(["git", "status", "--porcelain"], root).then(
+      (output) => store(changes, root, output.split("\n").filter(Boolean).length, true),
+      () => store(changes, root, undefined, false),
+    );
   };
 
   const row = (session: Session): DashboardRow => {
     const directory = sessionDirectory(session);
     const root = checkout(directory);
-    const branch = root ? gitBranch(directory) : undefined;
-    // A default branch is shared by many sessions, so a pull request found for it says nothing about this one.
-    const ownBranch = branch && !["main", "master"].includes(branch);
-    let pr: PullRequest | undefined;
-    if (root) {
-      used.add(root);
-      countChanges(root);
-      if (ownBranch && gh) pr = lookUpPr(root, branch);
-    }
+    if (root) countChanges(root);
+    const pr = prs.of(session);
     return {
       title: sessionTitle(session),
       agent: agentName(session.agent),
       activity: session.activity,
       lifecycle: session.lifecycle,
       project: projectName(directory),
-      branch,
+      branch: root ? gitBranch(directory) : undefined,
       changes: root ? changes.get(root)?.value : undefined,
       pr,
       stage: stageOf(pr),
@@ -309,15 +348,14 @@ export function dashboardData({
 
   return async (): Promise<DashboardSnapshot> => {
     const { sessions, problem } = await discover();
-    used.clear();
     const rows = sessions.filter((session) => session.place.kind !== "cloud").map(row);
-    // Forget checkouts and branches no session works in any more; a lookup in flight finishes first.
-    for (const cache of [changes, prs] as Map<string, Cached<unknown>>[])
-      for (const [key, entry] of cache) if (!used.has(key) && !entry.pending) cache.delete(key);
+    // Forget checkouts and branches no session works in any more.
+    sweep(changes, used);
+    prs.sweep();
     return {
       updatedAt: Date.now(),
-      problem: [problem, gh ? "" : "Install the GitHub CLI (gh) to see pull requests"].filter(Boolean).join(" · "),
-      checking: [...prs.values()].filter((entry) => entry.pending).length,
+      problem: [problem, prs.gh ? "" : "Install the GitHub CLI (gh) to see pull requests"].filter(Boolean).join(" · "),
+      checking: prs.pending(),
       rows,
     };
   };

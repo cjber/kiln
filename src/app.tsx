@@ -1,5 +1,6 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { flushInBackground } from "./messages";
 import { nativeNotifications } from "./notifications";
@@ -60,6 +61,27 @@ export function ageColor(time: number | undefined, now: number): string {
   if (seconds < 600) return color.teal;
   if (seconds < 3600) return color.fgDim;
   return color.comment;
+}
+
+const stageColor: Record<Stage, string> = {
+  working: color.comment,
+  failing: color.red,
+  checks: color.yellow,
+  green: color.green,
+  done: color.comment,
+};
+const stageMark: Record<Stage, string> = { working: "", failing: "✗", checks: "●", green: "✓", done: "merged" };
+
+/** A pull request in the details line: its number, stage and check counts. */
+function pullRequestLine(pr: PullRequest): string {
+  const { passed, failed, running } = pr.checks;
+  const checks = [passed && `${passed} passed`, failed && `${failed} failed`, running && `${running} running`]
+    .filter(Boolean)
+    .join(", ");
+  const stage = { working: "closed", failing: "failing", checks: "checks running", green: "green", done: "merged" }[
+    stageOf(pr)
+  ];
+  return `PR #${pr.number} ${pr.draft ? "draft · " : ""}${stage}${checks ? ` (${checks})` : ""}${pr.queued ? " · queued" : ""}`;
 }
 
 const toneColor: Record<Tone, string> = {
@@ -138,9 +160,11 @@ type AppProps = {
   onQuit: () => void;
   /** Where the list comes from; scripts/screenshots.tsx passes demo sessions. */
   loadSessions?: () => Promise<Session[]>;
+  /** Pull requests for session branches; demo and test lists look none up unless given one. */
+  prs?: ReturnType<typeof pullRequests>;
 };
 
-export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" }: AppProps) {
+export function App({ initialSettings, onQuit, loadSessions, initialNotice = "", prs: givenPrs }: AppProps) {
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -158,6 +182,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
+  const prs = useMemo(() => givenPrs ?? pullRequests(loadSessions ? { gh: false } : {}), [givenPrs, loadSessions]);
+  const [pulls, setPulls] = useState<ReadonlyMap<string, PullRequest>>(new Map());
   const notifyNative = useMemo(() => nativeNotifications(), []);
   const discover = useMemo(() => {
     if (loadSessions) return keepLast(loadSessions, "Session discovery");
@@ -177,6 +203,13 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
+      const foundPrs = new Map<string, PullRequest>();
+      for (const session of found.sessions) {
+        const pr = prs.of(session);
+        if (pr) foundPrs.set(sessionIdentity(session), pr);
+      }
+      if (!found.stale) prs.sweep();
+      setPulls(foundPrs);
       if (!found.stale) {
         notifyNative(found.sessions, getSettings().notifications);
         // Fixture sessions in tests are not real recipients.
@@ -187,7 +220,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
     } finally {
       refreshing.current = false;
     }
-  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative, loadSessions]);
+  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative, loadSessions, prs]);
 
   useEffect(() => {
     void refresh();
@@ -397,7 +430,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   // Drop the updated and status columns before the title on narrow terminals, so the columns never collide.
   const showUpdated = width >= 48;
   const showStatus = width >= 30;
-  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12));
+  // The pull request column only appears once something has one, and only where the title keeps its room.
+  const showPr = width >= 72 && pulls.size > 0;
+  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 10 : 0));
+  const currentPr = current && pulls.get(sessionIdentity(current));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
   const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
 
@@ -414,7 +450,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
+            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(10) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -444,6 +480,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
                   {showStatus ? (
                     <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
                   ) : null}
+                  {showPr ? <PrCell pr={pulls.get(row.key)} /> : null}
                   {showUpdated ? (
                     <span fg={ageColor(session.lastActiveAt, now)}>{age(session.lastActiveAt, now).padStart(8)}</span>
                   ) : null}
@@ -472,7 +509,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · ${updated(current, now)}`,
+            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""}${currentPr ? ` · ${pullRequestLine(currentPr)}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · ${updated(current, now)}`,
             Math.max(1, width - 2),
             "end",
           )}
@@ -561,4 +598,11 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
       );
     }
   }
+}
+
+/** `#212 ✗`, ten columns wide, coloured by how far the pull request has got. */
+function PrCell({ pr }: { pr: PullRequest | undefined }) {
+  if (!pr) return <span>{" ".repeat(10)}</span>;
+  const stage = stageOf(pr);
+  return <span fg={stageColor[stage]}>{fit(`#${pr.number} ${stageMark[stage]}`.trim(), 9, "end").padEnd(10)}</span>;
 }
