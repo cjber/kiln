@@ -400,13 +400,21 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     expect(again).toMatchObject({ items: [], reset: false });
     // Claude is working, so the reply waits; a retry under the same id is the same message.
     const send = () =>
-      fetch(`${base}/messages`, { method: "POST", headers, body: JSON.stringify({ id: "message-0001", text: "next" }) });
+      fetch(`${base}/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ id: "message-0001", text: "next" }),
+      });
     expect(await (await send()).json()).toMatchObject({ delivered: false });
     expect((await send()).status).toBe(200);
     expect(pending(join(directory, "state", "kiln", "mailbox.sqlite"))).toMatchObject([
       { id: `phone-${paired.device.id}-message-0001`, from: "phone:test", to: `claude:${id}`, body: "next" },
     ]);
-    const bad = await fetch(`${base}/messages`, { method: "POST", headers, body: JSON.stringify({ id: "x", text: "y" }) });
+    const bad = await fetch(`${base}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: "x", text: "y" }),
+    });
     expect(bad.status).toBe(400);
     const other = `${origin}/v1/sessions/${encodeURIComponent("claude:elsewhere-1")}`;
     expect((await fetch(`${other}/interrupt`, { method: "POST", headers })).status).toBe(409);
