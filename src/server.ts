@@ -1,15 +1,21 @@
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
 import { readConversation } from "./conversation";
+import { startFromPhone } from "./launcher";
 import { post } from "./mailbox";
-import { flush, flushInBackground, phone, reachable, route } from "./messages";
+import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
 import { claudeTranscript } from "./native-sessions";
+import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
+import { type PushAlert, pushTarget, sendPush } from "./push";
 import { sessionTitle } from "./session-list";
 import {
+  type Agent,
+  agents,
   type Discovered,
   discovery,
   type Place,
@@ -18,16 +24,76 @@ import {
   sessionIdentity,
   sessionParents,
 } from "./sessions";
-import { loadSettings, SettingsError } from "./settings";
+import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
 import { attachedClients, sendKey } from "./tmux";
+import { rankedDirectories } from "./zoxide";
+
+/** The largest first prompt or message a phone can send, in UTF-8 bytes. */
+export const promptLimit = 16 * 1024;
+/** Every other request body stays this small. */
+const bodyLimit = 4096;
+
+class Refusal extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** A JSON object body of at most `limit` bytes, or a refusal saying what was wrong with it. */
+async function jsonBody(request: Request, limit: number, invalid: string): Promise<Record<string, unknown>> {
+  if (!request.headers.get("Content-Type")?.startsWith("application/json")) throw new Refusal(415, "Expected JSON");
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > limit) throw new Refusal(413, "Request is too large");
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Refusal(400, invalid);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Refusal(400, invalid);
+  return body as Record<string, unknown>;
+}
+
+/** Text a phone typed: present, and within `promptLimit`. */
+function typedText(value: unknown, name: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Refusal(400, `Write a ${name} first`);
+  if (Buffer.byteLength(value) > promptLimit) throw new Refusal(413, `The ${name} is longer than 16 KB`);
+  return value.trim();
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where a phone may start a session, most recent first: the directories of listed sessions, then zoxide's ranking.
+ * A phone only ever picks from this list; it never sends a path of its own.
+ */
+export function offeredDirectories(
+  sessions: readonly Session[],
+  ranked: readonly string[],
+  exists: (path: string) => boolean = isDirectory,
+): string[] {
+  const recent = sessions
+    .filter((session) => session.place.kind !== "cloud")
+    .toSorted((a, b) => (b.lastActiveAt ?? b.startedAt) - (a.lastActiveAt ?? a.startedAt))
+    .map(sessionDirectory);
+  return [...new Set([...recent, ...ranked])].filter(exists).slice(0, 500);
+}
 
 /** What the phone can do in a session's view, and why not when it cannot. */
 export function sessionAbilities(session: Session): { read: boolean; reply?: string; stop: boolean } {
-  const read = session.agent === "claude" && claudeTranscript(session.cwd, session.id) !== undefined;
   const way = route(session);
   return {
-    read,
+    read: session.agent === "claude" && claudeTranscript(session.cwd, session.id) !== undefined,
     // A reply the agent cannot take now waits in kiln's mailbox; only a session kiln can never type into refuses it.
     reply: !reachable(session)
       ? "kiln can only write to a running session that reports its id"
@@ -72,6 +138,8 @@ export function phoneSession(
     startedAt: session.startedAt,
     lastActiveAt: session.lastActiveAt,
     where: wireKind(session.place),
+    /** Kiln's tmux name, which a phone matches against the session it just started. */
+    terminal: session.place.kind === "kiln" ? session.place.name : undefined,
     handoff: phoneHandoff(session, codexHost, opencodeLink),
   };
 }
@@ -88,8 +156,14 @@ export function startServer({
   discover = settingsDiscovery(),
   interval = 2_000,
   idleInterval = 60_000,
+  pushInterval = 10_000,
   opencode = opencodeLinks((origin) => opencodeToken(origin, spawn)),
   tls,
+  push = sendPush,
+  settings = loadSettings,
+  start = startFromPhone,
+  deliver = flush,
+  offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
 }: {
   port: number;
   pairing: Pairing;
@@ -98,9 +172,25 @@ export function startServer({
   interval?: number;
   /** Refresh period with no phone connected; it keeps the saved-session records current. */
   idleInterval?: number;
+  /** Refresh period with no phone connected but a phone registered for pushes. */
+  pushInterval?: number;
   /** Only the QA harness serves TLS itself; a real server sits behind Tailscale Serve or the user's tunnel. */
   tls?: Bun.TLSOptions;
+  push?: (target: Parameters<typeof sendPush>[0], alert: PushAlert) => ReturnType<typeof sendPush>;
+  /** Read on each write request and refresh, so turning phone writes on or off needs no restart. */
+  settings?: () => Settings;
+  start?: typeof startFromPhone;
+  deliver?: (sessions: readonly Session[]) => ReturnType<typeof flush>;
+  /** The directories a phone may start in, given the listed sessions. */
+  offer?: (sessions: readonly Session[], settings: Settings) => string[];
 }) {
+  const writable = () => {
+    try {
+      return settings().phoneWrite;
+    } catch {
+      return false;
+    }
+  };
   const instance = randomUUID();
   let snapshot = {
     version: 1,
@@ -109,7 +199,83 @@ export function startServer({
     host: hostname(),
     updatedAt: 0,
     problem: "Loading sessions",
+    /** Whether this computer takes new sessions and prompts from its phones. */
+    write: writable(),
     sessions: [] as ReturnType<typeof phoneSession>[],
+  };
+  let listed: Session[] = [];
+  const offered = () => offer(listed, settings());
+  /** Each write route first checks that writes are on; a phone with an old snapshot learns it here. */
+  const writeSettings = () => {
+    const current = settings();
+    if (!current.phoneWrite)
+      throw new Refusal(403, "This computer does not take sessions from the phone; set write = true under [phone]");
+    return current;
+  };
+  const startSession = async (device: { id: string }, request: Request) => {
+    const current = writeSettings();
+    const body = await jsonBody(request, 4 * promptLimit, "Invalid session request");
+    const agent = body.agent as Agent;
+    if (!agents.includes(agent) || !current.agents[agent].length)
+      throw new Refusal(400, "That agent is not enabled on this computer");
+    if (typeof body.directory !== "string" || !offered().includes(body.directory))
+      throw new Refusal(400, "Pick a directory from the list");
+    const prompt = typedText(body.prompt, "prompt");
+    try {
+      pairing.recordStart(device.id, agent, body.directory);
+    } catch (error) {
+      throw new Refusal(429, error instanceof Error ? error.message : "Too many sessions started");
+    }
+    const outcome = await start(agent, body.directory, prompt, current);
+    if (outcome.kind !== "attach") throw new Refusal(500, outcome.kind === "notice" ? outcome.text : "Not started");
+    void refresh();
+    return { terminal: outcome.name };
+  };
+  const sendMessage = async (device: { id: string; name: string }, id: string, request: Request) => {
+    writeSettings();
+    const body = await jsonBody(request, 4 * promptLimit, "Invalid message");
+    const text = typedText(body.text, "message");
+    // A phone that retries after a dropped response sends the same id, and the message is posted once.
+    if (body.id !== undefined && (typeof body.id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(body.id)))
+      throw new Refusal(400, "Invalid message id");
+    if (!listed.some((session) => reachable(session) && sessionIdentity(session) === id))
+      throw new Refusal(404, "That session is not running");
+    let message: ReturnType<typeof post>;
+    try {
+      const key = body.id === undefined ? undefined : `phone-${device.id}-${body.id}`;
+      message = post(phoneSender(device.name), id, text, undefined, undefined, key);
+    } catch (error) {
+      throw new Refusal(429, error instanceof Error ? error.message : "Too many messages");
+    }
+    const outcome = (await deliver(listed)).find((item) => item.message.id === message.id);
+    // Another pass claimed it first, which is a delivery too, as `kiln msg send` reports it.
+    return outcome && !outcome.delivered ? { delivered: false, reason: outcome.reason } : { delivered: true };
+  };
+  const listedSession = (id: string) => {
+    writeSettings();
+    const session = listed.find((row) => sessionIdentity(row) === id);
+    if (!session) throw new Refusal(404, "That session is not listed");
+    return session;
+  };
+  const viewSession = (id: string, cursor: string | null) => {
+    const session = listedSession(id);
+    const abilities = sessionAbilities(session);
+    const transcript = abilities.read && claudeTranscript(session.cwd, session.id);
+    try {
+      if (transcript) return { abilities, ...readConversation(transcript, cursor ?? undefined) };
+    } catch {
+      // A transcript not written yet, or unreadable, shows as an empty conversation.
+    }
+    return { abilities, items: [], cursor: "", reset: true };
+  };
+  const stopTurn = (id: string) => {
+    const session = listedSession(id);
+    if (!sessionAbilities(session).stop || session.place.kind !== "kiln")
+      throw new Refusal(409, "This session cannot be stopped from the phone");
+    // Escape is how Claude's own terminal ends a turn; it does nothing while Claude is idle.
+    if (attachedClients(session.place.name) === undefined || !sendKey(session.place.name, "Escape"))
+      throw new Refusal(409, "Its terminal has closed");
+    return { stopped: true };
   };
   let refreshing = false;
   let refreshedAt = 0;
@@ -119,27 +285,13 @@ export function startServer({
   let attempts = 0;
   let windowStart = Date.now();
   const sockets = new Set<Bun.ServerWebSocket<{ token: string }>>();
-  /** The sessions of the last successful discovery, which the per-session routes act on. */
-  let live: Session[] = [];
-  const spent = new Map<string, { count: number; since: number }>();
-  /** Each device may send, stop or answer this often, so a stuck retry loop cannot flood an agent. */
-  const spend = (device: string) => {
-    const now = Date.now();
-    const used = spent.get(device);
-    if (!used || now - used.since >= 60_000) {
-      spent.set(device, { count: 1, since: now });
-      return true;
-    }
-    return ++used.count <= 30;
-  };
   const response = (body: unknown, status = 200) =>
     Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   const server = Bun.serve<{ token: string }>({
     hostname: "127.0.0.1",
     port,
     tls,
-    // A reply typed on the phone is the largest body; everything else is a few hundred bytes.
-    maxRequestBodySize: 64 * 1024,
+    maxRequestBodySize: 4 * promptLimit,
     async fetch(request, server) {
       const path = new URL(request.url).pathname;
       // The phone opens this in its browser; the one-use code in the path is the authorization.
@@ -158,22 +310,14 @@ export function startServer({
           windowStart = Date.now();
         }
         if (++attempts > 10) return response({ error: "Too many pairing attempts; wait a minute" }, 429);
-        if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-          return response({ error: "Expected JSON" }, 415);
-        let body: unknown;
+        let body: Record<string, unknown>;
         try {
-          body = await request.json();
-        } catch {
-          return response({ error: "Invalid pairing request" }, 400);
+          body = await jsonBody(request, bodyLimit, "Invalid pairing request");
+        } catch (error) {
+          if (error instanceof Refusal) return response({ error: error.message }, error.status);
+          throw error;
         }
-        if (
-          !body ||
-          typeof body !== "object" ||
-          !("code" in body) ||
-          !("name" in body) ||
-          typeof body.code !== "string" ||
-          typeof body.name !== "string"
-        )
+        if (typeof body.code !== "string" || typeof body.name !== "string")
           return response({ error: "Invalid pairing request" }, 400);
         const paired = pairing.exchange(body.code, body.name);
         return paired
@@ -187,58 +331,48 @@ export function startServer({
         refreshIfOld();
         return response(snapshot);
       }
+      if (path === "/v1/push" && request.method === "DELETE") {
+        pairing.deletePush(device.id);
+        return response({ ok: true });
+      }
+      if (path === "/v1/push" && request.method === "POST") {
+        let target: ReturnType<typeof pushTarget>;
+        try {
+          target = pushTarget(await jsonBody(request, bodyLimit, "Invalid push registration"));
+        } catch (error) {
+          if (error instanceof Refusal) return response({ error: error.message }, error.status);
+          throw error;
+        }
+        if (!target) return response({ error: "Invalid push registration" }, 400);
+        pairing.setPush(device.id, target);
+        return response({ ok: true });
+      }
       if (request.method === "GET" && path === "/v1/events") {
         if (server.upgrade(request, { data: { token } })) return;
         return response({ error: "Expected WebSocket" }, 400);
       }
-      const view = path.match(/^\/v1\/sessions\/([^/]{1,200})\/(view|input|interrupt)$/);
-      if (view?.[1] && view[2]) {
-        const id = decodeURIComponent(view[1]);
-        const session = live.find((row) => sessionIdentity(row) === id);
-        if (!session) return response({ error: "No such session" }, 404);
-        const abilities = sessionAbilities(session);
-        if (view[2] === "view" && request.method === "GET") {
-          const transcript = abilities.read && claudeTranscript(session.cwd, session.id);
-          const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
-          try {
-            if (transcript) return response({ abilities, ...readConversation(transcript, cursor) });
-          } catch {
-            // A transcript not written yet, or unreadable, shows as an empty conversation.
-          }
-          return response({ abilities, items: [], cursor: "", reset: true });
+      try {
+        if (request.method === "GET" && path === "/v1/directories") {
+          const current = writeSettings();
+          return response({
+            directories: offered(),
+            agents: agents.filter((agent) => current.agents[agent].length),
+          });
         }
-        if (request.method !== "POST") return response({ error: "Route not found" }, 404);
-        if (!spend(device.id)) return response({ error: "Too many requests; wait a minute" }, 429);
-        if (view[2] === "interrupt") {
-          if (!abilities.stop || session.place.kind !== "kiln")
-            return response({ error: "This session cannot be stopped from the phone" }, 409);
-          // Escape is how Claude's own terminal ends a turn; it does nothing while Claude is idle.
-          if (attachedClients(session.place.name) === undefined || !sendKey(session.place.name, "Escape"))
-            return response({ error: "Its terminal has closed" }, 409);
-          return response({ stopped: true });
-        }
-        if (abilities.reply) return response({ error: abilities.reply }, 409);
-        let body: unknown;
-        try {
-          body = await request.json();
-        } catch {
-          return response({ error: "Invalid message" }, 400);
-        }
-        const text = (body as { text?: unknown })?.text;
-        const key = (body as { id?: unknown })?.id;
-        if (typeof text !== "string" || !text.trim() || text.length > 32_000)
-          return response({ error: "Invalid message" }, 400);
-        if (typeof key !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(key))
-          return response({ error: "Invalid message id" }, 400);
-        try {
-          post(phone, id, text, undefined, undefined, key);
-        } catch (error) {
-          return response({ error: error instanceof Error ? error.message : "Could not queue the message" }, 429);
-        }
-        // The agent may be idle now; a busy one gets it from the refresh loop as soon as it stops.
-        const outcome = (await flush(live)).find((item) => item.message.id === key);
-        // No outcome means another kiln claimed it first and is sending it.
-        return response(outcome?.delivered === false ? { queued: true, reason: outcome.reason } : { delivered: true });
+        if (request.method === "POST" && path === "/v1/sessions") return response(await startSession(device, request));
+        const messages = path.match(/^\/v1\/sessions\/([^/]+)\/messages$/)?.[1];
+        if (request.method === "POST" && messages)
+          return response(await sendMessage(device, decodeURIComponent(messages), request));
+        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt)$/);
+        if (action?.[1] && action[2] === "view" && request.method === "GET")
+          return response(viewSession(decodeURIComponent(action[1]), new URL(request.url).searchParams.get("cursor")));
+        if (action?.[1] && action[2] === "interrupt" && request.method === "POST")
+          return response(stopTurn(decodeURIComponent(action[1])));
+      } catch (error) {
+        if (error instanceof Refusal) return response({ error: error.message }, error.status);
+        if (error instanceof URIError) return response({ error: "Invalid session name" }, 400);
+        if (error instanceof SettingsError) return response({ error: error.message }, 500);
+        throw error;
       }
       return response({ error: "Route not found" }, 404);
     },
@@ -266,16 +400,40 @@ export function startServer({
       else if (socket.send(source) === -1) socket.close(1013, "Client is too slow");
     }
   };
+  // The desktop's transition check; each change becomes an encrypted push to every registered phone.
+  const transitions = nativeNotifications((session) => {
+    const alert: Omit<PushAlert, "machine"> = {
+      v: 1,
+      host: snapshot.host,
+      session: sessionIdentity(session),
+      title: sessionTitle(session),
+      agent: session.agent,
+      cwd: sessionDirectory(session),
+      transition: session.activity === "waiting" ? "input" : "finished",
+      at: snapshot.updatedAt,
+    };
+    for (const target of pairing.pushTargets())
+      void push(target, { ...alert, machine: target.machine })
+        .then((result) => {
+          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
+        })
+        .catch(() => {});
+  });
+  const pushing = () => {
+    try {
+      return pairing.pushTargets().length > 0;
+    } catch {
+      return false;
+    }
+  };
   const refresh = async () => {
     if (refreshing) return;
     refreshing = true;
     refreshedAt = Date.now();
     try {
       const { sessions, problem, stale } = await discover();
-      if (!stale) {
-        live = sessions;
-        flushInBackground(sessions);
-      }
+      listed = sessions;
+      if (!stale) flushInBackground(sessions);
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
@@ -291,7 +449,13 @@ export function startServer({
         updatedAt: stale ? snapshot.updatedAt : Date.now(),
         sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeLink)),
         problem,
+        write: writable(),
       };
+      try {
+        transitions(sessions, pushing());
+      } catch {
+        // Push is best effort and never fails a refresh.
+      }
     } catch (error) {
       snapshot = {
         ...snapshot,
@@ -307,10 +471,14 @@ export function startServer({
       publish();
     }
   };
-  // Discovery starts several provider CLIs, so it runs every interval only while a phone watches.
+  // Discovery starts several provider CLIs, so it runs every interval only while a phone watches,
+  // or while a session works and a phone waits for its push. With pushes on and nothing working it
+  // still looks every `pushInterval`, so a turn that starts and ends between idle checks is caught.
   const timer = setInterval(() => {
     publish();
-    if (sockets.size || Date.now() - refreshedAt >= idleInterval) void refresh();
+    const working = snapshot.sessions.some((row) => row.where !== "cloud" && row.activity === "working");
+    const since = Date.now() - refreshedAt;
+    if (sockets.size || (pushing() && (working || since >= pushInterval)) || since >= idleInterval) void refresh();
   }, interval);
   void refresh();
   return {

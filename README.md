@@ -122,6 +122,9 @@ claude = ["claude"]
 codex = ["codex"]
 opencode = ["opencode"]
 pi = ["pi"]
+
+[phone]
+write = false
 ```
 
 Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
@@ -134,7 +137,7 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 <img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
-Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. A Claude session opens in the app as a live conversation; for one kiln started you can reply, and Stop ends the turn. A reply sent while Claude is working waits in kiln's mailbox and is sent when the turn ends. Opening any other linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. OpenCode sessions open in OpenCode's own web UI on your computer, reached over Tailscale. Sessions without mobile access explain how to open them on the computer.
+Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. On a computer with phone writes on, a Claude session opens in the app as a live conversation you can reply to, and Stop ends the turn of a session kiln started. A reply sent while Claude is working waits in kiln's mailbox and is sent when the turn ends. Opening any other linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. OpenCode sessions open in OpenCode's own web UI on your computer, reached over Tailscale. Sessions without mobile access explain how to open them on the computer.
 
 ```sh
 kiln setup # installs a user service that survives reboots, configures Tailscale Serve and prints a pairing QR
@@ -159,9 +162,24 @@ For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 
 
 On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day.
 
+A paired phone only watches by default. To let it start sessions and send prompts, set `write = true` under `[phone]` in `config.toml`; a phone that can do this can run code on your computer. The app then shows a New session button: choose an agent, a directory from the ones kiln already knows (the directories of listed sessions, then zoxide's list) and a first prompt of up to 16 KB. The session starts in kiln's tmux with the provider's remote control on, so a Claude or Codex session opens in the provider's own app from its details; the phone shows no transcript of its own. A running session's details also have a Send box, which delivers a prompt the way `kiln msg send` does and shows "Delivered" or why it waits. A phone can start 20 sessions in ten minutes, and `kiln devices` lists each phone's latest starts.
+
 Pairing invitations expire after five minutes and work once. The phone stores its bearer token privately. The server binds to localhost, rejects browser requests and checks pairing for each request and streamed update. Keep the tunnel origin HTTPS. Revocation disconnects the phone without affecting agent sessions.
 
 The list supports search, ordering, activity/agent filters, collapsed children and hiding sessions on that phone. Hidden rows can be restored. Saved machine connections survive upgrades.
+
+### Notifications with the app closed
+
+While the app is open, or while a session works, the phone keeps its own connection and notifies you when a session needs input or finishes a turn. Android closes that connection after a while in the background. To be notified with the app closed as well:
+
+1. Install [ntfy](https://ntfy.sh) on the phone. Any [UnifiedPush](https://unifiedpush.org) distributor works.
+2. In kiln, open Machines and turn on "Notify when the app is closed". Pick ntfy if Android asks.
+
+Each paired machine then posts an encrypted message (Web Push, RFC 8291) through ntfy when a turn ends. ntfy relays ciphertext only; the session title is readable only on the phone. Revoking the phone, or turning the switch off, removes its registration from the machine.
+
+ntfy uses the public ntfy.sh server unless you set another one in ntfy's settings. A self-hosted ntfy server on your tailnet keeps the messages off third-party servers, but then ntfy holds its own connection to that server instead of using Google's push service: it costs a little battery and shows a permanent notification.
+
+The machine checks sessions every minute while nothing works, so a turn that starts and ends within a minute may not be noticed.
 
 ## Shared skills
 

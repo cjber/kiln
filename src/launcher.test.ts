@@ -3,7 +3,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeSession, openSession, sessionAction } from "./launcher";
+import { agentCommand, closeSession, openSession, sessionAction } from "./launcher";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
@@ -184,4 +184,19 @@ test("closing a running session also drops it from the sessions a restart brings
     if (before === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = before;
   }
+});
+
+test("a first prompt is the agent's own argument and never reads as an option or subcommand", () => {
+  const settings = { ...defaults, remoteControl: true };
+  expect(agentCommand("claude", settings, undefined, "fix the tests")).toEqual([
+    "claude",
+    "--remote-control",
+    "--",
+    "fix the tests",
+  ]);
+  expect(agentCommand("claude", settings, undefined, "mcp")).toEqual(["claude", "--remote-control", "--", "mcp\n"]);
+  expect(agentCommand("codex", settings, undefined, "--help")).toEqual(["codex", "--", "--help"]);
+  expect(agentCommand("opencode", settings, undefined, "-x").at(-1)).toBe("--prompt=-x");
+  expect(agentCommand("pi", settings, undefined, "go").slice(-2)).toEqual(["--", "go"]);
+  expect(agentCommand("codex", settings)).toEqual(["codex"]);
 });

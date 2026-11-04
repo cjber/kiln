@@ -11,8 +11,8 @@ import { tilde } from "./tui";
 /** The name a message from a person at a shell, rather than an agent, carries. */
 export const terminal = "terminal";
 
-/** The name a message typed on a paired phone carries; it reaches the agent as typed, with no frame. */
-export const phone = "phone";
+/** The name a message typed on a paired phone carries. */
+export const phoneSender = (device: string) => `phone:${device}`;
 
 /** Each agent puts its own session id in the environment of the commands it runs. */
 const sessionVariables: Record<Agent, string> = {
@@ -131,12 +131,15 @@ function isPiInbox(pid: number): boolean {
  * an agent's commands may run with a PATH that has no `kiln` on it, or an older one, as under Codex's daemon.
  */
 export function frame(message: Message, sender: Session | undefined, command = kiln): string {
-  if (message.from === phone) return message.body;
   const where = sender
     ? ` (${[sender.title && `"${sender.title}"`, tilde(sessionDirectory(sender))].filter(Boolean).join(" in ")})`
     : "";
   const quoted = /^[\w./-]+$/.test(command) ? command : `'${command.replaceAll("'", "'\\''")}'`;
-  const reply = message.from === terminal ? "" : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
+  // A person cannot be messaged back.
+  const reply =
+    message.from === terminal || message.from.startsWith(phoneSender(""))
+      ? ""
+      : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;
 }
 

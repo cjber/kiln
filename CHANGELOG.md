@@ -9,7 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
-- **Claude sessions open in the phone app.** Tapping a Claude session shows its conversation in kiln: your prompts, Claude's replies, and each tool call with how it ended, updating live. For a session kiln started you can reply from the phone, and a reply sent while Claude is working is sent once the turn ends. Stop ends the turn in progress. Sessions kiln did not start can be read but not typed into, and "Open in Claude" stays in the ⋮ menu.
+- **Start sessions and send prompts from the phone.** With `write = true` under `[phone]` in `config.toml`, the Android app gains a New session button: pick an agent, one of the directories kiln already knows (your listed sessions and zoxide's list) and a first prompt, and the session starts on your computer with the provider's remote control on. The app then opens its details, where Claude and Codex sessions open in the provider's own app. Each running session's details also get a Send box that delivers a prompt the way `kiln msg send` does and says whether it was delivered or why it waits. Writes are off by default, `kiln pair` says which mode it pairs for, and `kiln devices` lists the sessions each phone started.
+- **Claude sessions open in the phone app.** On a computer with `write = true` under `[phone]`, tapping a Claude session shows its conversation in kiln: your prompts, Claude's replies, and each tool call with how it ended, updating live. A reply typed there is sent the way the Send box sends it, and one sent while Claude is working waits for the turn to end. Stop ends the turn in progress for a session kiln started. Without writes, a tap opens the session's details as before, and "Open in Claude" stays in the ⋮ menu.
+
+## [0.17.0] - 2026-11-04
+
+- **The phone can notify you with the app closed.** Turn on "Notify when the app is closed" in the app's Machines screen and pick ntfy, or another UnifiedPush app, to deliver it. Every paired machine then sends an encrypted push when a session needs input or finishes a turn, and tapping it opens that session. ntfy relays only ciphertext, and a public or self-hosted ntfy server both work. While a phone has this on, `kiln serve` checks sessions every ten seconds instead of once a minute, so a short turn is not missed. The live connection still notifies while the app is open, and a change that arrives both ways shows once.
 - **A pairing link replaces the invitation on the open app.** Opening a second pairing link while the app was running stacked another copy of the app over the first, with the old invitation still behind it. The link now fills the invitation in the one open app.
 
 ## [0.16.0] - 2026-11-04

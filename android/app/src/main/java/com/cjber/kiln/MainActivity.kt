@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
+import org.unifiedpush.android.connector.UnifiedPush
 
 /** The machine origin and session id a notification tap opens, if `intent` came from one. */
 private fun sessionTarget(intent: Intent): Pair<String, String>? {
@@ -165,6 +166,13 @@ class MainActivity : ComponentActivity() {
         var received by remember { mutableLongStateOf(0L) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var tailscaleOn by remember { mutableStateOf(vpnOn()) }
+        var newSession by remember { mutableStateOf(false) }
+        var startOptions by remember { mutableStateOf<StartOptions?>(null) }
+        var startProblem by remember { mutableStateOf("") }
+        var starting by remember { mutableStateOf(false) }
+        // The tmux name of the session this phone just started, until it is listed.
+        var started by remember { mutableStateOf<String?>(null) }
+        var scrollTo by remember { mutableStateOf<String?>(null) }
         val connection = remember {
             Connection(
                 unreachable = {
@@ -189,6 +197,28 @@ class MainActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= 33)
                 permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+        var push by remember { mutableStateOf(Push.enabled(this@MainActivity)) }
+        DisposableEffect(Unit) {
+            val listener = Push.listen(this@MainActivity) { push = it }
+            onDispose { Push.unlisten(this@MainActivity, listener) }
+        }
+        fun usePush(on: Boolean, ask: Boolean = true) {
+            if (!on) {
+                Push.disable(this@MainActivity)
+                return
+            }
+            if (ask && !canNotify()) requestNotifications()
+            UnifiedPush.tryUseCurrentOrDefaultDistributor(this@MainActivity) { found ->
+                if (found) Push.enable(this@MainActivity)
+                else {
+                    Push.disable(this@MainActivity)
+                    error = "Install ntfy or another UnifiedPush app, then turn this on again"
+                }
+            }
+        }
+        // Registering again on each launch keeps every paired machine's copy of the endpoint
+        // current.
+        LaunchedEffect(Unit) { if (Push.enabled(this@MainActivity)) usePush(true, ask = false) }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
         var hidden by
             remember(host?.origin) {
@@ -251,6 +281,28 @@ class MainActivity : ComponentActivity() {
             received = 0
             details = null
             handoff = null
+            newSession = false
+            started = null
+        }
+        LaunchedEffect(newSession) {
+            val current = host
+            if (!newSession || current == null) return@LaunchedEffect
+            startOptions = null
+            startProblem = ""
+            connection.startOptions(current) { options, problem ->
+                runOnUiThread {
+                    startOptions = options
+                    startProblem = problem
+                }
+            }
+        }
+        // A session this phone started opens its details once the machine lists it.
+        LaunchedEffect(started, snapshot) {
+            val terminal = started ?: return@LaunchedEffect
+            val row = snapshot?.rows?.find { it.terminal == terminal } ?: return@LaunchedEffect
+            started = null
+            scrollTo = row.id
+            details = row
         }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
         // Pairing errors belong to the pairing screen and never follow the user to the list.
@@ -345,8 +397,7 @@ class MainActivity : ComponentActivity() {
             rows
                 .find { it.id == id }
                 ?.let {
-                    if (it.agent == Agent.CLAUDE && it.where != Place.CLOUD) opened = it.id
-                    else details = it
+                    if (opensView(snapshot, it)) opened = it.id else details = it
                 }
             target = null
         }
@@ -381,7 +432,7 @@ class MainActivity : ComponentActivity() {
         }
         // Claude sessions open in kiln's own view; the others still hand off to their app.
         fun launch(row: Row) {
-            if (row.agent == Agent.CLAUDE && row.where != Place.CLOUD) opened = row.id
+            if (opensView(snapshot, row)) opened = row.id
             else handOff(row)
         }
         details?.let { original ->
@@ -396,6 +447,16 @@ class MainActivity : ComponentActivity() {
                 },
                 copy = { copyId(row) },
                 hidden = row.id in effectiveHidden,
+                send =
+                    host
+                        ?.takeIf { snapshot?.write == true && canMessage(row) }
+                        ?.let { current ->
+                            { text, done ->
+                                connection.send(current, row.id, text) {
+                                    runOnUiThread { done(it) }
+                                }
+                            }
+                        },
                 changeHidden = {
                     val rows = snapshot?.rows.orEmpty()
                     val next =
@@ -406,6 +467,26 @@ class MainActivity : ComponentActivity() {
                 },
             )
         }
+        if (newSession && host != null)
+            NewSessionSheet(
+                startOptions,
+                startProblem,
+                starting,
+                dismiss = { newSession = false },
+                start = { agent, directory, prompt ->
+                    starting = true
+                    startProblem = ""
+                    connection.startSession(host, agent, directory, prompt) { terminal, problem ->
+                        runOnUiThread {
+                            starting = false
+                            if (terminal != null) {
+                                newSession = false
+                                started = terminal
+                            } else startProblem = problem
+                        }
+                    }
+                },
+            )
         handoff?.let { row ->
             AlertDialog(
                 onDismissRequest = { handoff = null },
@@ -458,6 +539,7 @@ class MainActivity : ComponentActivity() {
                                     if (
                                         save(hosts.filter { it.origin != paired.origin } + paired)
                                     ) {
+                                        Push.share(this@MainActivity, paired)
                                         selected = paired.origin
                                         invitation = ""
                                         pairing = false
@@ -503,10 +585,13 @@ class MainActivity : ComponentActivity() {
                                 if (on && !canNotify()) requestNotifications()
                             }
                         },
+                        push = push,
+                        onPush = { usePush(it) },
                         openNotificationSettings = ::openNotificationSettings,
                         onPairAnother = { pairing = true },
                         onForget = {
                             if (host != null && save(hosts.filter { it.origin != host.origin })) {
+                                if (push) Push.forget(host)
                                 selected = hosts.firstOrNull()?.origin
                                 pairing = hosts.isEmpty()
                             }
@@ -530,6 +615,9 @@ class MainActivity : ComponentActivity() {
                         changeHidden = ::setHidden,
                         open = ::launch,
                         details = { details = it },
+                        onNewSession =
+                            if (snapshot?.write == true) ({ newSession = true }) else null,
+                        scrollTo = scrollTo,
                         toggle = { row ->
                             expanded =
                                 if (row.id in expanded) expanded - row.id else expanded + row.id

@@ -79,6 +79,87 @@ class Connection(
             }
     }
 
+    /**
+     * One authenticated request that a write route answers. `done` gets the body, or null and the
+     * machine's own error message.
+     */
+    private fun call(
+        host: Host,
+        method: String,
+        path: String,
+        body: JSONObject?,
+        done: (String?, String) -> Unit,
+    ) {
+        val request =
+            Request.Builder()
+                .url(host.origin + path)
+                .header("Authorization", "Bearer ${host.token}")
+                .method(method, body?.toString()?.toRequestBody("application/json".toMediaType()))
+                .build()
+        client
+            .newCall(request)
+            .enqueue(
+                object : Callback {
+                    override fun onFailure(call: Call, e: java.io.IOException) {
+                        done(null, unreachable())
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            if (it.isSuccessful) done(text, "")
+                            else
+                                done(
+                                    null,
+                                    runCatching { JSONObject(text).getString("error") }
+                                        .getOrDefault("Request failed (${it.code})"),
+                                )
+                        }
+                    }
+                }
+            )
+    }
+
+    fun startOptions(host: Host, done: (StartOptions?, String) -> Unit) =
+        call(host, "GET", "/v1/directories", null) { body, problem ->
+            val options = body?.let { runCatching { parseStartOptions(it) }.getOrNull() }
+            done(
+                options,
+                if (body != null && options == null) "Invalid directory list" else problem,
+            )
+        }
+
+    fun startSession(
+        host: Host,
+        agent: Agent,
+        directory: String,
+        prompt: String,
+        done: (String?, String) -> Unit,
+    ) =
+        call(
+            host,
+            "POST",
+            "/v1/sessions",
+            JSONObject().put("agent", agent.id).put("directory", directory).put("prompt", prompt),
+        ) { body, problem ->
+            val terminal = body?.let { runCatching { parseStarted(it) }.getOrNull() }
+            done(terminal, if (body != null && terminal == null) "Invalid response" else problem)
+        }
+
+    /** `done` gets the line the send box shows. */
+    fun send(host: Host, id: String, text: String, done: (String) -> Unit) =
+        call(
+            host,
+            "POST",
+            "/v1/sessions/${java.net.URLEncoder.encode(id, "UTF-8")}/messages",
+            JSONObject().put("text", text),
+        ) { body, problem ->
+            done(
+                body?.let { runCatching { parseSent(it) }.getOrDefault("Invalid response") }
+                    ?: problem
+            )
+        }
+
     fun connect(
         host: Host,
         snapshot: (Snapshot) -> Unit,

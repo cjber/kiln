@@ -137,7 +137,7 @@ class SessionClient(
         )
 
     /** The id makes a retry of the same message harmless: the machine keeps one copy. */
-    fun send(id: String, text: String) = post("input", JSONObject().put("id", id).put("text", text))
+    fun send(id: String, text: String) = post("messages", JSONObject().put("id", id).put("text", text))
 
     fun interrupt() = post("interrupt", JSONObject())
 }
@@ -284,7 +284,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                                 draft = ""
                                 val json = JSONObject(body)
                                 status =
-                                    if (json.optBoolean("queued"))
+                                    if (!json.optBoolean("delivered", true))
                                         "Queued: ${json.optString("reason")}"
                                     else ""
                             } else status = errorText(code, body)
