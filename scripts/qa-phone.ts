@@ -1,18 +1,23 @@
 /**
  * For exploratory QA (Bugpatrol) of the phone app: boot a dedicated emulator, install the debug build, serve seeded
  * sessions over local TLS at https://10.0.2.2:8443 and open a pairing invitation for it. `bun scripts/qa-phone.ts
- * [SEED]` prints `kiln QA phone ready` and serves until stopped; stopping it shuts the emulator down. It never touches
- * a paired phone, the user's phone server or their real sessions.
+ * [SEED] [--write]` prints `kiln QA phone ready` and serves until stopped; stopping it shuts the emulator down. It never
+ * touches a paired phone, the user's phone server or their real sessions. `--write` lets the phone start sessions and
+ * send prompts: a start adds a seeded row and a prompt to a working session waits, without running any agent.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { claim, pending } from "../src/mailbox";
+import type { Outcome } from "../src/messages";
 import { Pairing } from "../src/pairing";
 import { startServer } from "../src/server";
-import type { Session } from "../src/sessions";
+import { agentName, type Session, sessionDirectory, sessionIdentity } from "../src/sessions";
+import { defaults } from "../src/settings";
 import { seeds } from "./qa-sessions";
 
-const seed = Bun.argv[2] ?? "short";
+const write = Bun.argv.includes("--write");
+const seed = Bun.argv.slice(2).find((arg) => arg !== "--write") ?? "short";
 const seeded = seeds[seed];
 if (!seeded) throw new Error(`unknown seed ${seed}; use empty, short or many`);
 const root = resolve(import.meta.dir, "..");
@@ -25,6 +30,8 @@ const avd = "kiln-qa";
 const serial = "emulator-5562";
 const port = 8443;
 const scratch = mkdtempSync(join(tmpdir(), "kiln-qa-phone-"));
+// Prompts sent from the phone go to a mailbox of the harness's own, never the user's.
+Bun.env.XDG_STATE_HOME = scratch;
 
 function run(command: string[], options: { input?: string; env?: Record<string, string> } = {}): string {
   const result = Bun.spawnSync(command, {
@@ -134,12 +141,15 @@ try {
 
   // Sessions change over time so live updates, waiting counts and reconnects have something to show.
   let tick = 0;
-  const sessions = (): Session[] =>
-    seeded.map((session, index) =>
+  const added: Session[] = [];
+  const sessions = (): Session[] => [
+    ...seeded.map((session, index) =>
       index === 1 && session.activity
-        ? { ...session, activity: tick % 2 ? "waiting" : "working", lastActiveAt: Date.now() }
+        ? { ...session, activity: tick % 2 ? ("waiting" as const) : ("working" as const), lastActiveAt: Date.now() }
         : session,
-    );
+    ),
+    ...added,
+  ];
   const timer = setInterval(() => tick++, 20_000);
   const pairing = new Pairing(file("devices.sqlite"));
   const server = startServer({
@@ -147,6 +157,30 @@ try {
     pairing,
     discover: async () => ({ sessions: sessions(), problem: "", stale: false }),
     tls: { cert: Bun.file(file("leaf.pem")), key: Bun.file(file("leaf.key")) },
+    settings: () => ({ ...defaults, zoxide: false, phoneWrite: write }),
+    offer: (listed) => [...new Set(listed.map(sessionDirectory))],
+    start: async (agent, cwd, prompt) => {
+      const name = `${agent}-qa-${added.length + 1}`;
+      added.push({
+        agent,
+        id: `qa-${added.length + 1}`,
+        title: prompt.split("\n")[0]?.slice(0, 60),
+        cwd,
+        activity: "working",
+        startedAt: Date.now(),
+        lastActiveAt: Date.now(),
+        place: { kind: "kiln", name },
+      });
+      return { kind: "attach", name };
+    },
+    // Nothing is typed anywhere: a working session makes the prompt wait, any other takes it.
+    deliver: async (listed) =>
+      pending().flatMap((message): Outcome[] => {
+        const session = listed.find((row) => sessionIdentity(row) === message.to);
+        if (session?.activity === "working")
+          return [{ message, delivered: false as const, reason: `${agentName(session.agent)} is working` }];
+        return claim(message.id) ? [{ message, delivered: true as const }] : [];
+      }),
   });
   stopServer = () => {
     clearInterval(timer);

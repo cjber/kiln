@@ -53,6 +53,8 @@ data class Row(
     val label: String,
     val exact: Boolean,
     val parent: String? = null,
+    /** Kiln's tmux name for a session it runs, which a session this phone started is found by. */
+    val terminal: String? = null,
 )
 
 data class Snapshot(
@@ -61,7 +63,47 @@ data class Snapshot(
     val updated: Long,
     val problem: String,
     val rows: List<Row>,
+    /** Whether the machine takes new sessions and prompts from this phone. */
+    val write: Boolean = false,
 )
+
+/**
+ * Where the machine offers to start a session, most recent first, and the agents it has enabled.
+ */
+data class StartOptions(val directories: List<String>, val agents: List<Agent>)
+
+fun parseStartOptions(source: String): StartOptions {
+    val json = JSONObject(source)
+    val directories = json.getJSONArray("directories")
+    val agents = json.getJSONArray("agents")
+    require(directories.length() <= 1_000)
+    return StartOptions(
+        (0 until directories.length()).map { directories.getString(it) },
+        (0 until agents.length()).mapNotNull { index ->
+            Agent.entries.find { it.id == agents.getString(index) }
+        },
+    )
+}
+
+/** The tmux name of a session the machine just started. */
+fun parseStarted(source: String): String {
+    val terminal = JSONObject(source).getString("terminal")
+    require(terminal.matches(Regex("[a-z]+-[A-Za-z0-9-]{1,64}")))
+    return terminal
+}
+
+/** What the send box shows after a prompt: delivered, or why it waits, in kiln msg's own words. */
+fun parseSent(source: String): String {
+    val json = JSONObject(source)
+    return if (json.getBoolean("delivered")) "Delivered"
+    else "Waiting: ${json.getString("reason").replaceFirstChar { it.uppercase() }}"
+}
+
+/** Phones send prompts only to sessions that are running somewhere kiln can reach. */
+fun canMessage(row: Row): Boolean =
+    row.where != Place.CLOUD &&
+        row.activity != Activity.COMPLETED &&
+        row.activity != Activity.STOPPED
 
 /**
  * When the phone last received a successful load. The machine leaves `updatedAt` unchanged after a
@@ -202,6 +244,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 else handoff.optString("reason", "No verified session link"),
                 handoff.optBoolean("exact"),
                 item.optString("parentId").takeIf { it.isNotEmpty() },
+                item.optString("terminal").takeIf { it.isNotEmpty() },
             )
         }
     return Snapshot(
@@ -210,5 +253,6 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
         json.getLong("updatedAt"),
         json.getString("problem"),
         rows,
+        json.optBoolean("write"),
     )
 }

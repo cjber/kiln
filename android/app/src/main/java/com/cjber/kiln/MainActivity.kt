@@ -165,6 +165,13 @@ class MainActivity : ComponentActivity() {
         var received by remember { mutableLongStateOf(0L) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var tailscaleOn by remember { mutableStateOf(vpnOn()) }
+        var newSession by remember { mutableStateOf(false) }
+        var startOptions by remember { mutableStateOf<StartOptions?>(null) }
+        var startProblem by remember { mutableStateOf("") }
+        var starting by remember { mutableStateOf(false) }
+        // The tmux name of the session this phone just started, until it is listed.
+        var started by remember { mutableStateOf<String?>(null) }
+        var scrollTo by remember { mutableStateOf<String?>(null) }
         val connection = remember {
             Connection(
                 unreachable = {
@@ -273,6 +280,28 @@ class MainActivity : ComponentActivity() {
             received = 0
             details = null
             handoff = null
+            newSession = false
+            started = null
+        }
+        LaunchedEffect(newSession) {
+            val current = host
+            if (!newSession || current == null) return@LaunchedEffect
+            startOptions = null
+            startProblem = ""
+            connection.startOptions(current) { options, problem ->
+                runOnUiThread {
+                    startOptions = options
+                    startProblem = problem
+                }
+            }
+        }
+        // A session this phone started opens its details once the machine lists it.
+        LaunchedEffect(started, snapshot) {
+            val terminal = started ?: return@LaunchedEffect
+            val row = snapshot?.rows?.find { it.terminal == terminal } ?: return@LaunchedEffect
+            started = null
+            scrollTo = row.id
+            details = row
         }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
         // Pairing errors belong to the pairing screen and never follow the user to the list.
@@ -408,6 +437,16 @@ class MainActivity : ComponentActivity() {
                 },
                 copy = { copyId(row) },
                 hidden = row.id in effectiveHidden,
+                send =
+                    host
+                        ?.takeIf { snapshot?.write == true && canMessage(row) }
+                        ?.let { current ->
+                            { text, done ->
+                                connection.send(current, row.id, text) {
+                                    runOnUiThread { done(it) }
+                                }
+                            }
+                        },
                 changeHidden = {
                     val rows = snapshot?.rows.orEmpty()
                     val next =
@@ -418,6 +457,26 @@ class MainActivity : ComponentActivity() {
                 },
             )
         }
+        if (newSession && host != null)
+            NewSessionSheet(
+                startOptions,
+                startProblem,
+                starting,
+                dismiss = { newSession = false },
+                start = { agent, directory, prompt ->
+                    starting = true
+                    startProblem = ""
+                    connection.startSession(host, agent, directory, prompt) { terminal, problem ->
+                        runOnUiThread {
+                            starting = false
+                            if (terminal != null) {
+                                newSession = false
+                                started = terminal
+                            } else startProblem = problem
+                        }
+                    }
+                },
+            )
         handoff?.let { row ->
             AlertDialog(
                 onDismissRequest = { handoff = null },
@@ -542,6 +601,9 @@ class MainActivity : ComponentActivity() {
                         changeHidden = ::setHidden,
                         open = ::launch,
                         details = { details = it },
+                        onNewSession =
+                            if (snapshot?.write == true) ({ newSession = true }) else null,
+                        scrollTo = scrollTo,
                         toggle = { row ->
                             expanded =
                                 if (row.id in expanded) expanded - row.id else expanded + row.id

@@ -130,7 +130,11 @@ export async function runCli(args: string[]): Promise<number | undefined> {
             return 0;
           }
           case "devices":
-            for (const device of pairing.devices()) console.log(`${device.id}  ${device.name}`);
+            for (const device of pairing.devices()) {
+              console.log(`${device.id}  ${device.name}`);
+              for (const start of pairing.starts(device.id))
+                console.log(`  started ${start.agent} in ${start.directory} at ${new Date(start.at).toISOString()}`);
+            }
             return 0;
           case "revoke":
             if (!pairing.revoke(args[1] ?? "")) throw new Error("paired device not found");

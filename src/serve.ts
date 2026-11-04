@@ -1,4 +1,5 @@
 import { type Pairing, serverOrigin } from "./pairing";
+import { loadSettings } from "./settings";
 
 export function parsePort(value = ""): number {
   if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
@@ -87,4 +88,12 @@ export async function printInvitation(pairing: Pairing, origin: string, qr = tru
   console.log(
     "Scan this QR code or paste the invitation into kiln on your phone. It expires in five minutes and works once.",
   );
+  console.log(pairingMode(loadSettings().phoneWrite));
+}
+
+/** Which kind of access a pairing grants, as `kiln pair` prints it. */
+export function pairingMode(write: boolean): string {
+  return write
+    ? "Paired phones can start sessions and send prompts on this computer ([phone] write = true)."
+    : "Paired phones can watch sessions only. Set write = true under [phone] in config.toml to let them start sessions and send prompts.";
 }

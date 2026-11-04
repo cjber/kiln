@@ -26,6 +26,13 @@ test("a typo is an error naming the file and key, not a silent default", () => {
   expect(() => parseSettings(`claude_cloud = "yes"\n`, "config.toml")).toThrow("claude_cloud must be true or false");
   expect(() => parseSettings(`zoxide = "yes"\n`, "config.toml")).toThrow("zoxide must be true or false");
   expect(() => parseSettings(`[agents]\ngemini = ["gemini"]\n`, "config.toml")).toThrow('unknown agent "gemini"');
+  expect(() => parseSettings(`[phone]\nwrite = "yes"\n`, "config.toml")).toThrow("phone.write must be true or false");
+  expect(() => parseSettings(`[phone]\nread = true\n`, "config.toml")).toThrow('unknown setting "phone.read"');
+});
+
+test("phones stay read-only unless [phone] write is on", () => {
+  expect(defaults.phoneWrite).toBe(false);
+  expect(parseSettings(`[phone]\nwrite = true\n`).phoneWrite).toBe(true);
 });
 
 test("the README settings example matches the shipped defaults", async () => {
