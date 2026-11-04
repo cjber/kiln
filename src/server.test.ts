@@ -75,6 +75,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
         },
       ];
     }, "Session host"),
+    seen: async () => new Map(),
   });
   const origin = `http://127.0.0.1:${server.port}`;
   try {

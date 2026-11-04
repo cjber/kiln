@@ -20,8 +20,11 @@ import org.unifiedpush.android.connector.data.PushMessage
 /** This phone's UnifiedPush endpoint and the Web Push keys a machine encrypts to. */
 data class PushRegistration(val endpoint: String, val p256dh: String, val auth: String)
 
-/** A push from a machine: which session changed, on the paired machine at [origin]. */
-data class PushAlert(val origin: String, val alert: TurnAlert)
+/**
+ * A push from a machine: which session changed, on the paired machine at [origin]. A [read] push
+ * says the earlier alert for the session was seen on the computer.
+ */
+data class PushAlert(val origin: String, val alert: TurnAlert, val read: Boolean = false)
 
 /** The alert in a decrypted push body, or null for anything this version does not understand. */
 fun parsePushAlert(source: String): PushAlert? =
@@ -29,7 +32,7 @@ fun parsePushAlert(source: String): PushAlert? =
         val json = JSONObject(source)
         require(json.getInt("v") == 1)
         val transition = json.getString("transition")
-        require(transition == "finished" || transition == "input")
+        require(transition == "finished" || transition == "input" || transition == "read")
         val session = json.getString("session")
         require(session.isNotEmpty() && session.length <= 512)
         PushAlert(
@@ -42,6 +45,7 @@ fun parsePushAlert(source: String): PushAlert? =
                 transition == "input",
                 json.getLong("at"),
             ),
+            transition == "read",
         )
     } catch (_: Exception) {
         null
@@ -138,6 +142,7 @@ object Push {
     internal fun received(context: Context, source: String) {
         val push = parsePushAlert(source) ?: return
         val host = hosts(context).firstOrNull { it.origin == push.origin } ?: return
+        if (push.read) return Alerts.clear(context, host.origin, push.alert.session)
         if (!notifyEnabled(context, host.origin) || Alerts.visibleOrigin == host.origin) return
         Alerts.show(context, host, push.alert)
     }

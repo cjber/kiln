@@ -188,6 +188,11 @@ class MainActivity : ComponentActivity() {
             remember(host?.origin) {
                 mutableStateOf(host != null && notifyEnabled(this@MainActivity, host.origin))
             }
+        // Opening a session here reads it, so its notification goes.
+        LaunchedEffect(host?.origin, opened, details?.id) {
+            val origin = host?.origin ?: return@LaunchedEffect
+            listOfNotNull(opened, details?.id).forEach { Alerts.clear(this@MainActivity, origin, it) }
+        }
         val askedPreferences = remember { getSharedPreferences("notifications", MODE_PRIVATE) }
         var askNotifications by remember { mutableStateOf(false) }
         val permission =

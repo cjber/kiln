@@ -26,7 +26,7 @@ import {
 } from "./sessions";
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
-import { attachedClients, sendKey } from "./tmux";
+import { attachedClients, lastSeen, sendKey } from "./tmux";
 import { rankedDirectories } from "./zoxide";
 
 /** The largest first prompt or message a phone can send, in UTF-8 bytes. */
@@ -125,6 +125,7 @@ export function phoneSession(
   parent?: Session,
   codexHost?: string,
   opencodeLink?: (id: string) => string,
+  seenAt?: number,
 ) {
   return {
     id: sessionIdentity(session),
@@ -140,6 +141,8 @@ export function phoneSession(
     where: wireKind(session.place),
     /** Kiln's tmux name, which a phone matches against the session it just started. */
     terminal: session.place.kind === "kiln" ? session.place.name : undefined,
+    /** When the person last attached to or typed in its terminal here, so a phone clears what they have read. */
+    seenAt,
     handoff: phoneHandoff(session, codexHost, opencodeLink),
   };
 }
@@ -163,6 +166,7 @@ export function startServer({
   settings = loadSettings,
   start = startFromPhone,
   deliver = flush,
+  seen = lastSeen,
   offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
 }: {
   port: number;
@@ -181,6 +185,8 @@ export function startServer({
   settings?: () => Settings;
   start?: typeof startFromPhone;
   deliver?: (sessions: readonly Session[]) => ReturnType<typeof flush>;
+  /** When the person last looked at each kiln terminal, by tmux name. */
+  seen?: () => Promise<Map<string, number>>;
   /** The directories a phone may start in, given the listed sessions. */
   offer?: (sessions: readonly Session[], settings: Settings) => string[];
 }) {
@@ -400,6 +406,16 @@ export function startServer({
       else if (socket.send(source) === -1) socket.close(1013, "Client is too slow");
     }
   };
+  const pushAll = (alert: Omit<PushAlert, "machine">) => {
+    for (const target of pairing.pushTargets())
+      void push(target, { ...alert, machine: target.machine })
+        .then((result) => {
+          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
+        })
+        .catch(() => {});
+  };
+  /** Alerts pushed and not yet read here, by session; reading one clears it on the phones. */
+  const unread = new Map<string, Omit<PushAlert, "machine">>();
   // The desktop's transition check; each change becomes an encrypted push to every registered phone.
   const transitions = nativeNotifications((session) => {
     const alert: Omit<PushAlert, "machine"> = {
@@ -412,13 +428,18 @@ export function startServer({
       transition: session.activity === "waiting" ? "input" : "finished",
       at: snapshot.updatedAt,
     };
-    for (const target of pairing.pushTargets())
-      void push(target, { ...alert, machine: target.machine })
-        .then((result) => {
-          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
-        })
-        .catch(() => {});
+    unread.set(alert.session, alert);
+    pushAll(alert);
   });
+  /** A session that is working again, was looked at after its alert, or has closed, has been read. */
+  const clearRead = () => {
+    for (const [id, alert] of unread) {
+      const row = snapshot.sessions.find((session) => session.id === id);
+      if (row && row.activity !== "working" && (row.seenAt ?? 0) <= alert.at) continue;
+      unread.delete(id);
+      pushAll({ ...alert, transition: "read" });
+    }
+  };
   const pushing = () => {
     try {
       return pairing.pushTargets().length > 0;
@@ -442,17 +463,27 @@ export function startServer({
           ? (id: string) => opencode.path(id)
           : undefined;
       const parents = sessionParents(sessions);
+      const looked = sessions.some((row) => row.place.kind === "kiln") ? await seen() : new Map<string, number>();
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
         // Phones time freshness from this, so it moves only on a full successful load.
         updatedAt: stale ? snapshot.updatedAt : Date.now(),
-        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeLink)),
+        sessions: sessions.map((session) =>
+          phoneSession(
+            session,
+            parents.get(session),
+            codexHost.id,
+            opencodeLink,
+            session.place.kind === "kiln" ? looked.get(session.place.name) : undefined,
+          ),
+        ),
         problem,
         write: writable(),
       };
       try {
         transitions(sessions, pushing());
+        if (!stale) clearRead();
       } catch {
         // Push is best effort and never fails a refresh.
       }

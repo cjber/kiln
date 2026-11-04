@@ -160,6 +160,7 @@ class WatchService : Service() {
 
     private fun received(host: Host, next: Snapshot) {
         snapshot = next
+        Alerts.clearRead(this, host.origin, next)
         val notify = notifyEnabled(this, host.origin)
         val changed = transitions.update(next, notify)
         if (listener == null)

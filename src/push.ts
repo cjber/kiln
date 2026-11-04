@@ -16,7 +16,8 @@ export type PushAlert = {
   title: string;
   agent: string;
   cwd: string;
-  transition: "finished" | "input";
+  /** `read` clears the earlier alert for the session, once it has been looked at on the computer. */
+  transition: "finished" | "input" | "read";
   /** The snapshot's `updatedAt` for the refresh that saw the change; the phone dedupes on it. */
   at: number;
 };

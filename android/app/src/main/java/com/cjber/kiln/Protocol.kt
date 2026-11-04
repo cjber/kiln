@@ -55,6 +55,8 @@ data class Row(
     val parent: String? = null,
     /** Kiln's tmux name for a session it runs, which a session this phone started is found by. */
     val terminal: String? = null,
+    /** When the person last attached to or typed in its terminal on the machine, by its clock. */
+    val seen: Long = 0,
 )
 
 data class Snapshot(
@@ -249,6 +251,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 handoff.optBoolean("exact"),
                 item.optString("parentId").takeIf { it.isNotEmpty() },
                 item.optString("terminal").takeIf { it.isNotEmpty() },
+                item.optLong("seenAt"),
             )
         }
     return Snapshot(

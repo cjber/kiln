@@ -20,6 +20,23 @@ class PushTest {
             parsePushAlert(body),
         )
         assertTrue(parsePushAlert(body.replace("finished", "input"))!!.alert.waiting)
+        assertTrue(parsePushAlert(body.replace("finished", "read"))!!.read)
+    }
+
+    @Test
+    fun anAlertIsReadOnceItsSessionWorksOrIsLookedAtAfterIt() {
+        fun row(activity: String, seen: String = "") =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":50,"problem":"","sessions":[
+                    {"id":"claude:1","agent":"claude","title":"t","cwd":"/w","where":"kiln",
+                    "startedAt":1,"activity":"$activity","handoff":{"reason":"r"}$seen}]}"""
+                )
+                .rows
+                .single()
+        assertFalse(isRead(row("idle"), 42))
+        assertFalse(isRead(row("idle", ""","seenAt":42"""), 42))
+        assertTrue(isRead(row("idle", ""","seenAt":43"""), 42))
+        assertTrue(isRead(row("working"), 42))
     }
 
     @Test
