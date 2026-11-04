@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-04
+
 - **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.
 - **Time since latest activity is colour coded.** The updated column is green for the first minute, teal up to ten minutes, dim up to an hour and grey after that, so recently active sessions stand out.
 - **The phone notifies you.** While a session on your computer works, the Android app keeps a quiet "Watching" notification and tells you when a session needs input or finishes a turn. Tapping one opens that session. Each machine has a "Notify me" switch, and the app asks for notification permission the first time a session starts working, never at launch.
