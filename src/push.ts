@@ -1,12 +1,17 @@
 import { createCipheriv, createECDH, hkdfSync, randomBytes } from "node:crypto";
 
-/** A phone's UnifiedPush endpoint and its Web Push keys, all as the phone sent them. */
-export type PushTarget = { endpoint: string; p256dh: string; auth: string };
+/**
+ * A phone's UnifiedPush endpoint and its Web Push keys, all as the phone sent them. `machine` is the
+ * phone's own name for this server (its paired origin), echoed in each alert so the phone can tell
+ * machines apart even when two share a hostname.
+ */
+export type PushTarget = { endpoint: string; p256dh: string; auth: string; machine: string };
 
 /** What a phone shows for one turn ending; titles are safe because only the phone can decrypt it. */
 export type PushAlert = {
   v: 1;
   host: string;
+  machine: string;
   session: string;
   title: string;
   agent: string;
@@ -28,7 +33,14 @@ function decoded(value: unknown, length: number): Buffer | undefined {
 /** A registration body the server accepts, or undefined: an HTTPS endpoint and a valid P-256 key. */
 export function pushTarget(body: unknown): PushTarget | undefined {
   if (!body || typeof body !== "object") return undefined;
-  const { endpoint, p256dh, auth } = body as Record<string, unknown>;
+  const { endpoint, p256dh, auth, machine } = body as Record<string, unknown>;
+  if (
+    typeof machine !== "string" ||
+    !machine ||
+    machine.length > 256 ||
+    [...machine].some((character) => character.charCodeAt(0) < 32)
+  )
+    return undefined;
   if (typeof endpoint !== "string" || endpoint.length > 1024) return undefined;
   let url: URL;
   try {
@@ -47,7 +59,7 @@ export function pushTarget(body: unknown): PushTarget | undefined {
   } catch {
     return undefined;
   }
-  return { endpoint, p256dh: p256dh as string, auth: auth as string };
+  return { endpoint, p256dh: p256dh as string, auth: auth as string, machine };
 }
 
 /** RFC 8291 Web Push message encryption in one aes128gcm record (RFC 8188). */
@@ -69,7 +81,8 @@ export function encryptPush(
   const key = hkdf(ikm, salt, Buffer.from("Content-Encoding: aes128gcm\0"), 16);
   const nonce = hkdf(ikm, salt, Buffer.from("Content-Encoding: nonce\0"), 12);
   // One record: the payload, then the 0x02 delimiter that marks the last record, with no padding.
-  if (payload.length + 1 + 16 > RECORD_SIZE) throw new Error("push payload is too large");
+  // UnifiedPush caps the whole body, header included, at 4096 bytes.
+  if (21 + serverKey.length + payload.length + 1 + 16 > RECORD_SIZE) throw new Error("push payload is too large");
   const cipher = createCipheriv("aes-128-gcm", key, nonce);
   const sealed = Buffer.concat([cipher.update(payload), cipher.update(Buffer.from([2])), cipher.final()]);
   const header = Buffer.alloc(21);

@@ -17,7 +17,7 @@ export class Pairing {
     this.db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     this.db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS push (device TEXT PRIMARY KEY, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL);",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS push (device TEXT PRIMARY KEY, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, machine TEXT NOT NULL);",
     );
   }
   invite(now = Date.now()): string {
@@ -70,8 +70,8 @@ export class Pairing {
   /** One UnifiedPush registration per paired device; a new one replaces the last. */
   setPush(device: string, target: PushTarget) {
     this.db
-      .query("INSERT OR REPLACE INTO push SELECT id, ?, ?, ? FROM devices WHERE id = ?")
-      .run(target.endpoint, target.p256dh, target.auth, device);
+      .query("INSERT OR REPLACE INTO push SELECT id, ?, ?, ?, ? FROM devices WHERE id = ?")
+      .run(target.endpoint, target.p256dh, target.auth, target.machine, device);
   }
   /** Removes `device`'s registration, or only the given endpoint when it is still the current one. */
   deletePush(device: string, endpoint?: string) {
@@ -81,7 +81,7 @@ export class Pairing {
   pushTargets(): (PushTarget & { device: string })[] {
     return this.db
       .query<PushTarget & { device: string }, []>(
-        "SELECT push.device, endpoint, p256dh, auth FROM push JOIN devices ON devices.id = push.device",
+        "SELECT push.device, endpoint, p256dh, auth, machine FROM push JOIN devices ON devices.id = push.device",
       )
       .all();
   }

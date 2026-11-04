@@ -69,13 +69,16 @@ test("a fresh message round-trips with new keys and never repeats its ciphertext
   const second = encryptPush(payload, phone);
   expect(first.equals(second)).toBe(false);
   expect(decryptPush(first, phone.privateKey, phone.auth).equals(payload)).toBe(true);
-  expect(() => encryptPush(Buffer.alloc(4096), phone)).toThrow();
+  // The whole message, header included, stays within UnifiedPush's 4096 bytes.
+  expect(encryptPush(Buffer.alloc(3993), phone)).toHaveLength(4096);
+  expect(() => encryptPush(Buffer.alloc(3994), phone)).toThrow();
 });
 
 test("registrations need an HTTPS endpoint, a P-256 point and a 16-byte auth secret", () => {
   const { p256dh, auth } = phoneKeys();
   const endpoint = "https://ntfy.sh/upAbc123?up=1";
-  expect(pushTarget({ endpoint, p256dh, auth })).toEqual({ endpoint, p256dh, auth });
+  const machine = "https://desk.tailnet.ts.net";
+  expect(pushTarget({ endpoint, p256dh, auth, machine })).toEqual({ endpoint, p256dh, auth, machine });
   for (const body of [
     null,
     "text",
@@ -90,13 +93,18 @@ test("registrations need an HTTPS endpoint, a P-256 point and a 16-byte auth sec
     { endpoint, p256dh, auth: `${auth}AA` },
     { endpoint, p256dh, auth: "not+base64/url" },
     { endpoint, p256dh: 4, auth },
-  ])
+    { endpoint, p256dh, auth, machine: "" },
+    { endpoint, p256dh, auth, machine: "a\nb" },
+    { endpoint, p256dh, auth, machine: "a".repeat(257) },
+  ].map((body) => (body && typeof body === "object" && !("machine" in body) ? { ...body, machine } : body)))
     expect(pushTarget(body)).toBeUndefined();
+  expect(pushTarget({ endpoint, p256dh, auth })).toBeUndefined();
 });
 
 const alert: PushAlert = {
   v: 1,
   host: "desk",
+  machine: "https://desk.example",
   session: "claude:1",
   title: "t",
   agent: "claude",
@@ -106,7 +114,7 @@ const alert: PushAlert = {
 };
 
 test("sending reports gone endpoints and swallows failures and timeouts", async () => {
-  const target = { endpoint: "https://push.example/up", ...phoneKeys() };
+  const target = { endpoint: "https://push.example/up", machine: "https://desk.example", ...phoneKeys() };
   const seen: RequestInit[] = [];
   const reply = (status: number) =>
     (async (_url: string, init: RequestInit) => {
@@ -177,7 +185,12 @@ test("the push route validates, replaces, unregisters, pushes turn ends and forg
     const paired = pairing.exchange(pairing.invite(), "Pixel");
     if (!paired) throw new Error("pairing failed");
     const keys = phoneKeys();
-    const body = { endpoint: "https://ntfy.sh/upOne", p256dh: keys.p256dh, auth: keys.auth };
+    const body = {
+      endpoint: "https://ntfy.sh/upOne",
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      machine: "https://desk.example",
+    };
     expect((await register(body, "x".repeat(43))).status).toBe(401);
     expect((await register(body, paired.token, "text/plain")).status).toBe(415);
     expect((await register({ ...body, endpoint: "http://ntfy.sh/up" }, paired.token)).status).toBe(400);
@@ -208,6 +221,7 @@ test("the push route validates, replaces, unregisters, pushes turn ends and forg
     expect(sent[0]?.alert).toMatchObject({
       v: 1,
       host: snapshot.host,
+      machine: "https://desk.example",
       session: snapshot.sessions[0]?.id,
       title: "Fix the build",
       transition: "finished",

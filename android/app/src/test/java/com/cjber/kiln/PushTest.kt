@@ -8,13 +8,13 @@ import org.junit.Test
 
 class PushTest {
     private val body =
-        """{"v":1,"host":"desk","session":"claude:1","title":"Fix retry","agent":"claude","cwd":"/home/me/atlas","transition":"finished","at":42}"""
+        """{"v":1,"host":"desk","machine":"https://desk.example","session":"claude:1","title":"Fix retry","agent":"claude","cwd":"/home/me/atlas","transition":"finished","at":42}"""
 
     @Test
     fun parsesTheMachinesAlert() {
         assertEquals(
             PushAlert(
-                "desk",
+                "https://desk.example",
                 TurnAlert("claude:1", Agent.CLAUDE, "Fix retry", "/home/me/atlas", false, 42),
             ),
             parsePushAlert(body),
@@ -29,6 +29,7 @@ class PushTest {
         assertNull(parsePushAlert(body.replace("finished", "started")))
         assertNull(parsePushAlert(body.replace("claude\",\"cwd", "gemini\",\"cwd")))
         assertNull(parsePushAlert(body.replace(",\"at\":42", "")))
+        assertNull(parsePushAlert(body.replace("\"machine\"", "\"other\"")))
         assertNull(parsePushAlert(body.replace("claude:1", "")))
     }
 

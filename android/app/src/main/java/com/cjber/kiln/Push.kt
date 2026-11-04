@@ -20,8 +20,8 @@ import org.unifiedpush.android.connector.data.PushMessage
 /** This phone's UnifiedPush endpoint and the Web Push keys a machine encrypts to. */
 data class PushRegistration(val endpoint: String, val p256dh: String, val auth: String)
 
-/** A push from a machine: which session changed, on the machine named [host]. */
-data class PushAlert(val host: String, val alert: TurnAlert)
+/** A push from a machine: which session changed, on the paired machine at [origin]. */
+data class PushAlert(val origin: String, val alert: TurnAlert)
 
 /** The alert in a decrypted push body, or null for anything this version does not understand. */
 fun parsePushAlert(source: String): PushAlert? =
@@ -33,7 +33,7 @@ fun parsePushAlert(source: String): PushAlert? =
         val session = json.getString("session")
         require(session.isNotEmpty() && session.length <= 512)
         PushAlert(
-            json.getString("host"),
+            json.getString("machine"),
             TurnAlert(
                 session,
                 json.getString("agent").let { id -> Agent.entries.first { it.id == id } },
@@ -137,7 +137,7 @@ object Push {
 
     internal fun received(context: Context, source: String) {
         val push = parsePushAlert(source) ?: return
-        val host = hosts(context).firstOrNull { it.name == push.host } ?: return
+        val host = hosts(context).firstOrNull { it.origin == push.origin } ?: return
         if (!notifyEnabled(context, host.origin) || Alerts.visibleOrigin == host.origin) return
         Alerts.show(context, host, push.alert)
     }
@@ -156,6 +156,8 @@ object Push {
                             .put("endpoint", registration.endpoint)
                             .put("p256dh", registration.p256dh)
                             .put("auth", registration.auth)
+                            // Echoed in each alert, so the phone knows which machine sent it.
+                            .put("machine", host.origin)
                             .toString()
                             .toRequestBody("application/json".toMediaType())
                     )

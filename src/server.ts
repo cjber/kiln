@@ -205,7 +205,7 @@ export function startServer({
   };
   // The desktop's transition check; each change becomes an encrypted push to every registered phone.
   const transitions = nativeNotifications((session) => {
-    const alert: PushAlert = {
+    const alert: Omit<PushAlert, "machine"> = {
       v: 1,
       host: snapshot.host,
       session: sessionIdentity(session),
@@ -216,7 +216,7 @@ export function startServer({
       at: snapshot.updatedAt,
     };
     for (const target of pairing.pushTargets())
-      void push(target, alert)
+      void push(target, { ...alert, machine: target.machine })
         .then((result) => {
           if (result === "gone") pairing.deletePush(target.device, target.endpoint);
         })
