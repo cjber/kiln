@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **Claude sessions open in the phone app.** Tapping a Claude session shows its conversation in kiln: your prompts, Claude's replies, and each tool call with how it ended, updating live. For a session kiln started you can reply from the phone, and a reply sent while Claude is working is sent once the turn ends. Stop ends the turn in progress. Sessions kiln did not start can be read but not typed into, and "Open in Claude" stays in the ⋮ menu.
+- **A pairing link replaces the invitation on the open app.** Opening a second pairing link while the app was running stacked another copy of the app over the first, with the old invitation still behind it. The link now fills the invitation in the one open app.
 
 ## [0.16.0] - 2026-11-04
 
