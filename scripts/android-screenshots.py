@@ -22,7 +22,7 @@ def device(*args: str) -> str:
     return run(adb, "-s", serial, *args)
 
 
-subprocess.run([str(root / "android/gradlew"), "-p", str(root / "android"), "assembleDebug"], check=True)
+subprocess.run([str(root / "android/gradlew"), "-p", str(root / "android"), "--no-daemon", "assembleDebug"], check=True)
 emulator = None
 log = None
 try:

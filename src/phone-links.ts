@@ -29,8 +29,9 @@ export function phoneHandoff(session: Session, codexHost?: string, opencodeLink?
       ? { url: session.place.url, label: "Open task", exact: true }
       : { reason: "This task has no verified link" };
   }
-  if (session.place.kind === "saved") return { reason: "A restart stopped this session; resume it in kiln on your PC" };
-  if (session.lifecycle) return { reason: "This job has finished; attach to it in kiln on your PC" };
+  if (session.place.kind === "saved")
+    return { reason: "A restart stopped this session; resume it in kiln on your computer" };
+  if (session.lifecycle) return { reason: "This job has finished; attach to it in kiln on your computer" };
   switch (session.agent) {
     case "claude": {
       const url = claudeBridgeLink(session);
@@ -53,11 +54,11 @@ export function phoneHandoff(session: Session, codexHost?: string, opencodeLink?
     }
     case "opencode":
       if (!session.opencodeService || !session.id || !/^ses_[A-Za-z0-9]+$/.test(session.id))
-        return { reason: "Open this OpenCode session in kiln on your PC" };
+        return { reason: "Open this OpenCode session in kiln on your computer" };
       return opencodeLink
         ? { url: opencodeLink(session.id), label: "Open in OpenCode", exact: true }
         : { reason: "Run kiln setup to open OpenCode sessions on your phone" };
     case "pi":
-      return { reason: "Open this Pi session in kiln on your PC" };
+      return { reason: "Open this Pi session in kiln on your computer" };
   }
 }

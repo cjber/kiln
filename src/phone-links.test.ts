@@ -40,7 +40,9 @@ test("native handoffs require exact provider identities", () => {
     exact: false,
     url: "https://chatgpt.com/codex",
   });
-  expect(phoneHandoff({ ...session, agent: "pi" })).toEqual({ reason: "Open this Pi session in kiln on your PC" });
+  expect(phoneHandoff({ ...session, agent: "pi" })).toEqual({
+    reason: "Open this Pi session in kiln on your computer",
+  });
 });
 
 test("an OpenCode session opens in the web UI only when the service holds it", () => {
@@ -60,7 +62,7 @@ test("an OpenCode session opens in the web UI only when the service holds it", (
   });
   expect(phoneHandoff(served)).toEqual({ reason: "Run kiln setup to open OpenCode sessions on your phone" });
   expect(phoneHandoff({ ...served, opencodeService: false }, undefined, link)).toEqual({
-    reason: "Open this OpenCode session in kiln on your PC",
+    reason: "Open this OpenCode session in kiln on your computer",
   });
   expect(phoneHandoff({ ...served, id: "ses_../x" }, undefined, link)).not.toHaveProperty("url");
 });
