@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nestSessions, openable, type Session, sessionParents } from "./sessions";
+import { nestSessions, openable, type Session, sessionParents, withSubagentActivity } from "./sessions";
 
 describe("nested sessions", () => {
   const parent: Session = { pid: 1, agent: "codex", cwd: "/z", startedAt: 1, place: { kind: "kiln", name: "parent" } };
@@ -97,4 +97,56 @@ test("a session in a terminal kiln cannot reach is not listed", () => {
   const base = { agent: "claude", cwd: "/w", startedAt: 0 } as const;
   expect(openable({ ...base, place: { kind: "elsewhere", source: "tmux main" } } as Session)).toBe(false);
   expect(openable({ ...base, place: { kind: "kiln", name: "a" } } as Session)).toBe(true);
+});
+
+test("a parent whose turn ended is still working while a subagent works", () => {
+  const thread = (id: string, activity: Session["activity"], parentSessionId?: string): Session => ({
+    agent: "codex",
+    id,
+    parentSessionId,
+    activity,
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "thread", id, attach: [] },
+  });
+  const root = thread("root", "idle");
+  const middle = thread("middle", "idle", "root");
+  const leaf = thread("leaf", "working", "middle");
+  const asking = thread("asking", "idle");
+  const unknown = thread("unknown", undefined);
+  const done = thread("done", "idle");
+  const finished = { ...thread("finished", "working", "done"), lifecycle: "completed" as const };
+  const result = withSubagentActivity([
+    root,
+    middle,
+    leaf,
+    unknown,
+    thread("child", "working", "unknown"),
+    done,
+    finished,
+    asking,
+    thread("question", "waiting", "asking"),
+  ]);
+  expect(result.map((session) => session.activity)).toEqual([
+    "working",
+    "working",
+    "working",
+    undefined,
+    "working",
+    "idle",
+    "working",
+    "idle",
+    "waiting",
+  ]);
+  expect(result.map((session) => session.turnEnded)).toEqual([
+    true,
+    true,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ]);
 });

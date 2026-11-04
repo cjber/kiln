@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **Start sessions and send prompts from the phone.** With `write = true` under `[phone]` in `config.toml`, the Android app gains a New session button: pick an agent, one of the directories kiln already knows (your listed sessions and zoxide's list) and a first prompt, and the session starts on your computer with the provider's remote control on. The app then opens its details, where Claude and Codex sessions open in the provider's own app. Each running session's details also get a Send box that delivers a prompt the way `kiln msg send` does and says whether it was delivered or why it waits. Writes are off by default, `kiln pair` says which mode it pairs for, and `kiln devices` lists the sessions each phone started.
+- **A session with a background shell or subagent still running is working, not ready.** A Claude session whose turn had ended while a background shell or agent it started kept running was listed as ready and sent a "Turn finished" notification. Kiln now takes Claude's status as Claude's own agent view shows it, and lists that session as working. A Codex or OpenCode session whose subagent is still working also stays working, in the list, on the phone and in notifications, until its subagents finish.
 
 ## [0.17.0] - 2026-11-04
 
