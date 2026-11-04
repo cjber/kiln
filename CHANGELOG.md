@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-04
+
 Codex sessions opened in the app show what each command printed. Before, a command run through
 Codex's code mode showed its raw JSON result, and a failed command now shows as an error.
 
