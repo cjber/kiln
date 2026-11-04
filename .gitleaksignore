@@ -1,0 +1,2 @@
+# RFC 8291 Web Push test vector (public, from the RFC), not a credential.
+ce2601af123224dc9691953c9368b64fbc5dc15b:src/push.test.ts:generic-api-key:20
