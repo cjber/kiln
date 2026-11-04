@@ -51,6 +51,16 @@ function age(time: number | undefined, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+/** Fades the time since latest activity from green while fresh to the comment grey once stale. */
+export function ageColor(time: number | undefined, now: number): string {
+  if (!time) return color.comment;
+  const seconds = (now - time) / 1_000;
+  if (seconds < 60) return color.green;
+  if (seconds < 600) return color.teal;
+  if (seconds < 3600) return color.fgDim;
+  return color.comment;
+}
+
 const toneColor: Record<Tone, string> = {
   active: color.fgDim,
   attention: color.yellow,
@@ -383,7 +393,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         </span>
         <span fg={color.comment}>
           {" "}
-          {sessions.length} tasks · {order === "project" ? "directory / task" : order.replaceAll("_", " ")}
+          {sessions.length} tasks · {order === "project" ? "repository / task" : order.replaceAll("_", " ")}
         </span>
         {needsInput ? <span fg={color.yellow}> · {needsInput} need input</span> : null}
         {filter ? <span fg={color.peach}> /{filter}</span> : null}
@@ -421,7 +431,9 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
                   {showStatus ? (
                     <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
                   ) : null}
-                  {showUpdated ? <span fg={color.comment}>{age(session.lastActiveAt, now).padStart(8)}</span> : null}
+                  {showUpdated ? (
+                    <span fg={ageColor(session.lastActiveAt, now)}>{age(session.lastActiveAt, now).padStart(8)}</span>
+                  ) : null}
                 </text>
               </box>
             );

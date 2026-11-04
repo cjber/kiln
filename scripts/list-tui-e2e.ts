@@ -94,7 +94,7 @@ try {
   await drive("type", "Unknown status");
   assert.ok((await screen()).includes("status unavailable from provider"));
   await press("esc", "Review changes");
-  for (const order of ["last active", "age", "harness", "directory", "directory / task"]) await press("o", order);
+  for (const order of ["last active", "age", "harness", "directory", "repository / task"]) await press("o", order);
   await press("n", "[Claude]");
   await press("l", "[Codex]");
   await press("esc", "q quit");

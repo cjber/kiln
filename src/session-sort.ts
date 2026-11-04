@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { nestSessions, type Session, sessionDirectory } from "./sessions";
+import { nestSessions, type Session, sessionDirectory, sessionRepository } from "./sessions";
 
 export const sessionSorts = ["last_active", "age", "harness", "directory", "project"] as const;
 export type SessionSort = (typeof sessionSorts)[number];
@@ -18,8 +18,8 @@ export function sortSessions(sessions: readonly Session[], order: SessionSort): 
           right.place.kind === "cloud" ? right.place.title : sessionDirectory(right),
         );
       case "project":
-        return (left.place.kind === "cloud" ? left.place.title : basename(sessionDirectory(left))).localeCompare(
-          right.place.kind === "cloud" ? right.place.title : basename(sessionDirectory(right)),
+        return (left.place.kind === "cloud" ? left.place.title : basename(sessionRepository(left))).localeCompare(
+          right.place.kind === "cloud" ? right.place.title : basename(sessionRepository(right)),
         );
     }
   };

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 
@@ -71,27 +71,73 @@ export function sessionDirectory(session: Session): string {
   return session.workdir ?? session.cwd;
 }
 
-export function gitBranch(cwd: string): string | undefined {
-  try {
-    for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
-      const dotGit = join(dir, ".git");
-      if (!existsSync(dotGit)) continue;
-      // A linked worktree's `.git` is a file pointing at its real git directory.
-      const gitDir = statSync(dotGit).isFile()
-        ? resolve(
-            dir,
-            readFileSync(dotGit, "utf8")
-              .replace(/^gitdir:\s*/, "")
-              .trim(),
-          )
-        : dotGit;
-      const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
-      return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head.slice(0, 7);
-    }
-  } catch {
-    // An unreadable repository just has no branch to show.
+/** Resolved repositories by directory, rechecked after `repositoryTtlMs` so a new repository or worktree is picked up. */
+const repositories = new Map<string, { repository: string; at: number }>();
+const repositoryTtlMs = 30_000;
+
+/**
+ * The main repository a session works in, for project groups: a linked worktree resolves to the checkout
+ * that owns it. A directory outside git is its own project.
+ */
+export function sessionRepository(session: Session): string {
+  const now = Date.now();
+  const directory = sessionDirectory(session);
+  const cached = repositories.get(directory);
+  if (cached && now - cached.at < repositoryTtlMs) return cached.repository;
+  const repository = mainCheckout(directory) ?? directory;
+  repositories.set(directory, { repository, at: now });
+  return repository;
+}
+
+/** The checkout holding `cwd` and its git directory; a linked worktree's `.git` is a file pointing at it. */
+function gitCheckout(cwd: string): { dir: string; gitDir: string } | undefined {
+  for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    if (!existsSync(dotGit)) continue;
+    if (!statSync(dotGit).isFile()) return { dir, gitDir: dotGit };
+    return {
+      dir,
+      gitDir: resolve(
+        dir,
+        readFileSync(dotGit, "utf8")
+          .replace(/^gitdir:\s*/, "")
+          .trim(),
+      ),
+    };
   }
   return undefined;
+}
+
+function mainCheckout(cwd: string): string | undefined {
+  try {
+    const checkout = gitCheckout(cwd);
+    if (!checkout) return undefined;
+    const commondir = join(checkout.gitDir, "commondir");
+    // Linked worktrees share the git directory that holds `worktrees`; git names a repository after it.
+    const common = existsSync(commondir)
+      ? resolve(checkout.gitDir, readFileSync(commondir, "utf8").trim())
+      : existsSync(join(checkout.gitDir, "worktrees"))
+        ? checkout.gitDir
+        : undefined;
+    // Without linked worktrees (a submodule, a plain checkout) the checkout is its own repository.
+    if (!common) return checkout.dir;
+    return basename(common) === ".git" ? dirname(common) : common;
+  } catch {
+    // An unreadable repository groups by its directory.
+    return undefined;
+  }
+}
+
+export function gitBranch(cwd: string): string | undefined {
+  try {
+    const checkout = gitCheckout(cwd);
+    if (!checkout) return undefined;
+    const head = readFileSync(join(checkout.gitDir, "HEAD"), "utf8").trim();
+    return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head.slice(0, 7);
+  } catch {
+    // An unreadable repository just has no branch to show.
+    return undefined;
+  }
 }
 
 export type Discovered = {

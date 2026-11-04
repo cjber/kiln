@@ -41,7 +41,8 @@ export const defaults: Settings = {
 
 const template = `# kiln settings. Delete a line to use its default.
 
-# List order: project (directory/task groups), directory (full paths),
+# List order: project (git repository/task groups, worktrees with their repository),
+# directory (full paths),
 # last_active, age (oldest first) or harness. Groups show the most recent rows first.
 sort = "project"
 

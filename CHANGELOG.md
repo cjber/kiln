@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+- **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.
+- **Time since latest activity is colour coded.** The updated column is green for the first minute, teal up to ten minutes, dim up to an hour and grey after that, so recently active sessions stand out.
+
 ## [0.15.1] - 2026-11-03
 
 - **The dashboard counts a session once.** A session whose pull request has merged was counted both as running and as finished. It now counts only as finished.
