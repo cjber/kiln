@@ -81,9 +81,11 @@ fun SessionScreen(
     onNewSession: (() -> Unit)? = null,
     /** A row to bring into view, such as the session this phone just started. */
     scrollTo: String? = null,
+    /** The tab the screen opens on. */
+    initialScope: SessionScope = SessionScope.LIVE,
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
-    var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
+    var scope by rememberSaveable { mutableStateOf(initialScope) }
     var activity by rememberSaveable { mutableStateOf<Activity?>(null) }
     var agent by rememberSaveable { mutableStateOf<Agent?>(null) }
     var options by rememberSaveable { mutableStateOf(false) }
@@ -101,7 +103,14 @@ fun SessionScreen(
     val needsInput = rows.count { it.activity == Activity.WAITING && it.id !in hiddenIds }
     val snackbar = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
-    val items = sessionItems(rows, sort, filter, expanded, scope, now, agent, activity, hiddenIds)
+    val progress = scope == SessionScope.PROGRESS
+    // A machine running an older kiln lists its sessions without a stage.
+    val oldServer = rows.any { it.where != Place.CLOUD } && rows.none { it.stage != null }
+    val items =
+        if (progress) progressItems(rows, filter, now, hiddenIds)
+        else sessionItems(rows, sort, filter, expanded, scope, now, agent, activity, hiddenIds)
+    // Each tab keeps its own scroll position, so switching back lands where you left it.
+    val listStates = SessionScope.entries.associateWith { rememberLazyListState() }
     val currentHidden by rememberUpdatedState(hiddenIds)
     fun restoreRow(row: Row) {
         changeHidden(currentHidden - sessionRestoreIds(rows, row.id))
@@ -242,14 +251,22 @@ fun SessionScreen(
                     details,
                     toggle,
                     Modifier.widthIn(max = 720.dp).fillMaxWidth(),
+                    state = listStates.getValue(scope),
+                    progress = progress,
                     emptyTitle =
-                        if (filter.isNotEmpty() || activity != null || agent != null)
+                        if (progress && filter.isEmpty()) "Nothing in progress"
+                        else if (filter.isNotEmpty() || activity != null || agent != null)
                             "No matching sessions"
                         else if (scope == SessionScope.HIDDEN) "Nothing hidden"
                         else if (scope == SessionScope.HISTORY) "No older cloud tasks"
                         else "All quiet here",
                     emptyMessage =
-                        if (filter.isNotEmpty() || activity != null || agent != null)
+                        if (progress && filter.isEmpty() && oldServer)
+                            "Update kiln on $machineLabel to see each session's pull request here."
+                        else if (progress && filter.isEmpty())
+                            "Sessions on your computer appear here by how far their branch has got, " +
+                                "from failing checks to merged."
+                        else if (filter.isNotEmpty() || activity != null || agent != null)
                             "Try another search or clear your filters."
                         else if (scope == SessionScope.HIDDEN)
                             "Swipe a session left to hide it on this phone."
@@ -345,13 +362,14 @@ fun SessionScreen(
                                     }
                                 }
                                 Spacer(Modifier.weight(1f))
-                                IconButton(onClick = { options = true }) {
-                                    Icon(
-                                        Icons.Default.MoreVert,
-                                        "Filter and sort sessions: ${sort.label}",
-                                        Modifier.size(20.dp),
-                                    )
-                                }
+                                if (!progress)
+                                    IconButton(onClick = { options = true }) {
+                                        Icon(
+                                            Icons.Default.MoreVert,
+                                            "Filter and sort sessions: ${sort.label}",
+                                            Modifier.size(20.dp),
+                                        )
+                                    }
                             }
                         }
                     },
@@ -414,8 +432,10 @@ fun SessionListView(
     restore: (Row) -> Unit,
     scrollTo: String? = null,
     bottom: androidx.compose.ui.unit.Dp = 12.dp,
+    state: androidx.compose.foundation.lazy.LazyListState? = null,
+    progress: Boolean = false,
 ) {
-    val list = rememberLazyListState()
+    val list = state ?: rememberLazyListState()
     LaunchedEffect(scrollTo, items.isNotEmpty()) {
         val index = items.indexOfFirst { it is SessionItem.Entry && it.row.id == scrollTo }
         // The controls header is the list's first item.
@@ -470,6 +490,7 @@ fun SessionListView(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp),
                         )
+                is SessionItem.StageHeader -> StageHeading(item.stage, item.count)
                 is SessionItem.Entry ->
                     SwipeSessionRow(
                         item,
@@ -481,6 +502,7 @@ fun SessionListView(
                         hidden,
                         { hide(item.row) },
                         { restore(item.row) },
+                        progress,
                     )
             }
         }

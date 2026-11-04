@@ -67,6 +67,33 @@ class ProtocolTest {
     }
 
     @Test
+    fun pullRequestsKeepOnlyGithubLinksAndTheirChecks() {
+        fun row(extra: String) =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":1,"problem":"","sessions":[
+                    {"id":"claude:a","agent":"claude","title":"t","cwd":"/w","where":"kiln",
+                    "startedAt":1,"handoff":{}$extra}]}"""
+                )
+                .rows
+                .single()
+        val failing =
+            row(
+                ""","stage":"failing","pr":{"number":212,"url":"https://github.com/o/r/pull/212",
+                "state":"OPEN","draft":false,"queued":true,"checks":{"passed":9,"failed":2,"running":0}}"""
+            )
+        assertEquals(Stage.FAILING, failing.stage)
+        assertEquals(
+            PullInfo(212, "https://github.com/o/r/pull/212", false, true, 9, 2, 0),
+            failing.pr,
+        )
+        assertNull(
+            row(""","stage":"green","pr":{"number":1,"url":"https://evil.example/o/r/pull/1"}""").pr
+        )
+        assertNull(row(""","stage":"later"""").stage)
+        assertNull(row("").stage)
+    }
+
+    @Test
     fun newerServerValuesAreToleratedButUnknownAgentsAreNot() {
         fun snapshot(agent: String) =
             parseSnapshot(

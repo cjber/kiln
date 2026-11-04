@@ -69,6 +69,8 @@ A web page of every running session's progress, for keeping an eye on many agent
 
 A session's project is the repository its directory belongs to, so worktrees count as their repository. Its stage comes from the pull request for its branch: Working with no pull request or a closed one, PR failing when a check failed, PR checks running, PR green, and Done once it is merged. A pull request labelled for the MergeLoop queue (the `label` in `.mergepatrol/mergepatrol.yml`, `mergepatrol` by default) is marked queued. Sessions on `main` or `master` have no pull request of their own.
 
+The terminal list and the phone show the same stages: the list adds a `pr` column with each branch's pull request number, coloured by stage, and its checks in the details line under the list; the phone has a progress tab.
+
 The page updates itself over a server-sent event stream: session status every two seconds while it is open, uncommitted files every ten seconds, and pull requests at most once a minute per branch, fetched in the background with the GitHub CLI (`gh`). Nothing is read while no page is open. The server listens on 127.0.0.1 only, answers only requests addressed to that name, and is separate from the phone server and its tunnel.
 
 ## Terminal
@@ -135,7 +137,7 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 ## Android
 
-<img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-pairing.png" width="270" alt="Android pairing screen" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
+<img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-progress.png" width="270" alt="Android progress tab grouping sessions by pull request stage" /> <img src="assets/android-pairing.png" width="270" alt="Android pairing screen" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
 Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. On a computer with phone writes on, a Claude, Codex, OpenCode or Pi session opens in the app as a live conversation you can reply to, and Stop ends the turn of a Claude, Codex or Pi session kiln started. A reply sent while the agent is working waits in kiln's mailbox and is sent when the turn ends. When a session in kiln's tmux stops at a numbered menu, such as Claude's plan approval, a permission prompt, a question from Claude, or a Codex approval, the app shows the question and its answers as buttons; an answer that takes text, such as "Tell Claude what to change", sends what is in the reply box. The + button attaches files of up to 20 MB: kiln stores them under `$XDG_CACHE_HOME/kiln/uploads` for seven days, up to 500 MB in all, and the message lists their paths for the agent to open. Opening any other linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. OpenCode sessions open in OpenCode's own web UI on your computer, reached over Tailscale. Sessions without mobile access explain how to open them on the computer.
 
@@ -159,6 +161,8 @@ Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving
 `kiln setup` writes `~/.config/systemd/user/kiln-serve.service`, enables it and reports each change; running it again changes nothing. A unit that is a symlink, for example into a dotfiles repository, is left alone and reported. The service listens on localhost only and never prints a pairing code to the journal. It records the current `PATH` so the agents' CLIs are found; run `kiln setup` again after moving them. To start before login, run `loginctl enable-linger`. `--port` and `--origin` work as they do for `kiln serve`.
 
 For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 and serves its web UI at `https://<your Tailscale name>:4096`, reachable only on your tailnet. "Open in OpenCode" then goes through kiln's own address, which signs the phone's browser in to OpenCode and opens the session; there is nothing to pair. Each link works once, for 15 minutes. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
+
+The progress tab groups the sessions on your computer by how far their branch has got: PR failing, checks running, PR green, working, and merged, the stage that needs you first at the top. Each row shows its project, pull request number, check counts and whether it is queued for merging; hold a row for its details and a link to the pull request. Pull requests are looked up with the GitHub CLI (`gh`) on the computer, only while the app is open, at most once a minute per branch.
 
 On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day. The phone's list opens in the order `sort` sets and orders sessions as the terminal list does.
 

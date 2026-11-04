@@ -11,6 +11,7 @@ enum class SessionOrder(val label: String, val config: String) {
 
 enum class SessionScope(val label: String) {
     LIVE("Live"),
+    PROGRESS("Progress"),
     HISTORY("History"),
     HIDDEN("Hidden"),
 }
@@ -36,6 +37,51 @@ sealed interface SessionItem {
 
     data class Entry(val row: Row, val depth: Int, val children: Int) : SessionItem {
         override val key = row.id
+    }
+
+    data class StageHeader(val stage: Stage, val count: Int) : SessionItem {
+        override val key = "stage:${stage.id}"
+    }
+}
+
+/**
+ * The progress tab: current sessions on the computer grouped by how far their branch has got, the
+ * stage that needs you first at the top and the most recently active session first within each.
+ * Helpers share their parent's branch, so only top-level sessions are listed.
+ */
+fun progressItems(
+    rows: List<Row>,
+    filter: String = "",
+    now: Long = System.currentTimeMillis(),
+    hiddenIds: Set<String> = emptySet(),
+): List<SessionItem> {
+    val hidden = hiddenSessionIds(rows, hiddenIds)
+    val needle = filter.trim().lowercase()
+    val shown = rows.filter { row ->
+        row.stage != null &&
+            row.parent == null &&
+            row.id !in hidden &&
+            isCurrentSession(row, now) &&
+            (needle.isEmpty() ||
+                listOf(
+                        row.title,
+                        row.cwd,
+                        row.branch,
+                        row.repository.orEmpty(),
+                        agentName(row.agent),
+                    )
+                    .any { it.lowercase().contains(needle) } ||
+                row.pr?.number?.toString() == needle.removePrefix("#"))
+    }
+    return Stage.entries.flatMap { stage ->
+        val group =
+            shown
+                .filter { it.stage == stage }
+                .sortedByDescending { it.active.takeIf { time -> time > 0 } ?: it.started }
+        if (group.isEmpty()) emptyList()
+        else
+            listOf(SessionItem.StageHeader(stage, group.size)) +
+                group.map { SessionItem.Entry(it, 0, 0) }
     }
 }
 
@@ -67,7 +113,8 @@ fun sessionItems(
                 (when (scope) {
                     null,
                     SessionScope.HIDDEN -> true
-                    SessionScope.LIVE -> isCurrentSession(row, now)
+                    SessionScope.LIVE,
+                    SessionScope.PROGRESS -> isCurrentSession(row, now)
                     SessionScope.HISTORY -> !isCurrentSession(row, now)
                 }) &&
                     (agent == null || row.agent == agent) &&

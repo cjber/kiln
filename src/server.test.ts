@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pullRequests } from "./dashboard";
 import { pending } from "./mailbox";
 import { Pairing, serverOrigin, startLimit } from "./pairing";
 import { offeredDirectories, phoneSession, promptLimit, startServer } from "./server";
@@ -186,6 +187,87 @@ test("discovery runs every interval only while a phone is connected", async () =
     server.stop();
     pairing.close();
   }
+});
+
+test("phone sessions carry their pull request stage, looked up only while a phone watches", async () => {
+  const { directory, pairing } = fixture();
+  mkdirSync(join(directory, ".git"));
+  writeFileSync(join(directory, ".git", "HEAD"), "ref: refs/heads/cb/x\n");
+  const lookups: string[][] = [];
+  const pr = {
+    number: 7,
+    url: "https://github.com/o/r/pull/7",
+    state: "OPEN",
+    isDraft: false,
+    additions: 1,
+    deletions: 0,
+    labels: [{ name: "mergepatrol" }],
+    statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }],
+  };
+  const session: Session = {
+    id: "s",
+    agent: "claude",
+    cwd: directory,
+    startedAt: 1,
+    place: { kind: "kiln", name: "claude-s" },
+  };
+  const server = startServer({
+    port: 0,
+    pairing,
+    seen: async () => new Map(),
+    interval: 20,
+    idleInterval: 40,
+    discover: async () => ({ sessions: [session], problem: "", stale: false }),
+    prs: pullRequests({
+      gh: true,
+      exec: async (argv) => {
+        lookups.push(argv);
+        return JSON.stringify([pr]);
+      },
+    }),
+  });
+  try {
+    await Bun.sleep(150);
+    expect(lookups).toHaveLength(0);
+    const paired = pairing.exchange(pairing.invite(), "test");
+    if (!paired) throw new Error("pairing failed");
+    const { token } = paired;
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/v1/events`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    let row: ReturnType<typeof phoneSession> | undefined;
+    socket.onmessage = (event) => {
+      row = JSON.parse(String(event.data)).sessions[0];
+    };
+    await Bun.sleep(200);
+    socket.close();
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]).toContain("cb/x");
+    expect(row?.stage).toBe("failing");
+    expect(row?.pr).toMatchObject({
+      number: 7,
+      url: pr.url,
+      queued: true,
+      checks: { passed: 0, failed: 1, running: 0 },
+    });
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
+test("cloud tasks and default branches have no pull request stage", () => {
+  const cloud: Session = {
+    id: "c",
+    agent: "claude",
+    cwd: "/x",
+    startedAt: 1,
+    place: { kind: "cloud", url: "https://claude.ai/code/c" },
+  } as Session;
+  expect(phoneSession(cloud).stage).toBeUndefined();
+  const local: Session = { id: "l", agent: "codex", cwd: "/x", startedAt: 1, place: { kind: "elsewhere" } };
+  expect(phoneSession(local).stage).toBe("working");
+  expect(phoneSession(local).pr).toBeUndefined();
 });
 
 test("phone projection retains provider ancestry without terminal PIDs", () => {

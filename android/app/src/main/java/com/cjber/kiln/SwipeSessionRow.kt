@@ -22,6 +22,7 @@ fun SwipeSessionRow(
     hidden: Boolean,
     hide: () -> Unit,
     restore: () -> Unit,
+    progress: Boolean = false,
 ) {
     val action by rememberUpdatedState(if (hidden) restore else hide)
     val label = if (hidden) "Restore" else "Hide"
@@ -60,6 +61,7 @@ fun SwipeSessionRow(
                 }
         },
     ) {
-        SessionCard(item, now, expanded, open, details, toggle)
+        if (progress) ProgressCard(item.row, now, open, details)
+        else SessionCard(item, now, expanded, open, details, toggle)
     }
 }
