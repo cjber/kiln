@@ -23,7 +23,7 @@ fun updateTime(time: Long): String =
         DateTimeFormatter.ofPattern("d MMM, HH:mm")
             .withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochMilli(time))
-    else "unknown"
+    else "Unknown"
 
 fun elapsed(time: Long, now: Long): String {
     if (time <= 0) return "unknown"
@@ -41,6 +41,14 @@ fun relativeTime(time: Long, now: Long): String =
         time <= 0 -> "Activity unknown"
         now - time < 60_000 -> "Just now"
         else -> "${elapsed(time, now)} ago"
+    }
+
+/** A session with no activity time shows when it started instead, labelled as the start. */
+fun lastActive(active: Long, started: Long, now: Long): String =
+    when {
+        active > 0 -> "${relativeTime(active, now)} · ${updateTime(active)}"
+        started > 0 -> "Unknown, started ${relativeTime(started, now).lowercase()}"
+        else -> "Unknown"
     }
 
 fun tildePath(path: String): String = path.replace(Regex("^/(home|Users)/[^/]+(?=/|$)"), "~")

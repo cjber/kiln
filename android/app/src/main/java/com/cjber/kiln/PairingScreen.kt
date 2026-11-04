@@ -23,6 +23,7 @@ fun PairingScreen(
     onDismissError: () -> Unit,
     invitation: String,
     setInvitation: (String) -> Unit,
+    invitationError: String,
     busy: Boolean,
     canCancel: Boolean,
     tailscaleOn: Boolean,
@@ -117,6 +118,9 @@ fun PairingScreen(
                     enabled = !busy,
                     label = { Text("Pairing invitation") },
                     placeholder = { Text("Paste your kiln://pair link") },
+                    isError = invitationError.isNotEmpty(),
+                    supportingText =
+                        if (invitationError.isNotEmpty()) ({ Text(invitationError) }) else null,
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 4,
@@ -150,7 +154,10 @@ fun PairingScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { instructions = !instructions }) {
+                        TextButton(
+                            onClick = { instructions = !instructions },
+                            contentPadding = PaddingValues(horizontal = 0.dp),
+                        ) {
                             Text(if (instructions) "Hide setup steps" else "Show setup steps")
                         }
                         if (instructions) {

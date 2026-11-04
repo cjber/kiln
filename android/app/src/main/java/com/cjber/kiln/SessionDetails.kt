@@ -1,5 +1,6 @@
 package com.cjber.kiln
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -78,10 +79,7 @@ fun SessionDetails(
                             Place.OTHER -> "Native terminal"
                         },
                     )
-                    DetailField(
-                        "Last active",
-                        "${relativeTime(row.active, now)} · ${updateTime(row.active)}",
-                    )
+                    DetailField("Last active", lastActive(row.active, row.started, now))
                     DetailField("Started", updateTime(row.started))
                 }
             }
@@ -102,10 +100,16 @@ fun SessionDetails(
             TextButton(onClick = changeHidden, modifier = Modifier.fillMaxWidth()) {
                 Text(if (hidden) "Restore on this phone" else "Hide on this phone")
             }
+            // The default outlined colours are the theme's dim variants, which read as disabled.
             OutlinedButton(
                 onClick = copy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 shape = MaterialTheme.shapes.small,
+                colors =
+                    ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
             ) {
                 Text("Copy session ID")
             }

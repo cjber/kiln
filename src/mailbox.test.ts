@@ -52,3 +52,16 @@ test("old messages expire, a reader never creates the file, and a sender is stop
   expect(post("claude:a", "pi:c", "someone else", path, 1_000).to).toBe("pi:c");
   expect(post("claude:a", "codex:b", "later", path, 1_000 + sendLimit.perMs).body).toBe("later");
 });
+
+test("concurrent processes reading their inboxes while others send never see a locked database", async () => {
+  const path = mailbox();
+  post("claude:a", "codex:b", "create the file", path);
+  const worker = join(import.meta.dir, "..", "scripts", "mailbox-stress.test-worker.ts");
+  const workers = Array.from({ length: 6 }, (_, index) =>
+    Bun.spawn(["bun", worker, path, String(index)], { stdout: "pipe", stderr: "pipe" }),
+  );
+  const results = await Promise.all(
+    workers.map(async (child) => ({ code: await child.exited, error: await new Response(child.stderr).text() })),
+  );
+  expect(results.filter((result) => result.code !== 0).map((result) => result.error)).toEqual([]);
+}, 30_000);

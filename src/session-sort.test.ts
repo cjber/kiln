@@ -27,3 +27,15 @@ test("list order defaults to directory/task groups and rejects unknown settings"
   expect(() => parseSettings('sort = "recent"')).toThrow("sort must be one of");
   expect(() => parseSettings("sort = false")).toThrow("sort must be one of");
 });
+
+test("inside one harness the most recent session comes first and an unknown update time last", () => {
+  const claude = (pid: number, lastActiveAt?: number): Session => ({
+    pid,
+    agent: "claude",
+    cwd: `/${pid}`,
+    startedAt: pid,
+    lastActiveAt,
+    place: { kind: "kiln", name: String(pid) },
+  });
+  expect(sortSessions([claude(1, 50), claude(2), claude(3, 10)], "harness").map((row) => row.pid)).toEqual([1, 3, 2]);
+});

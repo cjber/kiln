@@ -24,7 +24,7 @@ export type Tone = "active" | "attention" | "done" | "muted";
 export function sessionStatus(session: Session): { label: string; hint: string; tone: Tone } {
   switch (session.lifecycle) {
     case "completed":
-      return { label: "completed", hint: "finished · Enter attaches", tone: "done" };
+      return { label: "completed", hint: "completed · Enter attaches", tone: "done" };
     case "stopped":
       return { label: "stopped", hint: "stopped · Enter resumes", tone: "muted" };
     case undefined:
@@ -143,4 +143,25 @@ export function selectionAt(visible: readonly Session[], index: number): Selecti
 export function resolveSelection(visible: readonly Session[], selection: Selection): Selection {
   const found = selection.key === undefined ? -1 : visible.findIndex((row) => sessionIdentity(row) === selection.key);
   return selectionAt(visible, found >= 0 ? found : selection.index);
+}
+
+/**
+ * The rows that fit `size` lines with the cursor's row in view. Once a group's heading scrolls off the top, it stays
+ * pinned above its rows, so every visible row still shows its directory.
+ */
+export function viewport(
+  rows: readonly ListRow[],
+  selected: number,
+  size: number,
+): { pinned?: Extract<ListRow, { kind: "header" }>; rows: ListRow[] } {
+  let start = Math.max(0, selected - size + 1);
+  if (start === 0 || size < 2 || rows[start]?.kind === "header")
+    return { pinned: undefined, rows: rows.slice(start, start + size) };
+  // The pinned heading takes the top line.
+  start += 1;
+  const pinned =
+    rows[start]?.kind === "session"
+      ? rows.slice(0, start).findLast((row): row is Extract<ListRow, { kind: "header" }> => row.kind === "header")
+      : undefined;
+  return { pinned, rows: rows.slice(start, start + size - (pinned ? 1 : 0)) };
 }

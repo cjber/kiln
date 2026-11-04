@@ -91,3 +91,59 @@ test("time since latest activity fades from green to grey", () => {
   ]);
   expect(ageColor(undefined, now)).toBe(color.comment);
 });
+
+async function frameAfter(sessions: Session[], size: { width: number; height: number }, keys: string[], until: string) {
+  let setup!: Awaited<ReturnType<typeof testRender>>;
+  await act(async () => {
+    setup = await testRender(
+      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={async () => sessions} />,
+      size,
+    );
+  });
+  try {
+    await setup.waitForFrame((frame) => frame.includes("kiln"));
+    await Bun.sleep(50);
+    await act(async () => {
+      for (const key of keys) await setup.mockInput.pressKeys([key]);
+    });
+    await setup.waitForFrame((frame) => frame.includes(until));
+    return setup.captureCharFrame();
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+}
+
+const waitingSession: Session = {
+  agent: "codex",
+  cwd: "/home/demo/code/atlas",
+  title: "Review changes",
+  startedAt: Date.now(),
+  lastActiveAt: Date.now(),
+  activity: "waiting",
+  place: { kind: "kiln", name: "atlas" },
+};
+
+test("with nothing to select the hints drop row keys, and a kept filter offers esc clear", async () => {
+  const empty = await frameAfter([], { width: 100, height: 8 }, [], "no agents running");
+  expect(empty).not.toContain("need input");
+  expect(empty).toContain("n new · / filter · q quit");
+  expect(empty).not.toContain("enter open");
+  const unmatched = await frameAfter(
+    [waitingSession],
+    { width: 100, height: 8 },
+    ["/", "z", "z", "RETURN"],
+    "no sessions match",
+  );
+  expect(unmatched).toContain("esc clear · n new · / filter · q quit");
+  expect(unmatched).not.toContain("j/k move");
+});
+
+test("a narrow terminal keeps the waiting count, the typed query and the way out of each prompt", async () => {
+  const size = { width: 40, height: 10 };
+  expect(await frameAfter([waitingSession], size, [], "need input")).toContain("1 need input");
+  expect(await frameAfter([waitingSession], size, ["/", "a", "t", "l"], "/atl")).toContain("esc clear");
+  expect(await frameAfter([waitingSession], size, ["n"], "esc cancel")).toContain("enter dir");
+  expect(await frameAfter([waitingSession], size, ["x"], "y confirms")).toContain("else cancels");
+});

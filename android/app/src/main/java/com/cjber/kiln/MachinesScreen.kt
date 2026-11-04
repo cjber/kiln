@@ -22,6 +22,9 @@ fun MachinesScreen(
     selectedIndex: Int,
     select: (Int) -> Unit,
     reconnect: () -> Unit,
+    notify: Boolean,
+    setNotify: (Boolean) -> Unit,
+    openNotificationSettings: () -> Unit,
     pair: () -> Unit,
     forget: () -> Unit,
 ) {
@@ -82,6 +85,21 @@ fun MachinesScreen(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(16.dp))
             Text("$selected", style = MaterialTheme.typography.titleSmall)
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Notify me", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "When a session on this machine needs input or finishes a turn",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(notify, setNotify, Modifier.padding(start = 16.dp))
+            }
+            TextButton(onClick = openNotificationSettings) { Text("Notification settings") }
             TextButton(onClick = reconnect) { Text("Reconnect") }
             TextButton(onClick = forget) {
                 Text("Forget this machine", color = MaterialTheme.colorScheme.error)

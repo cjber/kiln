@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -70,6 +71,9 @@ fun SessionScreen(
     selectedMachine: Int = 0,
     tailscaleOn: Boolean = true,
     openTailscale: () -> Unit = {},
+    notify: Boolean = false,
+    onNotify: (Boolean) -> Unit = {},
+    openNotificationSettings: () -> Unit = {},
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -205,6 +209,9 @@ fun SessionScreen(
                         machinesPage = false
                     },
                     reconnect = onReconnect,
+                    notify = notify,
+                    setNotify = onNotify,
+                    openNotificationSettings = openNotificationSettings,
                     pair = onPairAnother,
                     forget = { forget = true },
                 )
@@ -409,11 +416,13 @@ fun SessionListView(
                     Text(
                         if (!loaded) "Connecting to your machine" else emptyTitle,
                         style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
                     )
                     Text(
                         if (!loaded) "Sessions will appear when the connection is ready."
                         else emptyMessage,
                         style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (clear != null) TextButton(onClick = clear) { Text("Clear filters") }

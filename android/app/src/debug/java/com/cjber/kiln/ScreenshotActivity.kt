@@ -29,6 +29,7 @@ class ScreenshotActivity : ComponentActivity() {
                         onDismissError = {},
                         invitation = "",
                         setInvitation = {},
+                        invitationError = "",
                         busy = false,
                         canCancel = false,
                         tailscaleOn = true,
@@ -113,8 +114,8 @@ private fun demo(
         when (agent) {
             Agent.CODEX -> "Open ChatGPT, then choose this thread"
             Agent.CLAUDE -> "Open in Claude"
-            Agent.OPENCODE -> "Open this OpenCode session in kiln on your PC"
-            Agent.PI -> "Open this Pi session in kiln on your PC"
+            Agent.OPENCODE -> "Open this OpenCode session in kiln on your computer"
+            Agent.PI -> "Open this Pi session in kiln on your computer"
         },
         agent != Agent.CODEX,
         parent,
@@ -183,6 +184,6 @@ private val demoRows =
             .copy(
                 where = Place.BACKGROUND,
                 url = null,
-                label = "This job has finished; attach to it in kiln on your PC",
+                label = "This job has finished; attach to it in kiln on your computer",
             ),
     )

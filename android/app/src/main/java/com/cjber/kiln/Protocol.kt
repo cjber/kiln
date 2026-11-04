@@ -103,6 +103,15 @@ fun invitation(value: String): Pair<String, String> {
     return httpsOrigin(parts["server"].orEmpty()) to code
 }
 
+/** The message the pairing invitation field shows for `value`, or "" when it can be used. */
+fun invitationError(value: String): String =
+    try {
+        invitation(value)
+        ""
+    } catch (_: Exception) {
+        "Paste a valid kiln invitation with an HTTPS server URL"
+    }
+
 /**
  * OpenCode sessions open through a one-use sign-in path on the paired kiln server, which signs the
  * browser in to OpenCode and redirects to the session. Resolving it against `origin` keeps it on

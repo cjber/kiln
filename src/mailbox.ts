@@ -28,7 +28,10 @@ export const mailboxPath = () =>
 
 const databases = new Map<string, Database>();
 
-/** The list, the phone server and every `kiln msg` share this file, so each change is one statement. */
+/**
+ * The list, the phone server and every `kiln msg` share this file, so each change is one statement or an immediate
+ * transaction. The busy wait is set first, so even the journal mode waits out another process's write.
+ */
 function open(path: string): Database {
   let db = databases.get(path);
   if (!db) {
@@ -36,7 +39,7 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      'PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=2000; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, "from" TEXT NOT NULL, "to" TEXT NOT NULL, body TEXT NOT NULL, createdAt REAL NOT NULL, deliveredAt REAL, readAt REAL, failedAt REAL);',
+      'PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, "from" TEXT NOT NULL, "to" TEXT NOT NULL, body TEXT NOT NULL, createdAt REAL NOT NULL, deliveredAt REAL, readAt REAL, failedAt REAL);',
     );
     databases.set(path, db);
   }
@@ -113,13 +116,16 @@ export function release(id: string, sent: boolean, path = mailboxPath(), now = D
 export function takeUnread(to: string, path = mailboxPath(), now = Date.now()): Message[] {
   if (!existsSync(path)) return [];
   const db = open(path);
-  return db.transaction(() => {
-    const rows = db
-      .query<Row, [string]>(
-        'SELECT * FROM messages WHERE "to" = ? AND deliveredAt IS NULL AND readAt IS NULL ORDER BY createdAt',
-      )
-      .all(to);
-    db.query('UPDATE messages SET readAt = ? WHERE "to" = ? AND deliveredAt IS NULL AND readAt IS NULL').run(now, to);
-    return rows.map((row) => ({ ...message(row), readAt: now }));
-  })();
+  // Immediate: a deferred read that then writes cannot wait for another writer, so SQLite fails it at once as locked.
+  return db
+    .transaction(() => {
+      const rows = db
+        .query<Row, [string]>(
+          'SELECT * FROM messages WHERE "to" = ? AND deliveredAt IS NULL AND readAt IS NULL ORDER BY createdAt',
+        )
+        .all(to);
+      db.query('UPDATE messages SET readAt = ? WHERE "to" = ? AND deliveredAt IS NULL AND readAt IS NULL').run(now, to);
+      return rows.map((row) => ({ ...message(row), readAt: now }));
+    })
+    .immediate();
 }

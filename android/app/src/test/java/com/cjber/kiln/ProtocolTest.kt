@@ -132,4 +132,17 @@ class ProtocolTest {
             invitation("kiln://pair?server=https%3A%2F%2Fmachine.example&code=$code"),
         )
     }
+
+    @Test
+    fun invalidInvitationsReportOnTheirField() {
+        val message = "Paste a valid kiln invitation with an HTTPS server URL"
+        assertEquals(message, invitationError("not-a-link"))
+        assertEquals(message, invitationError("kiln://pair?server=http%3A%2F%2Fmachine&code=x"))
+        assertEquals(
+            "",
+            invitationError(
+                "kiln://pair?server=https%3A%2F%2Fmachine.example&code=${"a".repeat(43)}"
+            ),
+        )
+    }
 }
