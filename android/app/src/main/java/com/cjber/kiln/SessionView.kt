@@ -304,10 +304,12 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
             try {
                 val bytes =
                     withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        context.contentResolver.openInputStream(uri)?.use {
+                            readAtMost(it, uploadLimit)
+                        }
                     }
                 if (bytes == null) return@launch settle(null, "Could not read it")
-                if (bytes.size > 20 * 1024 * 1024) return@launch settle(null, "Over 20 MB")
+                if (bytes.size > uploadLimit) return@launch settle(null, "Over 20 MB")
                 val (code, body) = withContext(Dispatchers.IO) { client.upload(picked.name, bytes) }
                 if (code == 200) settle(JSONObject(body).getString("path"), null)
                 else settle(null, errorText(code, body))
@@ -371,13 +373,24 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 items(lines, key = { it.id }) { line -> ConversationLine(line) }
             }
         }
+        val stored = attachments.mapNotNull { it.path }
+        // A file still sending, or one that failed, holds the message back rather than going
+        // missing from it.
+        val settled = attachments.all { it.path != null }
+        val written =
+            if (settled && (draft.isNotBlank() || stored.isNotEmpty()))
+                withAttachments(draft.trimEnd(), stored)
+            else ""
         menu?.let { waiting ->
-            MenuCard(waiting, draft, enabled = !sending) { option ->
-                val text = if (option.typed) draft.trimEnd() else null
+            MenuCard(waiting, written, enabled = !sending) { option ->
+                val text = if (option.typed) written else null
                 act({ client.answer(waiting.key, option.number, text) }) { code, body ->
                     if (code == 200) {
                         menu = null
-                        if (text != null) draft = ""
+                        if (text != null) {
+                            draft = ""
+                            attachments = emptyList()
+                        }
                         status = ""
                     } else status = errorText(code, body)
                 }
@@ -397,7 +410,9 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 color = Tui.fgDim,
                 modifier = Modifier.padding(12.dp),
             )
-        else {
+        // A session kiln cannot message can still take a typed answer to its menu, which needs the
+        // box.
+        if (refused == null || menu?.options?.any { it.typed } == true) {
             if (attachments.isNotEmpty())
                 Row(
                     Modifier.fillMaxWidth()
@@ -441,13 +456,9 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             unfocusedPlaceholderColor = Tui.fgDim,
                         ),
                 )
-                val stored = attachments.mapNotNull { it.path }
                 FilledIconButton(
                     enabled =
-                        !sending &&
-                            abilities != null &&
-                            (draft.isNotBlank() || stored.isNotEmpty()) &&
-                            attachments.none { it.path == null && it.failed == null },
+                        !sending && abilities != null && refused == null && written.isNotEmpty(),
                     shape = CircleShape,
                     modifier = Modifier.size(52.dp),
                     colors =
@@ -458,7 +469,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             disabledContentColor = Tui.comment,
                         ),
                     onClick = {
-                        val text = withAttachments(draft.trimEnd(), stored)
+                        val text = written
                         val id = UUID.randomUUID().toString()
                         act({ client.send(id, text) }) { code, body ->
                             if (code == 200) {
@@ -568,6 +579,20 @@ internal fun toolColor(tool: String): Color =
         else -> Tui.teal
     }
 
+private const val uploadLimit = 20 * 1024 * 1024
+
+/** The stream's bytes, stopping one past the limit so an oversized file is never read whole. */
+internal fun readAtMost(input: java.io.InputStream, limit: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(64 * 1024)
+    while (out.size() <= limit) {
+        val read = input.read(buffer, 0, minOf(buffer.size, limit + 1 - out.size()))
+        if (read < 0) break
+        out.write(buffer, 0, read)
+    }
+    return out.toByteArray()
+}
+
 private fun displayName(context: Context, uri: Uri): String =
     try {
         context.contentResolver
@@ -606,7 +631,7 @@ private fun AttachmentChip(file: Attachment, remove: () -> Unit) {
 
 /** The question the agent is waiting on, with its answers as buttons. */
 @Composable
-private fun MenuCard(menu: Menu, draft: String, enabled: Boolean, answer: (MenuOption) -> Unit) {
+private fun MenuCard(menu: Menu, written: String, enabled: Boolean, answer: (MenuOption) -> Unit) {
     val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
     Column(
         Modifier.fillMaxWidth()
@@ -628,7 +653,7 @@ private fun MenuCard(menu: Menu, draft: String, enabled: Boolean, answer: (MenuO
             )
         Text(menu.question, color = Tui.fgBright, fontWeight = FontWeight.SemiBold)
         menu.options.forEach { option ->
-            val ready = enabled && (!option.typed || draft.isNotBlank())
+            val ready = enabled && (!option.typed || written.isNotEmpty())
             Surface(
                 onClick = { answer(option) },
                 enabled = ready,
@@ -643,9 +668,10 @@ private fun MenuCard(menu: Menu, draft: String, enabled: Boolean, answer: (MenuO
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     val note =
-                        if (option.typed && draft.isBlank())
+                        if (option.typed && written.isEmpty())
                             "Write your answer in the reply box first"
-                        else if (option.typed) "Sends: ${draft.trim().take(60)}" else option.detail
+                        else if (option.typed) "Sends: ${written.lines().first().take(60)}"
+                        else option.detail
                     if (note.isNotBlank())
                         Text(
                             note,

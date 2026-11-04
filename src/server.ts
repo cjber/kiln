@@ -27,7 +27,7 @@ import {
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
 import { attachedClients, lastSeen, pick, screen, sendKey, submitText } from "./tmux";
-import { saveUpload, uploadLimit } from "./uploads";
+import { saveUpload, UploadsFull, uploadLimit } from "./uploads";
 import { rankedDirectories } from "./zoxide";
 
 /** The largest first prompt or message a phone can send, in UTF-8 bytes. */
@@ -311,7 +311,12 @@ export function startServer({
     const bytes = await request.arrayBuffer();
     if (!bytes.byteLength) throw new Refusal(400, "The file is empty");
     if (bytes.byteLength > uploadLimit) throw new Refusal(413, "Files up to 20 MB can be attached");
-    return { path: await saveUpload(name, bytes) };
+    try {
+      return { path: await saveUpload(name, bytes) };
+    } catch (error) {
+      if (error instanceof UploadsFull) throw new Refusal(507, error.message);
+      throw error;
+    }
   };
   const stopTurn = (id: string) => {
     const session = listedSession(id);

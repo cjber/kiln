@@ -69,4 +69,10 @@ class SessionViewTest {
         )
         assertEquals("Attached files:\n/a.png", withAttachments("", listOf("/a.png")))
     }
+
+    @Test
+    fun anOversizedFileIsNeverReadWhole() {
+        assertEquals(3, readAtMost(java.io.ByteArrayInputStream(ByteArray(3)), 3).size)
+        assertEquals(4, readAtMost(java.io.ByteArrayInputStream(ByteArray(1_000)), 3).size)
+    }
 }
