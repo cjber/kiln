@@ -71,19 +71,21 @@ export function sessionDirectory(session: Session): string {
   return session.workdir ?? session.cwd;
 }
 
-const repositories = new Map<string, string>();
+/** Resolved repositories by directory, rechecked after `repositoryTtlMs` so a new repository or worktree is picked up. */
+const repositories = new Map<string, { repository: string; at: number }>();
+const repositoryTtlMs = 30_000;
 
 /**
  * The main repository a session works in, for project groups: a linked worktree resolves to the checkout
  * that owns it. A directory outside git is its own project.
  */
 export function sessionRepository(session: Session): string {
+  const now = Date.now();
   const directory = sessionDirectory(session);
-  let repository = repositories.get(directory);
-  if (repository === undefined) {
-    repository = mainCheckout(directory) ?? directory;
-    repositories.set(directory, repository);
-  }
+  const cached = repositories.get(directory);
+  if (cached && now - cached.at < repositoryTtlMs) return cached.repository;
+  const repository = mainCheckout(directory) ?? directory;
+  repositories.set(directory, { repository, at: now });
   return repository;
 }
 
@@ -111,9 +113,14 @@ function mainCheckout(cwd: string): string | undefined {
     const checkout = gitCheckout(cwd);
     if (!checkout) return undefined;
     const commondir = join(checkout.gitDir, "commondir");
-    // A main checkout or submodule has no `commondir`; it is its own repository.
-    if (!existsSync(commondir)) return checkout.dir;
-    const common = resolve(checkout.gitDir, readFileSync(commondir, "utf8").trim());
+    // Linked worktrees share the git directory that holds `worktrees`; git names a repository after it.
+    const common = existsSync(commondir)
+      ? resolve(checkout.gitDir, readFileSync(commondir, "utf8").trim())
+      : existsSync(join(checkout.gitDir, "worktrees"))
+        ? checkout.gitDir
+        : undefined;
+    // Without linked worktrees (a submodule, a plain checkout) the checkout is its own repository.
+    if (!common) return checkout.dir;
     return basename(common) === ".git" ? dirname(common) : common;
   } catch {
     // An unreadable repository groups by its directory.

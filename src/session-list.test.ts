@@ -102,6 +102,21 @@ test("project groups put a linked worktree under its repository", () => {
       { kind: "header", key: `dir:${repo}`, name: "atlas", directory: repo },
     ]);
     expect(entries(rows)).toEqual([1, 3]);
+    const separate = join(root, "work");
+    git("init", "-q", separate, `--separate-git-dir=${join(root, "meta")}`);
+    git("-C", separate, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init");
+    git("-C", separate, "worktree", "add", "-q", join(root, "work-fix"));
+    expect(
+      sessionRows(
+        [
+          { ...parent, cwd: separate },
+          { ...parent, pid: 3, cwd: join(root, "work-fix") },
+        ],
+        "project",
+        "",
+        new Set(),
+      ).filter((row) => row.kind === "header"),
+    ).toHaveLength(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
