@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSelection, selectionAt, sessionRows } from "./session-list";
+import { resolveSelection, selectionAt, sessionRows, sessionStatus, viewport } from "./session-list";
 import { type Session, sessionIdentity } from "./sessions";
 
 const parent: Session = {
@@ -120,4 +120,31 @@ test("project groups put a linked worktree under its repository", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a finished background job uses the same status word in its row and its detail line", () => {
+  const job: Session = { ...parent, lifecycle: "completed", place: { kind: "job", id: "j", attach: [] } };
+  const { label, hint } = sessionStatus(job);
+  expect(hint.startsWith(label)).toBe(true);
+});
+
+test("the group heading of the top visible rows stays pinned once it scrolls off", () => {
+  const session = (pid: number, cwd: string): Session => ({
+    ...parent,
+    pid,
+    cwd,
+    place: { kind: "kiln", name: `${pid}` },
+  });
+  const rows = sessionRows(
+    [1, 2, 3, 4, 5].map((pid) => session(pid, "/a")).concat([session(6, "/b")]),
+    "directory",
+    "",
+    new Set(),
+  );
+  // Rows: /a, 1..5, /b, 6. Cursor on 5 (index 5) with room for three lines.
+  const view = viewport(rows, 5, 3);
+  expect(view.pinned?.kind === "header" && view.pinned.directory).toBe("/a");
+  expect(view.rows.map((row) => (row.kind === "session" ? row.session.pid : row.key))).toEqual([4, 5]);
+  expect(viewport(rows, 7, 3).pinned).toBeUndefined();
+  expect(viewport(rows, 1, 3)).toEqual({ pinned: undefined, rows: rows.slice(0, 3) });
 });

@@ -11,6 +11,7 @@ import {
   sessionStatus,
   sessionTitle,
   type Tone,
+  viewport,
   visibleSessions,
 } from "./session-list";
 import { sessionSorts } from "./session-sort";
@@ -72,30 +73,44 @@ function label(session: Session): string {
   return session.place.kind === "cloud" ? session.place.title : tilde(sessionDirectory(session));
 }
 
+const graphemes = new Intl.Segmenter();
+
 /** Shorten with an ellipsis by terminal columns, keeping the end of a path or the start of a title. */
 function fit(value: string, width: number, cut: "start" | "end"): string {
   if (displayWidth(value) <= width) return value;
-  const chars = Array.from(value);
-  const keep = width - 1; // one column for the ellipsis
-  if (cut === "start") {
-    const kept: string[] = [];
-    let acc = 0;
-    for (let index = chars.length - 1; index >= 0 && acc < keep; index--) {
-      const char = chars[index];
-      if (!char) break;
-      acc += displayWidth(char);
-      kept.unshift(char);
-    }
-    return `…${kept.join("")}`;
-  }
+  const parts = Array.from(graphemes.segment(value), (part) => part.segment);
+  if (cut === "start") parts.reverse();
   const kept: string[] = [];
-  let acc = 0;
-  for (const char of chars) {
-    if (acc + displayWidth(char) > keep) break;
-    acc += displayWidth(char);
-    kept.push(char);
+  let used = 1; // one column for the ellipsis
+  for (const part of parts) {
+    if (used + displayWidth(part) > width) break;
+    used += displayWidth(part);
+    kept.push(part);
   }
-  return `${kept.join("")}…`;
+  return cut === "start" ? `…${kept.reverse().join("")}` : `${kept.join("")}…`;
+}
+
+/** Join hints in their written order, dropping the lowest priority ones (latest in `byPriority`) until they fit. */
+function fitHints(hints: readonly string[], byPriority: readonly string[], width: number): string {
+  const kept = new Set(hints);
+  for (const hint of [...byPriority].reverse()) {
+    if (displayWidth([...kept].join(" · ")) <= width || kept.size === 1) break;
+    kept.delete(hint);
+  }
+  return fit([...kept].join(" · "), width, "end");
+}
+
+/** The first wording that fits, longest first; the last one is cut with an ellipsis when even it does not. */
+function firstFit(options: readonly string[], width: number): string {
+  const line = options.find((option) => displayWidth(option) <= width) ?? options.at(-1) ?? "";
+  return fit(line, width, "end");
+}
+
+/** When a session was last active, or when it started if it never reported activity. */
+function updated(session: Session, now: number): string {
+  return session.lastActiveAt || !session.startedAt
+    ? `updated ${age(session.lastActiveAt, now)}`
+    : `started ${age(session.startedAt, now)}`;
 }
 
 /**
@@ -190,7 +205,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const current = visible[resolveSelection(visible, selection).index];
   const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
-  const firstRow = Math.max(0, selectedRow - pageSize + 1);
+  const shown = viewport(rows, Math.max(0, selectedRow), pageSize);
 
   const withTerminal = useCallback(
     async <T,>(action: () => T | Promise<T>): Promise<T> => {
@@ -384,6 +399,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
   const showStatus = width >= 30;
   const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
+  const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
@@ -391,12 +407,9 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
         <span fg={color.fgBright} attributes={1}>
           kiln
         </span>
-        <span fg={color.comment}>
-          {" "}
-          {sessions.length} tasks · {order === "project" ? "repository / task" : order.replaceAll("_", " ")}
-        </span>
-        {needsInput ? <span fg={color.yellow}> · {needsInput} need input</span> : null}
-        {filter ? <span fg={color.peach}> /{filter}</span> : null}
+        <span fg={color.comment}>{header.summary}</span>
+        <span fg={color.yellow}>{header.waiting}</span>
+        <span fg={color.peach}>{header.query}</span>
       </text>
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
@@ -405,7 +418,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
           </text>
         ) : null}
         {visible.length ? (
-          rows.slice(firstRow, firstRow + pageSize).map((row) => {
+          (shown.pinned ? [shown.pinned, ...shown.rows] : shown.rows).map((row) => {
             if (row.kind === "header")
               return (
                 <text key={row.key} fg={color.orange} attributes={1}>
@@ -459,34 +472,93 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "" 
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · updated ${age(current.lastActiveAt, now)}`,
+            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · ${updated(current, now)}`,
             Math.max(1, width - 2),
             "end",
           )}
         </text>
       ) : null}
       <text wrapMode="none" fg={notice || problem ? color.peach : color.comment}>
-        {mode === "confirm" ? hints(mode, pendingSession, width) : notice || problem || hints(mode, current, width)}
+        {mode === "confirm"
+          ? hints(mode, pendingSession, width - 2, filter)
+          : notice || problem
+            ? fit(notice || problem, width - 2, "end")
+            : hints(mode, current, width - 2, filter)}
       </text>
     </box>
   );
 }
 
-function hints(mode: Mode, current: Session | undefined, width: number): string {
+/**
+ * The title line by priority: the waiting count and the filter query stay, the sort label and then the task count go
+ * first, and a long query keeps its end, where the typing happens.
+ */
+function headerLine(
+  width: number,
+  tasks: number,
+  order: Settings["sort"],
+  waiting: number,
+  filter: string,
+): { summary: string; waiting: string; query: string } {
+  const sort = order === "project" ? "repository / task" : order.replaceAll("_", " ");
+  // No count at zero: the list already shows whether anything waits.
+  const waitingText = waiting ? ` · ${waiting} need input` : "";
+  // Columns left after the summary for ` /query`, keeping at least one character of the query.
+  const room = (summary: string) => width - displayWidth(`kiln${summary}${waitingText}`) - (filter ? 3 : 0);
+  const summary = [` ${tasks} tasks · ${sort}`, ` ${tasks} tasks`, ""].find((option) => room(option) >= 0) ?? "";
+  const query = filter && room(summary) >= 0 ? ` /${fit(filter, room(summary) + 1, "start")}` : "";
+  return { summary, waiting: waitingText, query };
+}
+
+function hints(mode: Mode, current: Session | undefined, width: number, filter: string): string {
   const action = current ? sessionAction(current) : undefined;
   switch (mode) {
-    case "normal":
-      if (width < 45) return "enter open · q quit";
-      if (width < 80) return "enter open · / filter · n new · q quit";
-      return `j/k move · enter open · n new${action && "verb" in action ? ` · x ${action.verb}` : ""} · / filter · q quit`;
+    case "normal": {
+      const close = action && "verb" in action ? `x ${action.verb}` : undefined;
+      const shown = [
+        current && "j/k move",
+        current && "enter open",
+        filter && "esc clear",
+        "n new",
+        close,
+        "/ filter",
+        "q quit",
+      ].filter((hint): hint is string => Boolean(hint));
+      return fitHints(
+        shown,
+        ["q quit", "enter open", "esc clear", "/ filter", "n new", "j/k move", close ?? ""],
+        width,
+      );
+    }
     case "filter":
-      return "type to filter · enter keep · esc clear";
+      return fitHints(
+        ["type to filter", "enter keep", "esc clear"],
+        ["esc clear", "enter keep", "type to filter"],
+        width,
+      );
     case "agent":
-      return "h/l or j/k pick agent · enter to pick a directory in fzf · esc cancel";
+      return firstFit(
+        [
+          "h/l or j/k pick agent · enter to pick a directory in fzf · esc cancel",
+          "h/l pick · enter pick directory · esc cancel",
+          "h/l pick · enter dir · esc cancel",
+          "enter dir · esc cancel",
+        ],
+        width,
+      );
     case "confirm": {
       if (!current || !action) return "";
-      if ("reason" in action) return action.reason;
-      return `${action.verb} ${agentName(current.agent)} in ${tilde(sessionDirectory(current))}? y to confirm, anything else cancels`;
+      if ("reason" in action) return fit(action.reason, width, "end");
+      const question = `${action.verb} ${agentName(current.agent)}`;
+      return firstFit(
+        [
+          `${question} in ${tilde(sessionDirectory(current))}? y to confirm, anything else cancels`,
+          `${question}? y to confirm, anything else cancels`,
+          `${question}? y confirms, else cancels`,
+          `${question}? y confirms`,
+        ],
+        width,
+      );
     }
   }
 }
