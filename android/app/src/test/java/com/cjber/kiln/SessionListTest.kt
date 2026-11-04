@@ -278,4 +278,13 @@ class SessionListTest {
         assertEquals(mapOf("parent" to null), stored)
         assertEquals(mapOf("parent" to Activity.IDLE), settleHidden(listOf(parent, child), stored))
     }
+
+    @Test
+    fun lastActiveFallsBackToTheStartTimeThenOneUnknown() {
+        val now = 1_800_000_000_000L
+        assertEquals("2m ago · ${updateTime(now - 120_000)}", lastActive(now - 120_000, 1, now))
+        assertEquals("Unknown, started 7m ago", lastActive(0, now - 420_000, now))
+        assertEquals("Unknown", lastActive(0, 0, now))
+        assertEquals("Unknown", updateTime(0))
+    }
 }

@@ -79,10 +79,7 @@ fun SessionDetails(
                             Place.OTHER -> "Native terminal"
                         },
                     )
-                    DetailField(
-                        "Last active",
-                        "${relativeTime(row.active, now)} · ${updateTime(row.active)}",
-                    )
+                    DetailField("Last active", lastActive(row.active, row.started, now))
                     DetailField("Started", updateTime(row.started))
                 }
             }
