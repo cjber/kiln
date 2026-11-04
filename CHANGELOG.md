@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-04
+
 The phone can answer an agent that stops to ask you something. When a session in kiln's tmux shows a
 numbered menu, such as Claude's plan approval, a permission prompt, a question Claude asks, or a Codex
 command approval, the session view shows the question with its answers as buttons. Answers that take
