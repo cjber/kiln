@@ -9,6 +9,14 @@ verbatim.
 
 ## [Unreleased]
 
+The phone can answer an agent that stops to ask you something. When a session in kiln's tmux shows a
+numbered menu, such as Claude's plan approval, a permission prompt, a question Claude asks, or a Codex
+command approval, the session view shows the question with its answers as buttons. Answers that take
+text, such as "Tell Claude what to change" or "Type something.", send what is in the reply box.
+
+The reply box has a + button to attach images and other files of up to 20 MB. Kiln keeps them on the
+computer for seven days, and the message tells the agent where they are.
+
 ## [0.18.1] - 2026-11-04
 
 Codex sessions opened in the app show what each command printed. Before, a command run through

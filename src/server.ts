@@ -10,6 +10,7 @@ import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
+import { moves, parsePrompt } from "./prompt";
 import { type PushAlert, pushTarget, sendPush } from "./push";
 import { sessionTitle } from "./session-list";
 import {
@@ -25,7 +26,8 @@ import {
 } from "./sessions";
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
-import { attachedClients, lastSeen, sendKey } from "./tmux";
+import { attachedClients, lastSeen, pick, screen, sendKey, submitText } from "./tmux";
+import { saveUpload, uploadLimit } from "./uploads";
 import { rankedDirectories } from "./zoxide";
 
 /** The largest first prompt or message a phone can send, in UTF-8 bytes. */
@@ -263,16 +265,53 @@ export function startServer({
     if (!session) throw new Refusal(404, "That session is not listed");
     return session;
   };
+  /** The menu a session in kiln's tmux is waiting on, read off its screen. */
+  const waitingOn = (session: Session) => {
+    if (session.place.kind !== "kiln") return undefined;
+    const shown = screen(session.place.name);
+    return shown && parsePrompt(shown.text, shown.width);
+  };
   const viewSession = (id: string, cursor: string | null) => {
     const session = listedSession(id);
     const abilities = sessionAbilities(session);
+    const prompt = waitingOn(session) ?? null;
     const read = conversationReader(session);
     try {
-      if (read) return { abilities, ...read(cursor ?? undefined) };
+      if (read) return { abilities, prompt, ...read(cursor ?? undefined) };
     } catch {
       // A transcript not written yet, or unreadable, shows as an empty conversation.
     }
-    return { abilities, items: [], cursor: "", reset: true };
+    return { abilities, prompt, items: [], cursor: "", reset: true };
+  };
+  const answerPrompt = async (id: string, request: Request) => {
+    const session = listedSession(id);
+    const body = await jsonBody(request, promptLimit + bodyLimit, "Invalid answer");
+    const prompt = waitingOn(session);
+    // The menu is read again here, so an answer only lands on the question the phone showed.
+    if (!prompt || session.place.kind !== "kiln" || body.key !== prompt.key)
+      throw new Refusal(409, "That question is no longer waiting");
+    const option = prompt.options.find((item) => item.number === body.option);
+    if (!option) throw new Refusal(400, "Pick one of the options");
+    const text = option.typed ? typedText(body.text, "answer") : undefined;
+    try {
+      if (option.typed === "after") {
+        await pick(session.place.name, moves(prompt, option.number));
+        await Bun.sleep(800);
+        await submitText(session.place.name, text ?? "");
+      } else await pick(session.place.name, moves(prompt, option.number), text);
+    } catch {
+      throw new Refusal(409, "Its terminal has closed");
+    }
+    return { answered: true };
+  };
+  const uploadFile = async (id: string, request: Request) => {
+    listedSession(id);
+    const name = new URL(request.url).searchParams.get("name");
+    if (!name) throw new Refusal(400, "Name the file");
+    const bytes = await request.arrayBuffer();
+    if (!bytes.byteLength) throw new Refusal(400, "The file is empty");
+    if (bytes.byteLength > uploadLimit) throw new Refusal(413, "Files up to 20 MB can be attached");
+    return { path: await saveUpload(name, bytes) };
   };
   const stopTurn = (id: string) => {
     const session = listedSession(id);
@@ -297,7 +336,7 @@ export function startServer({
     hostname: "127.0.0.1",
     port,
     tls,
-    maxRequestBodySize: 4 * promptLimit,
+    maxRequestBodySize: uploadLimit,
     async fetch(request, server) {
       const path = new URL(request.url).pathname;
       // The phone opens this in its browser; the one-use code in the path is the authorization.
@@ -369,11 +408,15 @@ export function startServer({
         const messages = path.match(/^\/v1\/sessions\/([^/]+)\/messages$/)?.[1];
         if (request.method === "POST" && messages)
           return response(await sendMessage(device, decodeURIComponent(messages), request));
-        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt)$/);
+        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt|prompt|files)$/);
         if (action?.[1] && action[2] === "view" && request.method === "GET")
           return response(viewSession(decodeURIComponent(action[1]), new URL(request.url).searchParams.get("cursor")));
         if (action?.[1] && action[2] === "interrupt" && request.method === "POST")
           return response(stopTurn(decodeURIComponent(action[1])));
+        if (action?.[1] && action[2] === "prompt" && request.method === "POST")
+          return response(await answerPrompt(decodeURIComponent(action[1]), request));
+        if (action?.[1] && action[2] === "files" && request.method === "POST")
+          return response(await uploadFile(decodeURIComponent(action[1]), request));
       } catch (error) {
         if (error instanceof Refusal) return response({ error: error.message }, error.status);
         if (error instanceof URIError) return response({ error: "Invalid session name" }, 400);

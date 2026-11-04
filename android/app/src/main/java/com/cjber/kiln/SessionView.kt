@@ -1,22 +1,31 @@
 package com.cjber.kiln
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -36,6 +45,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class ItemKind {
@@ -58,8 +68,30 @@ data class Line(
 
 data class Abilities(val read: Boolean, val reply: String?, val stop: Boolean)
 
+/**
+ * One answer to a question the agent is waiting on; a typed one sends the reply box's text with it.
+ */
+data class MenuOption(val number: Int, val label: String, val detail: String, val typed: Boolean)
+
+/** The menu the agent's terminal shows, as the machine read it; `key` names this exact question. */
+data class Menu(
+    val key: String,
+    val question: String,
+    val context: List<String>,
+    val options: List<MenuOption>,
+)
+
+/** A file picked to send; `path` is where the machine stored it, once it has. */
+data class Attachment(
+    val id: String,
+    val name: String,
+    val path: String? = null,
+    val failed: String? = null,
+)
+
 data class ViewPage(
     val abilities: Abilities,
+    val menu: Menu?,
     val lines: List<Line>,
     val cursor: String,
     val reset: Boolean,
@@ -100,11 +132,44 @@ fun parseView(text: String, held: List<Line> = emptyList()): ViewPage {
             reply = abilities.optString("reply").ifBlank { null },
             stop = abilities.optBoolean("stop"),
         ),
+        json.optJSONObject("prompt")?.let(::parseMenu),
         lines.takeLast(maxLines),
         json.getString("cursor"),
         reset,
     )
 }
+
+private fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
+
+internal fun parseMenu(json: JSONObject) =
+    Menu(
+        key = json.getString("key"),
+        question = json.optString("question"),
+        context =
+            json.optJSONArray("context")?.let { list ->
+                (0 until list.length()).map { list.getString(it) }
+            } ?: emptyList(),
+        options =
+            json.getJSONArray("options").objects().map {
+                MenuOption(
+                    it.getInt("number"),
+                    it.getString("label"),
+                    it.optString("detail"),
+                    it.has("typed") && !it.isNull("typed"),
+                )
+            },
+    )
+
+/**
+ * The message that carries attached files names where the machine stored them, so the agent can
+ * open them.
+ */
+internal fun withAttachments(text: String, paths: List<String>): String =
+    if (paths.isEmpty()) text
+    else
+        (if (text.isBlank()) "" else "${text.trimEnd()}\n\n") +
+            "Attached files:\n" +
+            paths.joinToString("\n")
 
 /**
  * Reads and writes one session's view on a paired machine; every call blocks, so run it off the UI
@@ -124,8 +189,8 @@ class SessionClient(
     private val base =
         "${httpsOrigin(host.origin)}/v1/sessions/${URLEncoder.encode(session, "UTF-8").replace("+", "%20")}"
 
-    private fun call(request: Request.Builder): Pair<Int, String> =
-        client
+    private fun call(request: Request.Builder, through: OkHttpClient = client): Pair<Int, String> =
+        through
             .newCall(request.header("Authorization", "Bearer ${host.token}").build())
             .execute()
             .use { it.code to it.body!!.string() }
@@ -151,6 +216,23 @@ class SessionClient(
         post("messages", JSONObject().put("id", id).put("text", text))
 
     fun interrupt() = post("interrupt", JSONObject())
+
+    fun answer(key: String, option: Int, text: String?) =
+        post(
+            "prompt",
+            JSONObject().put("key", key).put("option", option).apply {
+                if (text != null) put("text", text)
+            },
+        )
+
+    /** A file can take a while over a phone connection, so it gets longer than a message. */
+    fun upload(name: String, bytes: ByteArray) =
+        call(
+            Request.Builder()
+                .url("$base/files?name=${URLEncoder.encode(name, "UTF-8").replace("+", "%20")}")
+                .post(bytes.toRequestBody("application/octet-stream".toMediaType())),
+            client.newBuilder().callTimeout(2, TimeUnit.MINUTES).build(),
+        )
 }
 
 private fun errorText(code: Int, body: String): String =
@@ -170,6 +252,9 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
     var status by remember(row.id) { mutableStateOf("") }
     var draft by rememberSaveable(row.id) { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var menu by remember(row.id) { mutableStateOf<Menu?>(null) }
+    var attachments by remember(row.id) { mutableStateOf(emptyList<Attachment>()) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     // The view is polled while open; each poll returns only what was appended since the cursor.
@@ -182,6 +267,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                     val page = parseView(body, lines)
                     cursor = page.cursor
                     abilities = page.abilities
+                    menu = page.menu
                     if (page.reset || page.lines.size != lines.size || page.lines != lines)
                         lines = page.lines
                     problem = ""
@@ -206,6 +292,34 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
             }
         }
     }
+    fun attach(uri: Uri) {
+        val picked = Attachment(UUID.randomUUID().toString(), displayName(context, uri))
+        attachments = attachments + picked
+        fun settle(path: String?, failed: String?) {
+            attachments = attachments.map {
+                if (it.id == picked.id) it.copy(path = path, failed = failed) else it
+            }
+        }
+        scope.launch {
+            try {
+                val bytes =
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }
+                if (bytes == null) return@launch settle(null, "Could not read it")
+                if (bytes.size > 20 * 1024 * 1024) return@launch settle(null, "Over 20 MB")
+                val (code, body) = withContext(Dispatchers.IO) { client.upload(picked.name, bytes) }
+                if (code == 200) settle(JSONObject(body).getString("path"), null)
+                else settle(null, errorText(code, body))
+            } catch (_: Exception) {
+                settle(null, "Cannot reach ${host.name}")
+            }
+        }
+    }
+    val pick =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            uris.forEach(::attach)
+        }
     Column(Modifier.fillMaxSize().background(Tui.bg).systemBarsPadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
@@ -257,6 +371,18 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 items(lines, key = { it.id }) { line -> ConversationLine(line) }
             }
         }
+        menu?.let { waiting ->
+            MenuCard(waiting, draft, enabled = !sending) { option ->
+                val text = if (option.typed) draft.trimEnd() else null
+                act({ client.answer(waiting.key, option.number, text) }) { code, body ->
+                    if (code == 200) {
+                        menu = null
+                        if (text != null) draft = ""
+                        status = ""
+                    } else status = errorText(code, body)
+                }
+            }
+        }
         if (status.isNotEmpty())
             Text(
                 status,
@@ -271,12 +397,28 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 color = Tui.fgDim,
                 modifier = Modifier.padding(12.dp),
             )
-        else
+        else {
+            if (attachments.isNotEmpty())
+                Row(
+                    Modifier.fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    attachments.forEach { file ->
+                        AttachmentChip(file) {
+                            attachments = attachments.filter { it.id != file.id }
+                        }
+                    }
+                }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                IconButton(onClick = { pick.launch("*/*") }, modifier = Modifier.size(52.dp)) {
+                    Icon(Icons.Default.Add, "Attach files", tint = Tui.fgDim)
+                }
                 TextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -299,8 +441,13 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             unfocusedPlaceholderColor = Tui.fgDim,
                         ),
                 )
+                val stored = attachments.mapNotNull { it.path }
                 FilledIconButton(
-                    enabled = !sending && draft.isNotBlank() && abilities != null,
+                    enabled =
+                        !sending &&
+                            abilities != null &&
+                            (draft.isNotBlank() || stored.isNotEmpty()) &&
+                            attachments.none { it.path == null && it.failed == null },
                     shape = CircleShape,
                     modifier = Modifier.size(52.dp),
                     colors =
@@ -311,11 +458,12 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             disabledContentColor = Tui.comment,
                         ),
                     onClick = {
-                        val text = draft.trimEnd()
+                        val text = withAttachments(draft.trimEnd(), stored)
                         val id = UUID.randomUUID().toString()
                         act({ client.send(id, text) }) { code, body ->
                             if (code == 200) {
                                 draft = ""
+                                attachments = emptyList()
                                 val json = JSONObject(body)
                                 status =
                                     if (!json.optBoolean("delivered", true))
@@ -328,6 +476,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send", Modifier.size(20.dp))
                 }
             }
+        }
     }
 }
 
@@ -418,3 +567,93 @@ internal fun toolColor(tool: String): Color =
         "websearch" -> Tui.fgDim
         else -> Tui.teal
     }
+
+private fun displayName(context: Context, uri: Uri): String =
+    try {
+        context.contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+    } catch (_: Exception) {
+        null
+    } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+
+@Composable
+private fun AttachmentChip(file: Attachment, remove: () -> Unit) {
+    Row(
+        Modifier.background(field, RoundedCornerShape(16.dp)).padding(start = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            when {
+                file.failed != null -> "${file.name} · ${file.failed}"
+                file.path == null -> "${file.name} · sending"
+                else -> file.name
+            },
+            color =
+                if (file.failed != null) Tui.red
+                else if (file.path == null) Tui.fgDim else Tui.fgBright,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.widthIn(max = 220.dp),
+        )
+        TextButton(onClick = remove, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            Text("×", color = Tui.fgDim)
+        }
+    }
+}
+
+/** The question the agent is waiting on, with its answers as buttons. */
+@Composable
+private fun MenuCard(menu: Menu, draft: String, enabled: Boolean, answer: (MenuOption) -> Unit) {
+    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Color(0xff1a1819))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            "waiting on you",
+            color = Tui.yellow,
+            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+        )
+        if (menu.context.isNotEmpty())
+            Text(
+                menu.context.takeLast(8).joinToString("\n"),
+                color = Tui.fgDim,
+                style = mono,
+                maxLines = 8,
+            )
+        Text(menu.question, color = Tui.fgBright, fontWeight = FontWeight.SemiBold)
+        menu.options.forEach { option ->
+            val ready = enabled && (!option.typed || draft.isNotBlank())
+            Surface(
+                onClick = { answer(option) },
+                enabled = ready,
+                shape = RoundedCornerShape(10.dp),
+                color = field,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+                    Text(
+                        "${option.number}. ${option.label}",
+                        color = if (ready) Tui.fgBright else Tui.fgDim,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val note =
+                        if (option.typed && draft.isBlank())
+                            "Write your answer in the reply box first"
+                        else if (option.typed) "Sends: ${draft.trim().take(60)}" else option.detail
+                    if (note.isNotBlank())
+                        Text(
+                            note,
+                            color = if (option.typed) Tui.orange else Tui.fgDim,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                }
+            }
+        }
+    }
+}

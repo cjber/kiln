@@ -339,9 +339,14 @@ test("offered directories put listed sessions first, newest first, and drop miss
 
 test("a session view reads its transcript, posts a retried reply once and refuses what it cannot do", async () => {
   const { directory, pairing } = fixture();
-  const before = { config: Bun.env.CLAUDE_CONFIG_DIR, state: Bun.env.XDG_STATE_HOME };
+  const before = {
+    config: Bun.env.CLAUDE_CONFIG_DIR,
+    state: Bun.env.XDG_STATE_HOME,
+    cache: Bun.env.XDG_CACHE_HOME,
+  };
   Bun.env.CLAUDE_CONFIG_DIR = join(directory, "claude");
   Bun.env.XDG_STATE_HOME = join(directory, "state");
+  Bun.env.XDG_CACHE_HOME = join(directory, "cache");
   const id = "00000000-0000-0000-0000-0000000000c1";
   const projects = join(directory, "claude", "projects", "-project");
   mkdirSync(projects, { recursive: true });
@@ -421,6 +426,20 @@ test("a session view reads its transcript, posts a retried reply once and refuse
       body: JSON.stringify({ id: "x", text: "y" }),
     });
     expect(bad.status).toBe(400);
+    // An answer names the menu it was meant for, so one for a menu no longer on screen is refused.
+    const answer = await fetch(`${base}/prompt`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ key: "gone", option: 1 }),
+    });
+    expect(answer.status).toBe(409);
+    const upload = (name: string, body: string) =>
+      fetch(`${base}/files?name=${encodeURIComponent(name)}`, { method: "POST", headers, body });
+    const stored = (await (await upload("../photo 1.png", "png")).json()) as { path: string };
+    expect(stored.path.startsWith(join(directory, "cache", "kiln", "uploads"))).toBe(true);
+    expect(stored.path.endsWith("/photo-1.png")).toBe(true);
+    expect(await Bun.file(stored.path).text()).toBe("png");
+    expect((await upload("empty.txt", "")).status).toBe(400);
     const other = `${origin}/v1/sessions/${encodeURIComponent("claude:elsewhere-1")}`;
     expect((await fetch(`${other}/interrupt`, { method: "POST", headers })).status).toBe(409);
     expect((await fetch(`${origin}/v1/sessions/nope/view`, { headers })).status).toBe(404);
@@ -440,6 +459,7 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     for (const [key, value] of [
       ["CLAUDE_CONFIG_DIR", before.config],
       ["XDG_STATE_HOME", before.state],
+      ["XDG_CACHE_HOME", before.cache],
     ] as const)
       if (value === undefined) delete Bun.env[key];
       else Bun.env[key] = value;
