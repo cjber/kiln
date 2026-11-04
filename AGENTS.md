@@ -66,7 +66,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
 - `src/mailbox.ts`, `src/messages.ts`, `src/msg-cli.ts`, `skills/kiln-agents/` - `kiln msg`: a SQLite mailbox, the caller's name from its agent's
   session id variable, and delivery as a prompt (OpenCode service, Pi extension inbox, Codex `turn/start`, tmux paste for kiln Claude).
-  Typing waits for `idle`; the list and phone server flush pending messages on refresh.
+  Typing waits for `idle` or `turnEnded`; the list and phone server flush pending messages on refresh.
 - `src/bundled-skills.ts`, `skills/` - embedded helpers synced to the shared user store before the TUI starts.
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
 - `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.

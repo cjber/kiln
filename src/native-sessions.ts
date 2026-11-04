@@ -227,8 +227,9 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     .flatMap((item) => {
       const transcript = claudeTranscriptPath(item);
       const { title, workdir } = transcript ? readTranscript(transcript) : {};
-      // A failed listing has no status, and stays unknown rather than reading a stale record.
-      const status = item.status === "busy" ? (claudeSessionStatus(item.pid) ?? "busy") : item.status;
+      // The record only tells `shell` apart from `busy`, so a stale one never makes a busy session idle.
+      // A failed listing has no status, and stays unknown.
+      const status = item.status === "busy" && claudeSessionStatus(item.pid) === "shell" ? "shell" : item.status;
       const session = {
         pid: item.pid,
         id: item.sessionId,

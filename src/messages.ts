@@ -88,7 +88,7 @@ export type Route =
   /** The agent has to read it with `kiln msg inbox`. */
   | { inbox: string };
 
-/** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until it is idle. */
+/** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until its turn ends. */
 export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
   const busy = () =>
     session.activity === "idle" || session.turnEnded

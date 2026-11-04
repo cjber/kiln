@@ -124,6 +124,8 @@ test("a parent whose turn ended is still working while a subagent works", () => 
     thread("child", "working", "unknown"),
     done,
     finished,
+    asking,
+    thread("question", "waiting", "asking"),
   ]);
   expect(result.map((session) => session.activity)).toEqual([
     "working",
@@ -133,10 +135,14 @@ test("a parent whose turn ended is still working while a subagent works", () => 
     "working",
     "idle",
     "working",
+    "idle",
+    "waiting",
   ]);
   expect(result.map((session) => session.turnEnded)).toEqual([
     true,
     true,
+    undefined,
+    undefined,
     undefined,
     undefined,
     undefined,
