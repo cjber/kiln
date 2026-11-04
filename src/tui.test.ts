@@ -13,3 +13,8 @@ test("padToWidth pads by columns, not code units", () => {
   expect(padToWidth("abc", 3)).toBe("abc");
   expect(padToWidth("abc", 1)).toBe("abc");
 });
+
+test("displayWidth counts emoji presentation symbols as two columns", () => {
+  expect(displayWidth("Ship 🚀 the release notes ✅")).toBe(28);
+  expect(displayWidth("⌚☀️")).toBe(4);
+});
