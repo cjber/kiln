@@ -24,6 +24,8 @@ The phone's session list opens in the order set by `sort` in `config.toml`, as t
 and orders sessions the same way. The project order now gathers a worktree under its repository,
 where it used to show as a group of its own.
 
+Command output in the session view no longer shows terminal colour codes as raw text.
+
 ## [0.18.1] - 2026-11-04
 
 Codex sessions opened in the app show what each command printed. Before, a command run through
