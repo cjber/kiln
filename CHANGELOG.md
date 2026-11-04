@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **The phone can notify you with the app closed.** Turn on "Notify when the app is closed" in the app's Machines screen and pick ntfy, or another UnifiedPush app, to deliver it. Every paired machine then sends an encrypted push when a session needs input or finishes a turn, and tapping it opens that session. ntfy relays only ciphertext, and a public or self-hosted ntfy server both work. The live connection still notifies while the app is open, and a change that arrives both ways shows once.
 - **A pairing link replaces the invitation on the open app.** Opening a second pairing link while the app was running stacked another copy of the app over the first, with the old invitation still behind it. The link now fills the invitation in the one open app.
 
 ## [0.16.0] - 2026-11-04

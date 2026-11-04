@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { PushTarget } from "./push";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const secret = () => randomBytes(32).toString("base64url");
@@ -16,7 +17,7 @@ export class Pairing {
     this.db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     this.db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL);",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS push (device TEXT PRIMARY KEY, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL);",
     );
   }
   invite(now = Date.now()): string {
@@ -59,7 +60,30 @@ export class Pairing {
     return this.db.query<Device, []>("SELECT id, name, createdAt FROM devices ORDER BY createdAt").all();
   }
   revoke(id: string): boolean {
-    return this.db.query("DELETE FROM devices WHERE id = ?").run(id).changes > 0;
+    return this.db
+      .transaction(() => {
+        this.db.query("DELETE FROM push WHERE device = ?").run(id);
+        return this.db.query("DELETE FROM devices WHERE id = ?").run(id).changes > 0;
+      })
+      .immediate();
+  }
+  /** One UnifiedPush registration per paired device; a new one replaces the last. */
+  setPush(device: string, target: PushTarget) {
+    this.db
+      .query("INSERT OR REPLACE INTO push SELECT id, ?, ?, ? FROM devices WHERE id = ?")
+      .run(target.endpoint, target.p256dh, target.auth, device);
+  }
+  /** Removes `device`'s registration, or only the given endpoint when it is still the current one. */
+  deletePush(device: string, endpoint?: string) {
+    if (endpoint === undefined) this.db.query("DELETE FROM push WHERE device = ?").run(device);
+    else this.db.query("DELETE FROM push WHERE device = ? AND endpoint = ?").run(device, endpoint);
+  }
+  pushTargets(): (PushTarget & { device: string })[] {
+    return this.db
+      .query<PushTarget & { device: string }, []>(
+        "SELECT push.device, endpoint, p256dh, auth FROM push JOIN devices ON devices.id = push.device",
+      )
+      .all();
   }
   close() {
     this.db.close();

@@ -24,6 +24,8 @@ fun MachinesScreen(
     reconnect: () -> Unit,
     notify: Boolean,
     setNotify: (Boolean) -> Unit,
+    push: Boolean,
+    setPush: (Boolean) -> Unit,
     openNotificationSettings: () -> Unit,
     pair: () -> Unit,
     forget: () -> Unit,
@@ -98,6 +100,23 @@ fun MachinesScreen(
                     )
                 }
                 Switch(notify, setNotify, Modifier.padding(start = 16.dp))
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "Notify when the app is closed",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        "For every paired machine, delivered by ntfy or another UnifiedPush app",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(push, setPush, Modifier.padding(start = 16.dp))
             }
             TextButton(onClick = openNotificationSettings) { Text("Notification settings") }
             TextButton(onClick = reconnect) { Text("Reconnect") }

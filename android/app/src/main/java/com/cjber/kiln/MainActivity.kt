@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
+import org.unifiedpush.android.connector.UnifiedPush
 
 /** The machine origin and session id a notification tap opens, if `intent` came from one. */
 private fun sessionTarget(intent: Intent): Pair<String, String>? {
@@ -188,6 +189,28 @@ class MainActivity : ComponentActivity() {
             if (Build.VERSION.SDK_INT >= 33)
                 permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+        var push by remember { mutableStateOf(Push.enabled(this@MainActivity)) }
+        DisposableEffect(Unit) {
+            val listener = Push.listen(this@MainActivity) { push = it }
+            onDispose { Push.unlisten(this@MainActivity, listener) }
+        }
+        fun usePush(on: Boolean, ask: Boolean = true) {
+            if (!on) {
+                Push.disable(this@MainActivity)
+                return
+            }
+            if (ask && !canNotify()) requestNotifications()
+            UnifiedPush.tryUseCurrentOrDefaultDistributor(this@MainActivity) { found ->
+                if (found) Push.enable(this@MainActivity)
+                else {
+                    Push.disable(this@MainActivity)
+                    error = "Install ntfy or another UnifiedPush app, then turn this on again"
+                }
+            }
+        }
+        // Registering again on each launch keeps every paired machine's copy of the endpoint
+        // current.
+        LaunchedEffect(Unit) { if (Push.enabled(this@MainActivity)) usePush(true, ask = false) }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
         var hidden by
             remember(host?.origin) {
@@ -447,6 +470,7 @@ class MainActivity : ComponentActivity() {
                                     if (
                                         save(hosts.filter { it.origin != paired.origin } + paired)
                                     ) {
+                                        Push.share(this@MainActivity, paired)
                                         selected = paired.origin
                                         invitation = ""
                                         pairing = false
@@ -488,10 +512,13 @@ class MainActivity : ComponentActivity() {
                                 if (on && !canNotify()) requestNotifications()
                             }
                         },
+                        push = push,
+                        onPush = { usePush(it) },
                         openNotificationSettings = ::openNotificationSettings,
                         onPairAnother = { pairing = true },
                         onForget = {
                             if (host != null && save(hosts.filter { it.origin != host.origin })) {
+                                if (push) Push.forget(host)
                                 selected = hosts.firstOrNull()?.origin
                                 pairing = hosts.isEmpty()
                             }

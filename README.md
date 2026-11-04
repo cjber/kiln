@@ -163,6 +163,19 @@ Pairing invitations expire after five minutes and work once. The phone stores it
 
 The list supports search, ordering, activity/agent filters, collapsed children and hiding sessions on that phone. Hidden rows can be restored. Saved machine connections survive upgrades.
 
+### Notifications with the app closed
+
+While the app is open, or while a session works, the phone keeps its own connection and notifies you when a session needs input or finishes a turn. Android closes that connection after a while in the background. To be notified with the app closed as well:
+
+1. Install [ntfy](https://ntfy.sh) on the phone. Any [UnifiedPush](https://unifiedpush.org) distributor works.
+2. In kiln, open Machines and turn on "Notify when the app is closed". Pick ntfy if Android asks.
+
+Each paired machine then posts an encrypted message (Web Push, RFC 8291) through ntfy when a turn ends. ntfy relays ciphertext only; the session title is readable only on the phone. Revoking the phone, or turning the switch off, removes its registration from the machine.
+
+ntfy uses the public ntfy.sh server unless you set another one in ntfy's settings. A self-hosted ntfy server on your tailnet keeps the messages off third-party servers, but then ntfy holds its own connection to that server instead of using Google's push service: it costs a little battery and shows a permanent notification.
+
+The machine checks sessions every minute while nothing works, so a turn that starts and ends within a minute may not be noticed.
+
 ## Shared skills
 
 Press `S` in a selected project to manage shared skills. `n` creates a skill and opens `SKILL.md` in `$EDITOR`; `Enter` edits it. Conflicting content is backed up before repair. Kiln does not overwrite unowned same-name skills.

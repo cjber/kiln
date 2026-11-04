@@ -28,6 +28,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    implementation("org.unifiedpush.android:connector:3.3.5")
     testImplementation("org.json:json:20260814")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
     testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.1")
