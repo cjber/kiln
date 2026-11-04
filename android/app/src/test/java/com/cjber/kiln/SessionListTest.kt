@@ -287,4 +287,27 @@ class SessionListTest {
         assertEquals("Unknown", lastActive(0, 0, now))
         assertEquals("Unknown", updateTime(0))
     }
+
+    @Test
+    fun projectOrderGathersWorktreesWithTheirRepositoryAsTheTerminalListDoes() {
+        val main =
+            parent.copy(id = "main", cwd = "/src/nebula", repository = "/src/nebula", active = 10)
+        val worktree =
+            parent.copy(
+                id = "tree",
+                cwd = "/wt/nebula-fix",
+                repository = "/src/nebula",
+                active = 30,
+            )
+        val other =
+            parent.copy(id = "kiln", cwd = "/src/kiln", repository = "/src/kiln", active = 50)
+        val items =
+            sessionItems(listOf(main, other, worktree), SessionOrder.PROJECT, "", emptySet())
+        assertEquals(
+            listOf("kiln", "/src/kiln", "nebula", "/src/nebula"),
+            items.filterIsInstance<SessionItem.Header>().flatMap { listOf(it.name, it.directory) },
+        )
+        // Within a project, the most recently active comes first.
+        assertEquals(listOf("kiln", "tree", "main"), ids(items))
+    }
 }

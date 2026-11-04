@@ -1,0 +1,21 @@
+
+ ▐▛███▛█   Claude Code v2.1.317
+▝▜██████▀  Sonnet 5.5 · Claude Ultra
+ ▝▝   ▝▝   ~/.cache/agent-scratch/kiln-hitl-probe · /rc
+
+
+❯ Use the AskUserQuestion tool to ask me whether I prefer tea or coffee, nothing else.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Drink
+
+Do you prefer tea or coffee?
+
+❯ 1. Tea
+     Prefer tea
+  2. Coffee
+     Prefer coffee
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -57,6 +57,8 @@ data class Row(
     val terminal: String? = null,
     /** When the person last attached to or typed in its terminal on the machine, by its clock. */
     val seen: Long = 0,
+    /** The repository a worktree belongs to, when the machine says; project groups gather by it. */
+    val repository: String? = null,
 )
 
 data class Snapshot(
@@ -67,6 +69,8 @@ data class Snapshot(
     val rows: List<Row>,
     /** Whether the machine takes new sessions and prompts from this phone. */
     val write: Boolean = false,
+    /** The order the machine's terminal list opens in. */
+    val sort: SessionOrder? = null,
 )
 
 /**
@@ -255,6 +259,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 item.optString("parentId").takeIf { it.isNotEmpty() },
                 item.optString("terminal").takeIf { it.isNotEmpty() },
                 item.optLong("seenAt"),
+                item.optString("repository").takeIf { it.isNotEmpty() },
             )
         }
     return Snapshot(
@@ -264,5 +269,6 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
         json.getString("problem"),
         rows,
         json.optBoolean("write"),
+        SessionOrder.entries.find { it.config == json.optString("sort") },
     )
 }

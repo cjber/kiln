@@ -9,6 +9,21 @@ verbatim.
 
 ## [Unreleased]
 
+The phone can answer an agent that stops to ask you something. When a session in kiln's tmux shows a
+numbered menu, such as Claude's plan approval, a permission prompt, a question Claude asks, or a Codex
+command approval, the session view shows the question with its answers as buttons. Answers that take
+text, such as "Tell Claude what to change" or "Type something.", send what is in the reply box.
+
+The reply box has a + button to attach images and other files of up to 20 MB. Kiln keeps them on the
+computer for seven days, and the message tells the agent where they are.
+
+Agent replies in the session view render as Markdown: headings, lists, bold and italic text, inline
+code, code blocks, quotes, tables and links.
+
+The phone's session list opens in the order set by `sort` in `config.toml`, as the terminal list does,
+and orders sessions the same way. The project order now gathers a worktree under its repository,
+where it used to show as a group of its own.
+
 Command output in the session view no longer shows terminal colour codes as raw text.
 
 ## [0.18.1] - 2026-11-04

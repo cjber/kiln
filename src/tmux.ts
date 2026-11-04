@@ -91,6 +91,49 @@ export async function submitText(name: string, text: string): Promise<void> {
   if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
 }
 
+/** What a session's pane shows now, wrapped lines joined, with the pane's width in columns. */
+export function screen(name: string): { text: string; width: number } | undefined {
+  const shown = Bun.spawnSync(
+    [
+      ...tmux,
+      "display-message",
+      "-p",
+      "-t",
+      `=${name}:`,
+      "#{pane_width}",
+      ";",
+      "capture-pane",
+      "-p",
+      "-J",
+      "-t",
+      `=${name}:`,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (shown.exitCode !== 0) return undefined;
+  const [width = "0", ...text] = shown.stdout.toString().split("\n");
+  return { text: text.join("\n"), width: Number(width) };
+}
+
+/**
+ * Press keys in a session's pane, then paste text if there is some, then press Enter: how a menu option is picked,
+ * with what it asks for typed into it.
+ */
+export async function pick(name: string, keys: string[], text?: string): Promise<void> {
+  const target = `=${name}:`;
+  if (keys.length && !run("send-keys", "-t", target, ...keys)) throw new Error(`could not type into ${name}`);
+  if (text) {
+    const buffer = `kiln-${crypto.randomUUID()}`;
+    await Bun.sleep(150);
+    if (!run("set-buffer", "-b", buffer, "--", text) || !run("paste-buffer", "-p", "-d", "-b", buffer, "-t", target)) {
+      run("delete-buffer", "-b", buffer);
+      throw new Error(`could not type into ${name}`);
+    }
+  }
+  await Bun.sleep(300);
+  if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
+}
+
 /** Press a key in a session's pane, as tmux names it (`Escape`, `Enter`, `C-c`). */
 export function sendKey(name: string, key: string): boolean {
   return run("send-keys", "-t", `=${name}:`, key);

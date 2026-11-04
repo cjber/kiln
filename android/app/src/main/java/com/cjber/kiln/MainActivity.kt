@@ -156,7 +156,8 @@ class MainActivity : ComponentActivity() {
         var invitationProblem by rememberSaveable { mutableStateOf("") }
         var pairingBusy by remember { mutableStateOf(false) }
         var filter by rememberSaveable { mutableStateOf("") }
-        var sort by rememberSaveable { mutableStateOf(SessionOrder.PROJECT) }
+        // Unset until chosen here, so the list opens in the order the machine's terminal list uses.
+        var sort by rememberSaveable { mutableStateOf<SessionOrder?>(null) }
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
         var opened by rememberSaveable { mutableStateOf<String?>(null) }
@@ -609,7 +610,7 @@ class MainActivity : ComponentActivity() {
                         problem = snapshot?.problem.orEmpty(),
                         filter = filter,
                         onFilter = { filter = it },
-                        sort = sort,
+                        sort = sort ?: snapshot?.sort ?: SessionOrder.PROJECT,
                         onSort = { sort = it },
                         rows = snapshot?.rows.orEmpty(),
                         loaded = snapshot != null,

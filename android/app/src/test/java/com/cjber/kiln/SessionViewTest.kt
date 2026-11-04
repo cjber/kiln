@@ -42,4 +42,37 @@ class SessionViewTest {
         assertEquals(listOf("hi"), page.lines.map { it.text })
         assertEquals("kiln can only type into Claude sessions it started", page.abilities.reply)
     }
+
+    @Test
+    fun aWaitingMenuParsesWithItsTypedOption() {
+        val page =
+            parseView(
+                """{$abilities,"reset":true,"cursor":"","items":[],"prompt":{"key":"k1",
+                "question":"Would you like to proceed?","context":["Here is Claude's plan:"],"cursor":1,
+                "options":[{"number":1,"label":"Yes","detail":""},
+                {"number":3,"label":"Tell Claude what to change","detail":"","typed":"inline"}]}}"""
+            )
+        val menu = page.menu!!
+        assertEquals("k1", menu.key)
+        assertEquals(listOf(false, true), menu.options.map { it.typed })
+        assertNull(
+            parseView("""{$abilities,"reset":true,"cursor":"","items":[],"prompt":null}""").menu
+        )
+    }
+
+    @Test
+    fun attachedFilesFollowTheMessage() {
+        assertEquals("hi", withAttachments("hi", emptyList()))
+        assertEquals(
+            "see\n\nAttached files:\n/a.png\n/b.txt",
+            withAttachments("see ", listOf("/a.png", "/b.txt")),
+        )
+        assertEquals("Attached files:\n/a.png", withAttachments("", listOf("/a.png")))
+    }
+
+    @Test
+    fun anOversizedFileIsNeverReadWhole() {
+        assertEquals(3, readAtMost(java.io.ByteArrayInputStream(ByteArray(3)), 3).size)
+        assertEquals(4, readAtMost(java.io.ByteArrayInputStream(ByteArray(1_000)), 3).size)
+    }
 }

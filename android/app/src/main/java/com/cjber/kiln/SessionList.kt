@@ -1,11 +1,12 @@
 package com.cjber.kiln
 
-enum class SessionOrder(val label: String) {
-    PROJECT("Project"),
-    RECENT("Last active"),
-    AGE("Oldest first"),
-    HARNESS("Agent"),
-    DIRECTORY("Directory"),
+/** `config` is the name `sort` takes in the machine's config.toml. */
+enum class SessionOrder(val label: String, val config: String) {
+    PROJECT("Project", "project"),
+    RECENT("Last active", "last_active"),
+    AGE("Oldest first", "age"),
+    HARNESS("Agent", "harness"),
+    DIRECTORY("Directory", "directory"),
 }
 
 enum class SessionScope(val label: String) {
@@ -88,27 +89,34 @@ fun sessionItems(
         }
     }
     val roots = eligible.filter { parents[it.id] == null && it.id in matching }
+    // The same order as the terminal list (src/session-sort.ts): project groups gather a worktree
+    // with its
+    // repository, and ties fall to the most recently active, then the directory, then the oldest.
+    fun groupDirectory(row: Row) =
+        if (order == SessionOrder.PROJECT) row.repository ?: row.cwd else row.cwd
     fun groupName(row: Row) =
         if (row.where == Place.CLOUD) row.title
-        else row.cwd.trimEnd('/').substringAfterLast('/').ifEmpty { row.cwd }
-    val comparator =
+        else
+            groupDirectory(row).trimEnd('/').substringAfterLast('/').ifEmpty { groupDirectory(row) }
+    val primary =
         when (order) {
-            SessionOrder.PROJECT ->
-                compareBy<Row> { groupName(it).lowercase() }
-                    .thenBy { it.cwd }
-                    .thenByDescending { it.active }
+            SessionOrder.PROJECT -> compareBy<Row> { groupName(it).lowercase() }
             SessionOrder.DIRECTORY ->
-                compareBy<Row> { if (it.where == Place.CLOUD) it.title else it.cwd }
-                    .thenByDescending { it.active }
-            SessionOrder.RECENT -> compareByDescending<Row> { it.active }
+                compareBy { if (it.where == Place.CLOUD) it.title else it.cwd }
+            SessionOrder.RECENT -> compareByDescending { it.active }
             SessionOrder.AGE -> compareBy { it.started }
-            SessionOrder.HARNESS -> compareBy<Row> { it.agent.id }.thenByDescending { it.active }
+            SessionOrder.HARNESS -> compareBy { it.agent.id }
         }
+    val comparator =
+        (if (order == SessionOrder.RECENT || order == SessionOrder.AGE) primary
+            else primary.thenByDescending { it.active })
+            .thenBy { it.cwd }
+            .thenBy { it.started }
     val grouped = order == SessionOrder.PROJECT || order == SessionOrder.DIRECTORY
     val groups =
         roots.sortedWith(comparator).groupBy {
             if (!grouped) "all"
-            else if (it.where == Place.CLOUD) "task:${it.id}" else "dir:${it.cwd}"
+            else if (it.where == Place.CLOUD) "task:${it.id}" else "dir:${groupDirectory(it)}"
         }
     val result = mutableListOf<SessionItem>()
     val seen = mutableSetOf<String>()
@@ -117,7 +125,7 @@ fun sessionItems(
         val children =
             eligible
                 .filter { parents[it.id]?.id == row.id && it.id in matching }
-                .sortedByDescending { it.active }
+                .sortedWith(comparator)
         result.add(SessionItem.Entry(row, depth, children.size))
         if (row.id in expanded || filter.isNotBlank() || activity != null || agent != null)
             children.forEach { append(it, depth + 1) }
@@ -129,7 +137,7 @@ fun sessionItems(
                 SessionItem.Header(
                     key,
                     groupName(first),
-                    first.cwd.takeIf { first.where != Place.CLOUD },
+                    groupDirectory(first).takeIf { first.where != Place.CLOUD },
                 )
             )
         }
