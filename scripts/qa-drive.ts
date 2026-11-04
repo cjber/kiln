@@ -41,5 +41,7 @@ try {
   console.log(screen.replace(/\s+$/, ""));
 } finally {
   tmux("kill-server");
+  // An agent the fixture started would live on its own server; never leave it behind.
+  Bun.spawnSync(["tmux", "-L", `${server}-agents`, "kill-server"], { stderr: "ignore" });
   rmSync(scratch, { recursive: true, force: true });
 }
