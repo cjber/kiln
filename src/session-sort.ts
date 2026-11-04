@@ -27,7 +27,9 @@ export function sortSessions(sessions: readonly Session[], order: SessionSort): 
     [...sessions].sort(
       (left, right) =>
         compare(left, right) ||
-        (order === "directory" || order === "project" ? (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0) : 0) ||
+        (order === "directory" || order === "project" || order === "harness"
+          ? (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0)
+          : 0) ||
         sessionDirectory(left).localeCompare(sessionDirectory(right)) ||
         left.startedAt - right.startedAt,
     ),
