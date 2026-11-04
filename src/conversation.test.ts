@@ -128,7 +128,7 @@ test("Codex and Pi records map to the same items, without Codex's injected conte
         output: [
           { type: "input_text", text: "Script completed\nWall time 1s\nOutput:\n" },
           { type: "input_text", text: "{}" },
-          { type: "input_text", text: '{"chunk_id":"a1","exit_code":1,"output":"no such file"}' },
+          { type: "input_text", text: '{"chunk_id":"a1","exit_code":1,"output":"\\u001b[31mno such file\\u001b[0m"}' },
         ],
       }),
       response({ type: "message", role: "assistant", id: "m2", content: [{ type: "output_text", text: "Done." }] }),
