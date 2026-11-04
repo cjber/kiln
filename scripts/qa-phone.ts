@@ -4,13 +4,12 @@
  * [SEED]` prints `kiln QA phone ready` and serves until stopped; stopping it shuts the emulator down. It never touches
  * a paired phone, the user's phone server or their real sessions.
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pairing } from "../src/pairing";
-import { startServer } from "../src/server";
 import type { Session } from "../src/sessions";
-import { seeds } from "./qa-sessions";
+import { seededTranscript, seeds } from "./qa-sessions";
 
 const seed = Bun.argv[2] ?? "short";
 const seeded = seeds[seed];
@@ -25,6 +24,18 @@ const avd = "kiln-qa";
 const serial = "emulator-5562";
 const port = 8443;
 const scratch = mkdtempSync(join(tmpdir(), "kiln-qa-phone-"));
+// Transcripts, the mailbox and tmux are the harness's own, so Send and Stop never reach a real session.
+Bun.env.CLAUDE_CONFIG_DIR = join(scratch, "claude");
+Bun.env.XDG_STATE_HOME = join(scratch, "state");
+Bun.env.KILN_TMUX_SERVER = "kiln-qa-phone";
+// Imported after the environment is set, since the tmux module reads its server name as it loads.
+const { startServer } = await import("../src/server");
+for (const session of seeded)
+  if (session.agent === "claude" && session.id) {
+    const directory = join(scratch, "claude", "projects", session.cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, `${session.id}.jsonl`), seededTranscript(session.title ?? "Fix it"));
+  }
 
 function run(command: string[], options: { input?: string; env?: Record<string, string> } = {}): string {
   const result = Bun.spawnSync(command, {

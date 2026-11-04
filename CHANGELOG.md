@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Claude sessions open in the phone app.** Tapping a Claude session shows its conversation in kiln: your prompts, Claude's replies, and each tool call with how it ended, updating live. For a session kiln started you can reply from the phone, and a reply sent while Claude is working is sent once the turn ends. Stop ends the turn in progress. Sessions kiln did not start can be read but not typed into, and "Open in Claude" stays in the ⋮ menu.
+
 ## [0.16.0] - 2026-11-04
 
 - **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.

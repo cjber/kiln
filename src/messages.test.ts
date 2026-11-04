@@ -111,6 +111,8 @@ test("flush types each deliverable message once, framed with its sender, and kee
 test("a message from a person at a shell offers no reply command", () => {
   const message = { id: "1", from: "terminal", to: "claude:a", body: "hi", createdAt: 0 };
   expect(frame(message, undefined)).toBe("[kiln message from terminal]\n\nhi");
+  // A phone types for the person, so the agent reads it as their own prompt.
+  expect(frame({ ...message, from: "phone" }, undefined)).toBe("hi");
   // The reply names the exact executable, quoted when its path needs it.
   expect(frame({ ...message, from: "pi:p" }, undefined, "/opt/my kiln/kiln")).toBe(
     "[kiln message from pi:p]\n\nhi\n\n[Reply with: '/opt/my kiln/kiln' msg send pi:p \"<your reply>\"]",

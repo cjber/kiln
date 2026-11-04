@@ -11,6 +11,9 @@ import { tilde } from "./tui";
 /** The name a message from a person at a shell, rather than an agent, carries. */
 export const terminal = "terminal";
 
+/** The name a message typed on a paired phone carries; it reaches the agent as typed, with no frame. */
+export const phone = "phone";
+
 /** Each agent puts its own session id in the environment of the commands it runs. */
 const sessionVariables: Record<Agent, string> = {
   claude: "CLAUDE_CODE_SESSION_ID",
@@ -128,6 +131,7 @@ function isPiInbox(pid: number): boolean {
  * an agent's commands may run with a PATH that has no `kiln` on it, or an older one, as under Codex's daemon.
  */
 export function frame(message: Message, sender: Session | undefined, command = kiln): string {
+  if (message.from === phone) return message.body;
   const where = sender
     ? ` (${[sender.title && `"${sender.title}"`, tilde(sessionDirectory(sender))].filter(Boolean).join(" in ")})`
     : "";

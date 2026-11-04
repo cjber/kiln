@@ -59,6 +59,11 @@ export async function submitText(name: string, text: string): Promise<void> {
   if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
 }
 
+/** Press a key in a session's pane, as tmux names it (`Escape`, `Enter`, `C-c`). */
+export function sendKey(name: string, key: string): boolean {
+  return run("send-keys", "-t", `=${name}:`, key);
+}
+
 /** How many terminals have the session open; none when it has closed. */
 export function attachedClients(name: string): number | undefined {
   if (!exists(name)) return undefined;

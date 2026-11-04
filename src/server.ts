@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
-import { flushInBackground } from "./messages";
+import { readConversation } from "./conversation";
+import { post } from "./mailbox";
+import { flush, flushInBackground, phone, reachable, route } from "./messages";
+import { claudeTranscript } from "./native-sessions";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
@@ -17,6 +20,24 @@ import {
 } from "./sessions";
 import { loadSettings, SettingsError } from "./settings";
 import { spawn } from "./setup";
+import { attachedClients, sendKey } from "./tmux";
+
+/** What the phone can do in a session's view, and why not when it cannot. */
+export function sessionAbilities(session: Session): { read: boolean; reply?: string; stop: boolean } {
+  const read = session.agent === "claude" && claudeTranscript(session.cwd, session.id) !== undefined;
+  const way = route(session);
+  return {
+    read,
+    // A reply the agent cannot take now waits in kiln's mailbox; only a session kiln can never type into refuses it.
+    reply: !reachable(session)
+      ? "kiln can only write to a running session that reports its id"
+      : "inbox" in way
+        ? way.inbox
+        : undefined,
+    // Only a turn kiln knows is running is stopped: Escape on a prompt or an unknown state could clear someone's typing.
+    stop: session.agent === "claude" && session.place.kind === "kiln" && session.activity === "working",
+  };
+}
 
 /** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
 function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
@@ -98,13 +119,27 @@ export function startServer({
   let attempts = 0;
   let windowStart = Date.now();
   const sockets = new Set<Bun.ServerWebSocket<{ token: string }>>();
+  /** The sessions of the last successful discovery, which the per-session routes act on. */
+  let live: Session[] = [];
+  const spent = new Map<string, { count: number; since: number }>();
+  /** Each device may send, stop or answer this often, so a stuck retry loop cannot flood an agent. */
+  const spend = (device: string) => {
+    const now = Date.now();
+    const used = spent.get(device);
+    if (!used || now - used.since >= 60_000) {
+      spent.set(device, { count: 1, since: now });
+      return true;
+    }
+    return ++used.count <= 30;
+  };
   const response = (body: unknown, status = 200) =>
     Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   const server = Bun.serve<{ token: string }>({
     hostname: "127.0.0.1",
     port,
     tls,
-    maxRequestBodySize: 4096,
+    // A reply typed on the phone is the largest body; everything else is a few hundred bytes.
+    maxRequestBodySize: 64 * 1024,
     async fetch(request, server) {
       const path = new URL(request.url).pathname;
       // The phone opens this in its browser; the one-use code in the path is the authorization.
@@ -156,6 +191,55 @@ export function startServer({
         if (server.upgrade(request, { data: { token } })) return;
         return response({ error: "Expected WebSocket" }, 400);
       }
+      const view = path.match(/^\/v1\/sessions\/([^/]{1,200})\/(view|input|interrupt)$/);
+      if (view?.[1] && view[2]) {
+        const id = decodeURIComponent(view[1]);
+        const session = live.find((row) => sessionIdentity(row) === id);
+        if (!session) return response({ error: "No such session" }, 404);
+        const abilities = sessionAbilities(session);
+        if (view[2] === "view" && request.method === "GET") {
+          const transcript = abilities.read && claudeTranscript(session.cwd, session.id);
+          const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
+          try {
+            if (transcript) return response({ abilities, ...readConversation(transcript, cursor) });
+          } catch {
+            // A transcript not written yet, or unreadable, shows as an empty conversation.
+          }
+          return response({ abilities, items: [], cursor: "", reset: true });
+        }
+        if (request.method !== "POST") return response({ error: "Route not found" }, 404);
+        if (!spend(device.id)) return response({ error: "Too many requests; wait a minute" }, 429);
+        if (view[2] === "interrupt") {
+          if (!abilities.stop || session.place.kind !== "kiln")
+            return response({ error: "This session cannot be stopped from the phone" }, 409);
+          // Escape is how Claude's own terminal ends a turn; it does nothing while Claude is idle.
+          if (attachedClients(session.place.name) === undefined || !sendKey(session.place.name, "Escape"))
+            return response({ error: "Its terminal has closed" }, 409);
+          return response({ stopped: true });
+        }
+        if (abilities.reply) return response({ error: abilities.reply }, 409);
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return response({ error: "Invalid message" }, 400);
+        }
+        const text = (body as { text?: unknown })?.text;
+        const key = (body as { id?: unknown })?.id;
+        if (typeof text !== "string" || !text.trim() || text.length > 32_000)
+          return response({ error: "Invalid message" }, 400);
+        if (typeof key !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(key))
+          return response({ error: "Invalid message id" }, 400);
+        try {
+          post(phone, id, text, undefined, undefined, key);
+        } catch (error) {
+          return response({ error: error instanceof Error ? error.message : "Could not queue the message" }, 429);
+        }
+        // The agent may be idle now; a busy one gets it from the refresh loop as soon as it stops.
+        const outcome = (await flush(live)).find((item) => item.message.id === key);
+        // No outcome means another kiln claimed it first and is sending it.
+        return response(outcome?.delivered === false ? { queued: true, reason: outcome.reason } : { delivered: true });
+      }
       return response({ error: "Route not found" }, 404);
     },
     websocket: {
@@ -188,7 +272,10 @@ export function startServer({
     refreshedAt = Date.now();
     try {
       const { sessions, problem, stale } = await discover();
-      if (!stale) flushInBackground(sessions);
+      if (!stale) {
+        live = sessions;
+        flushInBackground(sessions);
+      }
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
