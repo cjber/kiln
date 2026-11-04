@@ -135,7 +135,7 @@ Claude cloud listing is opt-in because it uses Claude's internal API. It reads a
 
 ## Android
 
-<img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
+<img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-pairing.png" width="270" alt="Android pairing screen" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" />
 
 Install the APK from the repository's releases. To get updates on the phone, add `https://github.com/cjber/kiln` to [Obtainium](https://obtainium.imranr.dev); each release carries the same signing key. The phone lists native sessions and cloud tasks. On a computer with phone writes on, a Claude, Codex, OpenCode or Pi session opens in the app as a live conversation you can reply to, and Stop ends the turn of a Claude, Codex or Pi session kiln started. A reply sent while the agent is working waits in kiln's mailbox and is sent when the turn ends. Opening any other linked session uses the provider's installed app or browser through verified HTTPS links. Claude Remote Control and connected Codex Remote Control provide direct session links. OpenCode sessions open in OpenCode's own web UI on your computer, reached over Tailscale. Sessions without mobile access explain how to open them on the computer.
 
