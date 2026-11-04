@@ -69,6 +69,7 @@ export function startServer({
   discover = settingsDiscovery(),
   interval = 2_000,
   idleInterval = 60_000,
+  pushInterval = 10_000,
   opencode = opencodeLinks((origin) => opencodeToken(origin, spawn)),
   tls,
   push = sendPush,
@@ -80,6 +81,8 @@ export function startServer({
   interval?: number;
   /** Refresh period with no phone connected; it keeps the saved-session records current. */
   idleInterval?: number;
+  /** Refresh period with no phone connected but a phone registered for pushes. */
+  pushInterval?: number;
   /** Only the QA harness serves TLS itself; a real server sits behind Tailscale Serve or the user's tunnel. */
   tls?: Bun.TLSOptions;
   push?: (target: Parameters<typeof sendPush>[0], alert: PushAlert) => ReturnType<typeof sendPush>;
@@ -273,11 +276,13 @@ export function startServer({
     }
   };
   // Discovery starts several provider CLIs, so it runs every interval only while a phone watches,
-  // or while a session works and a phone waits for its push.
+  // or while a session works and a phone waits for its push. With pushes on and nothing working it
+  // still looks every `pushInterval`, so a turn that starts and ends between idle checks is caught.
   const timer = setInterval(() => {
     publish();
     const working = snapshot.sessions.some((row) => row.where !== "cloud" && row.activity === "working");
-    if (sockets.size || (working && pushing()) || Date.now() - refreshedAt >= idleInterval) void refresh();
+    const since = Date.now() - refreshedAt;
+    if (sockets.size || (pushing() && (working || since >= pushInterval)) || since >= idleInterval) void refresh();
   }, interval);
   void refresh();
   return {

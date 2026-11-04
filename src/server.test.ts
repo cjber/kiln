@@ -124,6 +124,34 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
   }
 });
 
+test("a phone registered for pushes keeps discovery checking between idle refreshes", async () => {
+  const { pairing } = fixture();
+  let calls = 0;
+  const paired = pairing.exchange(pairing.invite(), "test");
+  if (!paired) throw new Error("pairing failed");
+  pairing.setPush(paired.device.id, { endpoint: "https://push.example/x", p256dh: "k", auth: "a", machine: "m" });
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    idleInterval: 60_000,
+    pushInterval: 60,
+    discover: async () => {
+      calls++;
+      return { sessions: [], problem: "", stale: false };
+    },
+  });
+  try {
+    await Bun.sleep(300);
+    // Nothing works and no phone watches, yet a short turn between idle refreshes would still be seen.
+    expect(calls).toBeGreaterThan(2);
+    expect(calls).toBeLessThan(10);
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
 test("discovery runs every interval only while a phone is connected", async () => {
   const { pairing } = fixture();
   let calls = 0;
