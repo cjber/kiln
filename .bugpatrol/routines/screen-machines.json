@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "id": "screen-machines",
+  "description": "Lists paired computers with Pair a machine, Reconnect and Forget actions.",
+  "platform": "android",
+  "requires": [
+    "enter-app"
+  ],
+  "steps": [
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "[+1]",
+        "text": "[+1]",
+        "point": {
+          "x": 909,
+          "y": 516
+        }
+      },
+      "at": "d4992a17e55d"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "history",
+        "text": "history",
+        "point": {
+          "x": 296.5,
+          "y": 325.5
+        }
+      },
+      "at": "146f5ee52887"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "hidden",
+        "text": "hidden",
+        "point": {
+          "x": 506.5,
+          "y": 325.5
+        }
+      },
+      "at": "b2586866f4d0"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "live",
+        "text": "live",
+        "point": {
+          "x": 109,
+          "y": 325.5
+        }
+      },
+      "at": "f28f914aa0fa"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "barry",
+        "text": "barry",
+        "point": {
+          "x": 807.5,
+          "y": 199.5
+        }
+      },
+      "at": "3c9c944b8146"
+    }
+  ],
+  "screenId": "machines",
+  "expect": {
+    "elements": [
+      "com.android.systemui:id/status_bar_launch_animation_container",
+      "com.android.systemui:id/status_bar_container",
+      "com.android.systemui:id/status_bar",
+      "com.android.systemui:id/status_bar_contents",
+      "com.android.systemui:id/status_bar_start_side_container",
+      "com.android.systemui:id/status_bar_start_side_content"
+    ]
+  },
+  "createdAt": "2026-11-03T12:07:58.648Z",
+  "updatedAt": "2026-11-03T12:07:58.648Z"
+}

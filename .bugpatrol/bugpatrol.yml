@@ -8,7 +8,7 @@ app:
 # Paths are relative to the project root: the folder that holds .bugpatrol/.
   source: .                          # the repo that the fixer edits
   setup:
-    - run: 'bun start'   # builds the app before each session
+    - run: 'bun install --frozen-lockfile'
   connect:
     cli:
       timeoutMs: 60000                # a command that runs longer is stopped

@@ -3,11 +3,20 @@
   "id": "screen-session-list",
   "description": "Main kiln screen: a header, sessions grouped by directory, a detail line and key hints, with filter and empty states.",
   "platform": "cli",
-  "requires": [
-    "enter-app"
+  "requires": [],
+  "steps": [
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 120 30 short",
+      "at": "terminal||e3b0c44298fc"
+    },
+    {
+      "kind": "run",
+      "command": "bun scripts/qa-drive.ts 40 10 short",
+      "at": "terminal||e3b0c44298fc"
+    }
   ],
-  "steps": [],
   "screenId": "session-list",
   "createdAt": "2026-11-01T18:18:07.347Z",
-  "updatedAt": "2026-11-01T18:18:07.347Z"
+  "updatedAt": "2026-11-03T12:03:04.189Z"
 }

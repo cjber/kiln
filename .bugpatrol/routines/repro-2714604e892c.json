@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "repro-2714604e892c",
+  "description": "Reproduces: \"Copy session ID\" button looks disabled although it works",
+  "platform": "cli",
+  "requires": [
+    "screen-session-details"
+  ],
+  "steps": [
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Copy session ID",
+        "text": "Copy session ID",
+        "point": {
+          "x": 540.5,
+          "y": 2211.5
+        }
+      }
+    }
+  ],
+  "screenId": "session-details",
+  "createdAt": "2026-11-03T12:12:41.369Z",
+  "updatedAt": "2026-11-03T12:12:41.369Z"
+}

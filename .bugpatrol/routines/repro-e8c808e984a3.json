@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "id": "repro-e8c808e984a3",
+  "description": "Reproduces: Session details show \"Activity unknown · unknown\" when no activity time exists",
+  "platform": "cli",
+  "requires": [
+    "screen-session-details"
+  ],
+  "steps": [
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Copy session ID",
+        "text": "Copy session ID",
+        "point": {
+          "x": 540.5,
+          "y": 2211.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Hide on this phone",
+        "text": "Hide on this phone",
+        "point": {
+          "x": 540,
+          "y": 2032.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "hidden",
+        "text": "hidden",
+        "point": {
+          "x": 506.5,
+          "y": 462.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Finished task",
+        "text": "Finished task",
+        "point": {
+          "x": 411,
+          "y": 652.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Restore on this phone",
+        "text": "Restore on this phone",
+        "point": {
+          "x": 540.5,
+          "y": 2032.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "live",
+        "text": "live",
+        "point": {
+          "x": 109,
+          "y": 462.5
+        }
+      }
+    },
+    {
+      "kind": "scroll",
+      "direction": "left",
+      "target": {
+        "role": "text",
+        "name": "Unknown status",
+        "text": "Unknown status",
+        "point": {
+          "x": 422,
+          "y": 1482.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Unknown status",
+        "text": "Unknown status",
+        "point": {
+          "x": 422,
+          "y": 1482.5
+        }
+      }
+    }
+  ],
+  "screenId": "session-details",
+  "bug": {
+    "shows": "Activity unknown · unknown"
+  },
+  "createdAt": "2026-11-03T12:12:44.876Z",
+  "updatedAt": "2026-11-03T12:12:44.876Z"
+}

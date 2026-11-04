@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "repro-49a6e3e03734",
+  "description": "Reproduces: \"Show setup steps\" link is indented past the rest of the setup card text",
+  "platform": "cli",
+  "requires": [
+    "screen-pairing"
+  ],
+  "steps": [
+    {
+      "kind": "scroll",
+      "direction": "down"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Show setup steps",
+        "text": "Show setup steps",
+        "point": {
+          "x": 326.5,
+          "y": 2158.5
+        }
+      }
+    },
+    {
+      "kind": "scroll",
+      "direction": "down"
+    }
+  ],
+  "screenId": "pairing",
+  "createdAt": "2026-11-03T12:12:34.768Z",
+  "updatedAt": "2026-11-03T12:12:34.768Z"
+}

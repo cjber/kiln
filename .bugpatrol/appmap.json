@@ -13,9 +13,56 @@
       "routineId": "screen-session-list",
       "lastScreenshot": ".bugpatrol/runs/sessions/ses_20261101181446_b51d/008-session-list.png",
       "links": [],
+      "visits": 2,
+      "lastSeenAt": "2026-11-03T12:03:04.189Z",
+      "lastCapture": ".bugpatrol/runs/sessions/ses_20261103120247_3dec/003-session-list.png"
+    },
+    {
+      "name": "Pairing",
+      "description": "First-run screen to pair the phone with kiln via QR code or an invitation link.",
+      "platform": "android",
+      "firstSeenAt": "2026-11-03T12:06:51.124Z",
+      "id": "pairing",
+      "location": "com.cjber.kiln",
+      "screenKey": "com.cjber.kiln|",
+      "routineId": "screen-pairing",
+      "lastCapture": ".bugpatrol/runs/sessions/ses_20261103120642_c76b/002-pairing.png",
+      "links": [
+        "machines"
+      ],
       "visits": 1,
-      "lastSeenAt": "2026-11-01T18:18:07.348Z"
+      "lastSeenAt": "2026-11-03T12:07:58.655Z"
+    },
+    {
+      "name": "Session details sheet",
+      "description": "Bottom sheet with a session's agent, status, directory, branch, times, hide and copy-ID actions.",
+      "platform": "android",
+      "firstSeenAt": "2026-11-03T12:09:01.710Z",
+      "id": "session-details",
+      "location": "com.cjber.kiln",
+      "screenKey": "com.cjber.kiln|",
+      "routineId": "screen-session-details",
+      "lastCapture": ".bugpatrol/runs/sessions/ses_20261103120642_c76b/026-session-details.png",
+      "links": [],
+      "visits": 1,
+      "lastSeenAt": "2026-11-03T12:09:01.710Z"
+    },
+    {
+      "name": "Machines",
+      "description": "Lists paired computers with Pair a machine, Reconnect and Forget actions.",
+      "platform": "android",
+      "firstSeenAt": "2026-11-03T12:07:58.653Z",
+      "id": "machines",
+      "location": "com.cjber.kiln",
+      "screenKey": "com.cjber.kiln|",
+      "routineId": "screen-machines",
+      "lastCapture": ".bugpatrol/runs/sessions/ses_20261103120642_c76b/014-machines.png",
+      "links": [
+        "session-details"
+      ],
+      "visits": 1,
+      "lastSeenAt": "2026-11-03T12:09:01.710Z"
     }
   ],
-  "updatedAt": "2026-11-01T18:18:07.348Z"
+  "updatedAt": "2026-11-03T12:09:01.710Z"
 }

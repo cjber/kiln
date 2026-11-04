@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "id": "repro-11729cca812b",
+  "description": "Reproduces: Invalid invitation error shows in a global banner and stays on the session list",
+  "platform": "cli",
+  "requires": [
+    "screen-machines"
+  ],
+  "steps": [
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Reconnect",
+        "text": "Reconnect",
+        "point": {
+          "x": 186,
+          "y": 1150.5
+        }
+      }
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Pair a machine",
+        "text": "Pair a machine",
+        "point": {
+          "x": 582.5,
+          "y": 878.5
+        }
+      }
+    },
+    {
+      "kind": "type",
+      "target": {
+        "role": "text",
+        "name": "Pairing invitation",
+        "text": "Pairing invitation",
+        "point": {
+          "x": 342,
+          "y": 1640.5
+        }
+      },
+      "value": "not-a-link",
+      "submit": false
+    },
+    {
+      "kind": "back"
+    },
+    {
+      "kind": "scroll",
+      "direction": "down"
+    },
+    {
+      "kind": "tap",
+      "target": {
+        "role": "text",
+        "name": "Connect machine",
+        "text": "Connect machine",
+        "point": {
+          "x": 540.5,
+          "y": 1613.5
+        }
+      }
+    }
+  ],
+  "screenId": "pairing",
+  "bug": {
+    "shows": "Paste a valid kiln invitation with an HTTPS server URL"
+  },
+  "createdAt": "2026-11-03T12:12:55.140Z",
+  "updatedAt": "2026-11-03T12:12:55.140Z"
+}
