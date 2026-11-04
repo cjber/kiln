@@ -2,11 +2,10 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
-import { readConversation } from "./conversation";
+import { conversationReader } from "./conversation";
 import { startFromPhone } from "./launcher";
 import { post } from "./mailbox";
 import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
-import { claudeTranscript } from "./native-sessions";
 import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
@@ -93,7 +92,7 @@ export function offeredDirectories(
 export function sessionAbilities(session: Session): { read: boolean; reply?: string; stop: boolean } {
   const way = route(session);
   return {
-    read: session.agent === "claude" && claudeTranscript(session.cwd, session.id) !== undefined,
+    read: conversationReader(session) !== undefined,
     // A reply the agent cannot take now waits in kiln's mailbox; only a session kiln can never type into refuses it.
     reply: !reachable(session)
       ? "kiln can only write to a running session that reports its id"
@@ -101,7 +100,8 @@ export function sessionAbilities(session: Session): { read: boolean; reply?: str
         ? way.inbox
         : undefined,
     // Only a turn kiln knows is running is stopped: Escape on a prompt or an unknown state could clear someone's typing.
-    stop: session.agent === "claude" && session.place.kind === "kiln" && session.activity === "working",
+    // OpenCode's TUI wants Escape twice, so a single key could not stop it reliably.
+    stop: session.agent !== "opencode" && session.place.kind === "kiln" && session.activity === "working",
   };
 }
 
@@ -266,9 +266,9 @@ export function startServer({
   const viewSession = (id: string, cursor: string | null) => {
     const session = listedSession(id);
     const abilities = sessionAbilities(session);
-    const transcript = abilities.read && claudeTranscript(session.cwd, session.id);
+    const read = conversationReader(session);
     try {
-      if (transcript) return { abilities, ...readConversation(transcript, cursor ?? undefined) };
+      if (read) return { abilities, ...read(cursor ?? undefined) };
     } catch {
       // A transcript not written yet, or unreadable, shows as an empty conversation.
     }
