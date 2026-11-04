@@ -8,6 +8,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +29,8 @@ fun SessionDetails(
     copy: () -> Unit,
     hidden: Boolean,
     changeHidden: () -> Unit,
+    /** Sends a prompt and reports the line to show; null where the machine takes none. */
+    send: ((String, (String) -> Unit) -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = dismiss,
@@ -97,6 +103,7 @@ fun SessionDetails(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            if (send != null) SendBox(row.id, send)
             TextButton(onClick = changeHidden, modifier = Modifier.fillMaxWidth()) {
                 Text(if (hidden) "Restore on this phone" else "Hide on this phone")
             }
@@ -126,5 +133,49 @@ private fun DetailField(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** A prompt for a running session, delivered the way `kiln msg send` delivers it. */
+@Composable
+private fun SendBox(id: String, send: (String, (String) -> Unit) -> Unit) {
+    var text by rememberSaveable(id) { mutableStateOf("") }
+    var result by rememberSaveable(id) { mutableStateOf("") }
+    var busy by rememberSaveable(id) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                result = ""
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Send a prompt") },
+            textStyle = MaterialTheme.typography.bodyMedium,
+            shape = MaterialTheme.shapes.small,
+            maxLines = 6,
+        )
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(
+                result,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (result == "Delivered") Tui.green else Tui.yellow,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = {
+                    busy = true
+                    send(text.trim()) { line ->
+                        busy = false
+                        result = line
+                        if (line == "Delivered" || line.startsWith("Waiting:")) text = ""
+                    }
+                },
+                enabled = !busy && text.isNotBlank(),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(if (busy) "Sending…" else "Send")
+            }
+        }
     }
 }

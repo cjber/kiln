@@ -2,9 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Pairing, serverOrigin } from "./pairing";
-import { phoneSession, startServer } from "./server";
+import { Pairing, serverOrigin, startLimit } from "./pairing";
+import { offeredDirectories, phoneSession, promptLimit, startServer } from "./server";
 import { keepLast, type Session, sessionParents } from "./sessions";
+import { defaults, type Settings } from "./settings";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -213,4 +214,120 @@ test("phone parent IDs include the originating provider for cross-provider helpe
     place: { kind: "elsewhere" },
   };
   expect(phoneSession(child, sessionParents([parent, child]).get(child)).parentId).toBe("codex:parent");
+});
+
+test("phone writes pass the gate only when on, for an offered directory, an enabled agent and a short prompt", async () => {
+  const { directory, pairing } = fixture();
+  const previousState = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = directory;
+  const project = mkdtempSync(join(directory, "project-"));
+  let current: Settings = { ...defaults, zoxide: false };
+  const started: [string, string, string][] = [];
+  const delivered: string[] = [];
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    settings: () => current,
+    discover: keepLast(
+      async () => [
+        { agent: "claude", id: "running", cwd: project, startedAt: 1, place: { kind: "kiln", name: "claude-1" } },
+      ],
+      "Session host",
+    ),
+    start: async (agent, cwd, prompt) => {
+      started.push([agent, cwd, prompt]);
+      return { kind: "attach", name: "claude-new" };
+    },
+    deliver: async (sessions) => {
+      delivered.push(...sessions.map((session) => session.id ?? ""));
+      return [];
+    },
+  });
+  const origin = `http://127.0.0.1:${server.port}`;
+  const paired = pairing.exchange(pairing.invite(), "Pixel");
+  if (!paired) throw new Error("pairing failed");
+  const call = (path: string, body?: unknown, token = paired.token) =>
+    fetch(`${origin}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  try {
+    await Bun.sleep(40);
+    const snapshot = (await (await call("/v1/sessions")).json()) as {
+      write: boolean;
+      sessions: { terminal: string }[];
+    };
+    expect(snapshot.write).toBe(false);
+    expect(snapshot.sessions[0]?.terminal).toBe("claude-1");
+    const request = { agent: "claude", directory: project, prompt: "fix the tests" };
+    expect((await call("/v1/sessions", request)).status).toBe(403);
+    expect((await call("/v1/directories")).status).toBe(403);
+    expect((await call("/v1/sessions/claude%3Arunning/messages", { text: "hi" })).status).toBe(403);
+
+    current = { ...current, phoneWrite: true };
+    expect(await (await call("/v1/directories")).json()).toEqual({
+      directories: [project],
+      agents: ["claude", "codex", "opencode", "pi"],
+    });
+    expect((await call("/v1/sessions", { ...request, directory: "/etc" })).status).toBe(400);
+    expect((await call("/v1/sessions", { ...request, directory: join(project, "..") })).status).toBe(400);
+    expect((await call("/v1/sessions", { ...request, agent: "gemini" })).status).toBe(400);
+    current = { ...current, agents: { ...current.agents, codex: [] } };
+    expect((await call("/v1/sessions", { ...request, agent: "codex" })).status).toBe(400);
+    expect((await call("/v1/sessions", { ...request, prompt: "x".repeat(promptLimit + 1) })).status).toBe(413);
+    expect((await call("/v1/sessions", { ...request, prompt: " " })).status).toBe(400);
+    expect(started).toEqual([]);
+
+    const ok = await call("/v1/sessions", { ...request, prompt: "x".repeat(promptLimit) });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ terminal: "claude-new" });
+    expect(started.map(([agent, cwd]) => [agent, cwd])).toEqual([["claude", project]]);
+    expect(pairing.starts(paired.device.id)).toMatchObject([{ agent: "claude", directory: project }]);
+
+    expect((await call("/v1/sessions/claude%3Aother/messages", { text: "hi" })).status).toBe(404);
+    expect((await call("/v1/sessions/claude%E0%A4%A/messages", { text: "hi" })).status).toBe(400);
+    const sent = await call("/v1/sessions/claude%3Arunning/messages", { text: "carry on" });
+    expect(await sent.json()).toEqual({ delivered: true });
+    expect(delivered).toContain("running");
+
+    pairing.revoke(paired.device.id);
+    expect((await call("/v1/sessions", request)).status).toBe(401);
+    expect((await call("/v1/sessions/claude%3Arunning/messages", { text: "hi" })).status).toBe(401);
+    expect(pairing.starts(paired.device.id)).toEqual([]);
+  } finally {
+    server.stop();
+    pairing.close();
+    if (previousState === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = previousState;
+  }
+});
+
+test("a phone starts at most twenty sessions in ten minutes", () => {
+  const { pairing } = fixture();
+  try {
+    for (let index = 0; index < startLimit.count; index++) pairing.recordStart("phone", "claude", "/project", 1000);
+    expect(() => pairing.recordStart("phone", "claude", "/project", 2000)).toThrow("wait before starting more");
+    expect(() => pairing.recordStart("phone", "claude", "/project", 1000 + startLimit.perMs)).not.toThrow();
+  } finally {
+    pairing.close();
+  }
+});
+
+test("offered directories put listed sessions first, newest first, and drop missing paths", () => {
+  const session = (cwd: string, lastActiveAt: number): Session => ({
+    agent: "claude",
+    cwd,
+    startedAt: 1,
+    lastActiveAt,
+    place: { kind: "kiln", name: cwd },
+  });
+  expect(
+    offeredDirectories(
+      [session("/old", 1), session("/new", 5)],
+      ["/ranked", "/new", "/gone"],
+      (path) => path !== "/gone",
+    ),
+  ).toEqual(["/new", "/old", "/ranked"]);
 });

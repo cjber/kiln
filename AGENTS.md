@@ -54,7 +54,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts`, `src/push.ts` - localhost phone API, one-use pairing, provider handoffs and
-  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends.
+  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends. Starting sessions and sending prompts from a
+  phone is gated by `[phone] write`, which is off by default.
 - `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet. Phone links are one-use
   `/opencode/<code>` paths on kiln's server that set OpenCode's sign-in cookie and redirect to the session page.
 - `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.

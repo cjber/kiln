@@ -95,32 +95,59 @@ async function startCodexRemoteControl(): Promise<string | undefined> {
   }
 }
 
+/**
+ * The first prompt as the agent's own argument. `--` keeps a prompt that starts with a dash from reading as an option.
+ * Claude still runs a subcommand named by a lone word after `--`, so a one-word prompt gets a trailing newline, which
+ * no subcommand name has and the prompt box ignores.
+ */
+function promptArguments(agent: Agent, prompt: string | undefined): string[] {
+  if (!prompt) return [];
+  switch (agent) {
+    case "claude":
+      return ["--", /\s/.test(prompt) ? prompt : `${prompt}\n`];
+    case "codex":
+    case "pi":
+      return ["--", prompt];
+    case "opencode":
+      return [`--prompt=${prompt}`];
+  }
+}
+
 /** The agent's configured command; `resume` continues a provider conversation instead of starting one. */
-function agentCommand(agent: Agent, settings: Settings, resume?: string): string[] {
+export function agentCommand(agent: Agent, settings: Settings, resume?: string, prompt?: string): string[] {
   const command = settings.agents[agent];
+  const first = promptArguments(agent, prompt);
   switch (agent) {
     case "claude":
       return [
         ...command,
         ...(settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
         ...(resume ? ["--resume", resume] : []),
+        ...first,
       ];
     case "codex": {
-      if (!resume) return command;
+      if (!resume) return [...command, ...first];
       // `resume <id>` directly follows codex, after any wrapper: discovery reads a resumed thread's identity from there.
       const at = command.findIndex((word) => basename(word) === "codex") + 1 || 1;
-      return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
+      return [...command.slice(0, at), "resume", resume, ...command.slice(at), ...first];
     }
     // The id kiln chooses is what discovery reads back from argv; OpenCode creates it on the first prompt.
     case "opencode":
-      return [...command, "--session", resume ?? newOpencodeSessionId()];
+      return [...command, "--session", resume ?? newOpencodeSessionId(), ...first];
     case "pi":
-      return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : [])];
+      return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : []), ...first];
   }
 }
 
 /** Start an agent in a session on kiln's tmux server. A resumed conversation has one session, named after it, that a second open reuses. */
-async function launch(agent: Agent, cwd: string, settings: Settings, title: string, resume?: string): Promise<Outcome> {
+async function launch(
+  agent: Agent,
+  cwd: string,
+  settings: Settings,
+  title: string,
+  resume?: string,
+  prompt?: string,
+): Promise<Outcome> {
   const name = `${agent}-${resume ? new Bun.CryptoHasher("sha256").update(resume).digest("hex").slice(0, 16) : crypto.randomUUID()}`;
   if (resume && exists(name)) return { kind: "attach", name };
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
@@ -128,7 +155,7 @@ async function launch(agent: Agent, cwd: string, settings: Settings, title: stri
     const command = settings.agents[agent];
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agentName(agent)} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
-    if (!start(name, cwd, agentCommand(agent, settings, resume), title))
+    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt), title))
       throw new Error(`could not start ${agentName(agent)}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
@@ -139,6 +166,14 @@ async function launch(agent: Agent, cwd: string, settings: Settings, title: stri
 
 export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
   return launch(agent, cwd, settings, `${agent} · ${cwd}`);
+}
+
+/**
+ * A session a phone asked for, with its first prompt. It always has the provider's remote control on, since the
+ * phone follows it there rather than showing a transcript of its own.
+ */
+export function startFromPhone(agent: Agent, cwd: string, prompt: string, settings: Settings): Promise<Outcome> {
+  return launch(agent, cwd, { ...settings, remoteControl: true }, `${agent} · ${cwd}`, undefined, prompt);
 }
 
 export type SessionAction = { verb: "close" | "archive" | "delete" | "forget" } | { reason: string };

@@ -25,6 +25,8 @@ export type Settings = {
   claudeCloud: boolean;
   /** The native TUI command for each agent; [] hides an agent from the picker. */
   agents: Record<Agent, string[]>;
+  /** Let paired phones start sessions and send prompts. Off by default: a phone that can do so can run code here. */
+  phoneWrite: boolean;
 };
 
 export const defaults: Settings = {
@@ -37,6 +39,7 @@ export const defaults: Settings = {
   notifications: true,
   claudeCloud: false,
   agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"] },
+  phoneWrite: false,
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -74,6 +77,11 @@ claude = ["claude"]
 codex = ["codex"]
 opencode = ["opencode"]
 pi = ["pi"]
+
+# Let paired phones start sessions in your directories and send prompts to running ones.
+# A phone that can do this can run code on this computer.
+[phone]
+write = false
 `;
 
 function settingsPath(): string {
@@ -142,6 +150,14 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
           if (!agents.includes(agent as Agent))
             fail(path, `unknown agent "${agent}"; kiln supports ${agents.join(", ")}`);
           settings.agents[agent as Agent] = stringList(path, `agents.${agent}`, command);
+        }
+        break;
+      case "phone":
+        if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[phone] must be a table");
+        for (const [name, setting] of Object.entries(value)) {
+          if (name !== "write") fail(path, `unknown setting "phone.${name}"`);
+          if (typeof setting !== "boolean") fail(path, "phone.write must be true or false");
+          settings.phoneWrite = setting;
         }
         break;
       default:

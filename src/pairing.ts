@@ -9,6 +9,10 @@ const hash = (value: string) => createHash("sha256").update(value).digest("hex")
 const secret = () => randomBytes(32).toString("base64url");
 const statePath = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "devices.sqlite");
 export type Device = { id: string; name: string; createdAt: number };
+/** A session a phone started, kept so `kiln devices` can show what each phone did. */
+export type Start = { agent: string; directory: string; at: number };
+/** A phone starts at most this many sessions in ten minutes. */
+export const startLimit = { count: 20, perMs: 10 * 60 * 1000 };
 
 export class Pairing {
   private db: Database;
@@ -17,7 +21,7 @@ export class Pairing {
     this.db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     this.db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS push (device TEXT PRIMARY KEY, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, machine TEXT NOT NULL);",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT UNIQUE NOT NULL, createdAt INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS invitations (digest TEXT PRIMARY KEY, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS push (device TEXT PRIMARY KEY, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, machine TEXT NOT NULL); CREATE TABLE IF NOT EXISTS starts (device TEXT NOT NULL, agent TEXT NOT NULL, directory TEXT NOT NULL, at INTEGER NOT NULL);",
     );
   }
   invite(now = Date.now()): string {
@@ -63,6 +67,7 @@ export class Pairing {
     return this.db
       .transaction(() => {
         this.db.query("DELETE FROM push WHERE device = ?").run(id);
+        this.db.query("DELETE FROM starts WHERE device = ?").run(id);
         return this.db.query("DELETE FROM devices WHERE id = ?").run(id).changes > 0;
       })
       .immediate();
@@ -84,6 +89,29 @@ export class Pairing {
         "SELECT push.device, endpoint, p256dh, auth, machine FROM push JOIN devices ON devices.id = push.device",
       )
       .all();
+  }
+  /** Record a start before it happens; throws once the phone has reached `startLimit`. */
+  recordStart(device: string, agent: string, directory: string, now = Date.now()): void {
+    this.db
+      .transaction(() => {
+        const { count } = this.db
+          .query<{ count: number }, [string, number]>(
+            "SELECT count(*) AS count FROM starts WHERE device = ? AND at > ?",
+          )
+          .get(device, now - startLimit.perMs) ?? { count: 0 };
+        if (count >= startLimit.count)
+          throw new Error(`${startLimit.count} sessions started in ten minutes; wait before starting more`);
+        this.db.query("INSERT INTO starts VALUES (?, ?, ?, ?)").run(device, agent, directory, now);
+      })
+      .immediate();
+  }
+  /** The device's starts, newest first. */
+  starts(device: string, limit = 5): Start[] {
+    return this.db
+      .query<Start, [string, number]>(
+        "SELECT agent, directory, at FROM starts WHERE device = ? ORDER BY at DESC LIMIT ?",
+      )
+      .all(device, limit);
   }
   close() {
     this.db.close();

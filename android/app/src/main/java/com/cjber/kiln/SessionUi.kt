@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -76,6 +77,10 @@ fun SessionScreen(
     push: Boolean = false,
     onPush: (Boolean) -> Unit = {},
     openNotificationSettings: () -> Unit = {},
+    /** Opens the new-session sheet; null when the machine takes no sessions from the phone. */
+    onNewSession: (() -> Unit)? = null,
+    /** A row to bring into view, such as the session this phone just started. */
+    scrollTo: String? = null,
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -146,6 +151,14 @@ fun SessionScreen(
         )
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            if (onNewSession != null && !machinesPage)
+                ExtendedFloatingActionButton(
+                    onClick = onNewSession,
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("New session") },
+                )
+        },
         topBar = {
             Row(
                 Modifier.fillMaxWidth()
@@ -254,6 +267,9 @@ fun SessionScreen(
                     hidden = scope == SessionScope.HIDDEN,
                     hide = ::hideRow,
                     restore = ::restoreRow,
+                    scrollTo = scrollTo,
+                    // Room for the last row to scroll clear of the new-session button.
+                    bottom = if (onNewSession != null) 88.dp else 12.dp,
                     header = {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             ErrorNotice(error, onDismissError)
@@ -396,10 +412,19 @@ fun SessionListView(
     hidden: Boolean,
     hide: (Row) -> Unit,
     restore: (Row) -> Unit,
+    scrollTo: String? = null,
+    bottom: androidx.compose.ui.unit.Dp = 12.dp,
 ) {
+    val list = rememberLazyListState()
+    LaunchedEffect(scrollTo, items.isNotEmpty()) {
+        val index = items.indexOfFirst { it is SessionItem.Entry && it.row.id == scrollTo }
+        // The controls header is the list's first item.
+        if (index >= 0) list.animateScrollToItem(index + 1)
+    }
     LazyColumn(
         modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp),
+        state = list,
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = bottom),
     ) {
         item(key = "controls") { header() }
         if (items.isEmpty())
