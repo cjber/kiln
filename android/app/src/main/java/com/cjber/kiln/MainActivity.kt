@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
         var selected by rememberSaveable { mutableStateOf(hosts.firstOrNull()?.origin) }
         var pairing by rememberSaveable { mutableStateOf(hosts.isEmpty()) }
         var invitation by rememberSaveable { mutableStateOf(incoming) }
+        var invitationProblem by rememberSaveable { mutableStateOf("") }
         var pairingBusy by remember { mutableStateOf(false) }
         var filter by rememberSaveable { mutableStateOf("") }
         var sort by rememberSaveable { mutableStateOf(SessionOrder.PROJECT) }
@@ -173,6 +174,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(incoming) {
             if (incoming.isNotEmpty()) {
                 invitation = incoming
+                invitationProblem = ""
                 incoming = ""
                 pairing = true
             }
@@ -190,7 +192,14 @@ class MainActivity : ComponentActivity() {
             handoff = null
         }
         LaunchedEffect(foreground) { if (!foreground) pairingBusy = false }
-        LaunchedEffect(pairing) { if (!pairing) pairingBusy = false }
+        // Pairing errors belong to the pairing screen and never follow the user to the list.
+        LaunchedEffect(pairing) {
+            if (!pairing) {
+                pairingBusy = false
+                invitationProblem = ""
+                error = ""
+            }
+        }
         DisposableEffect(host, retry, pairing, foreground) {
             if (host != null && !pairing && foreground) {
                 state = ConnectionState.CONNECTING
@@ -305,13 +314,18 @@ class MainActivity : ComponentActivity() {
                 error,
                 { error = "" },
                 invitation,
-                { invitation = it },
+                {
+                    invitation = it
+                    invitationProblem = ""
+                },
+                invitationProblem,
                 pairingBusy,
                 hosts.isNotEmpty(),
                 tailscaleOn = tailscaleOn,
                 openTailscale = ::openTailscale,
-                pair = {
-                    try {
+                pair = pair@{
+                        invitationProblem = invitationError(invitation)
+                        if (invitationProblem.isNotEmpty()) return@pair
                         val (origin, code) = com.cjber.kiln.invitation(invitation)
                         pairingBusy = true
                         error = ""
@@ -330,14 +344,14 @@ class MainActivity : ComponentActivity() {
                                 } else error = problem
                             }
                         }
-                    } catch (_: Exception) {
-                        error = "Paste a valid kiln invitation with an HTTPS server URL"
-                    }
-                },
+                    },
                 scan = {
                     GmsBarcodeScanning.getClient(this@MainActivity)
                         .startScan()
-                        .addOnSuccessListener { invitation = it.rawValue.orEmpty() }
+                        .addOnSuccessListener {
+                            invitation = it.rawValue.orEmpty()
+                            invitationProblem = ""
+                        }
                         .addOnFailureListener {
                             error = "Scanner unavailable. Paste the invitation instead."
                         }

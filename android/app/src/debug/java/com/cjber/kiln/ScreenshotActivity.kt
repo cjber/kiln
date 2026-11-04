@@ -29,6 +29,7 @@ class ScreenshotActivity : ComponentActivity() {
                         onDismissError = {},
                         invitation = "",
                         setInvitation = {},
+                        invitationError = "",
                         busy = false,
                         canCancel = false,
                         tailscaleOn = true,
