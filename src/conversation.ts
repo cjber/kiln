@@ -44,7 +44,8 @@ function resultText(content: unknown): string {
       : Array.isArray(content)
         ? content.map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : "")).join("\n")
         : "";
-  const lines = text.trim().split("\n");
+  // Terminal colour codes would show as raw text on the phone.
+  const lines = Bun.stripANSI(text).trim().split("\n");
   return clip(lines.slice(0, resultLines).join("\n") + (lines.length > resultLines ? "\n…" : ""), 1_000);
 }
 

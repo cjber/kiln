@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+Command output in the session view no longer shows terminal colour codes as raw text.
+
 ## [0.18.1] - 2026-11-04
 
 Codex sessions opened in the app show what each command printed. Before, a command run through
