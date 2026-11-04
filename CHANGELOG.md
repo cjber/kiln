@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A pairing link replaces the invitation on the open app.** Opening a second pairing link while the app was running stacked another copy of the app over the first, with the old invitation still behind it. The link now fills the invitation in the one open app.
+
 ## [0.16.0] - 2026-11-04
 
 - **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.
