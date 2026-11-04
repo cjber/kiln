@@ -87,50 +87,50 @@ export function sessionRepository(session: Session): string {
   return repository;
 }
 
-function mainCheckout(cwd: string): string | undefined {
-  try {
-    for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
-      const dotGit = join(dir, ".git");
-      if (!existsSync(dotGit)) continue;
-      if (!statSync(dotGit).isFile()) return dir;
-      const gitDir = resolve(
+/** The checkout holding `cwd` and its git directory; a linked worktree's `.git` is a file pointing at it. */
+function gitCheckout(cwd: string): { dir: string; gitDir: string } | undefined {
+  for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    if (!existsSync(dotGit)) continue;
+    if (!statSync(dotGit).isFile()) return { dir, gitDir: dotGit };
+    return {
+      dir,
+      gitDir: resolve(
         dir,
         readFileSync(dotGit, "utf8")
           .replace(/^gitdir:\s*/, "")
           .trim(),
-      );
-      // A submodule's git directory has no `commondir`; it is its own repository.
-      if (!existsSync(join(gitDir, "commondir"))) return dir;
-      const common = resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim());
-      return basename(common) === ".git" ? dirname(common) : common;
-    }
-  } catch {
-    // An unreadable repository groups by its directory.
+      ),
+    };
   }
   return undefined;
 }
 
+function mainCheckout(cwd: string): string | undefined {
+  try {
+    const checkout = gitCheckout(cwd);
+    if (!checkout) return undefined;
+    const commondir = join(checkout.gitDir, "commondir");
+    // A main checkout or submodule has no `commondir`; it is its own repository.
+    if (!existsSync(commondir)) return checkout.dir;
+    const common = resolve(checkout.gitDir, readFileSync(commondir, "utf8").trim());
+    return basename(common) === ".git" ? dirname(common) : common;
+  } catch {
+    // An unreadable repository groups by its directory.
+    return undefined;
+  }
+}
+
 export function gitBranch(cwd: string): string | undefined {
   try {
-    for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
-      const dotGit = join(dir, ".git");
-      if (!existsSync(dotGit)) continue;
-      // A linked worktree's `.git` is a file pointing at its real git directory.
-      const gitDir = statSync(dotGit).isFile()
-        ? resolve(
-            dir,
-            readFileSync(dotGit, "utf8")
-              .replace(/^gitdir:\s*/, "")
-              .trim(),
-          )
-        : dotGit;
-      const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
-      return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head.slice(0, 7);
-    }
+    const checkout = gitCheckout(cwd);
+    if (!checkout) return undefined;
+    const head = readFileSync(join(checkout.gitDir, "HEAD"), "utf8").trim();
+    return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : head.slice(0, 7);
   } catch {
     // An unreadable repository just has no branch to show.
+    return undefined;
   }
-  return undefined;
 }
 
 export type Discovered = {
