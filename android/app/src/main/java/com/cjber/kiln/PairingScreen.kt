@@ -154,7 +154,10 @@ fun PairingScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { instructions = !instructions }) {
+                        TextButton(
+                            onClick = { instructions = !instructions },
+                            contentPadding = PaddingValues(horizontal = 0.dp),
+                        ) {
                             Text(if (instructions) "Hide setup steps" else "Show setup steps")
                         }
                         if (instructions) {
