@@ -194,7 +194,7 @@ describe("finished Claude jobs", () => {
   });
 });
 
-test("a Claude turn that ended with a background shell running is idle, not working", () => {
+test("a Claude turn with a background shell or agent still running is working, as Claude counts it", () => {
   const dir = mkdtempSync(join(tmpdir(), "kiln-claude-"));
   mkdirSync(join(dir, "sessions"));
   writeFileSync(join(dir, "sessions", "7.json"), JSON.stringify({ pid: 7, status: "shell" }));
@@ -202,8 +202,9 @@ test("a Claude turn that ended with a background shell running is idle, not work
   expect(claudeSessionStatus(7, dir)).toBe("shell");
   expect(claudeSessionStatus(8, dir)).toBeUndefined();
   expect(claudeSessionStatus(9, dir)).toBeUndefined();
-  expect(claudeActivity("shell")).toBe("idle");
+  expect(claudeActivity("shell")).toBe("working");
   expect(claudeActivity("busy")).toBe("working");
+  expect(claudeActivity("idle")).toBe("idle");
 });
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {

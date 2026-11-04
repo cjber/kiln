@@ -91,7 +91,7 @@ export type Route =
 /** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until it is idle. */
 export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
   const busy = () =>
-    session.activity === "idle"
+    session.activity === "idle" || session.turnEnded
       ? undefined
       : { wait: session.activity ? `${agentName(session.agent)} is ${session.activity}` : "its status is unknown" };
   switch (session.agent) {

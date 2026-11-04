@@ -36,6 +36,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
   `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
+  A Claude `shell` session is working, as Claude's agent view shows it, and `discovery()` keeps a parent working while a subagent
+  works. Both carry `turnEnded`, so `kiln msg` can still type into them.
 - `src/pi-status.ts`, `pi-extension/kiln-status.js` - the extension kiln loads into the Pi sessions it starts (`pi -e`) and the reader for the
   per-process status file it writes. A Pi started elsewhere has no record and stays unknown.
 - `src/opencode.ts` - status from OpenCode's background service over loopback HTTP, using the address and password it records in

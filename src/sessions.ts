@@ -50,6 +50,8 @@ export type Session = {
   lastActiveAt?: number;
   /** Agent-reported status; terminal output never establishes activity. */
   activity?: Activity;
+  /** Working only through a background shell or subagent: the agent's own turn has ended, so it takes a prompt. */
+  turnEnded?: boolean;
   lifecycle?: Lifecycle;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
@@ -187,7 +189,9 @@ export function discovery() {
       .filter((session) => !kitty || openable(session))
       .sort((left, right) => left.cwd.localeCompare(right.cwd) || left.startedAt - right.startedAt);
     return {
-      sessions: nestSessions([...new Map(merged.map((session) => [sessionIdentity(session), session])).values()]),
+      sessions: withSubagentActivity(
+        nestSessions([...new Map(merged.map((session) => [sessionIdentity(session), session])).values()]),
+      ),
       problem: [seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
       stale: seen.stale,
     };
@@ -272,6 +276,23 @@ export function nestSessions(sessions: readonly Session[]): Session[] {
     }
   }
   return result;
+}
+
+/**
+ * A subagent is its own session with its own provider status, and its parent can end a turn while it
+ * runs. A parent that reports idle while a live descendant is working is still working. A descendant that
+ * needs input says so itself, and a Codex thread that hit an error reads as waiting, so neither holds it.
+ */
+export function withSubagentActivity(sessions: readonly Session[]): Session[] {
+  const parents = sessionParents(sessions);
+  const busy = new Set<Session>();
+  for (const session of sessions) {
+    if (session.lifecycle || session.activity !== "working") continue;
+    for (let parent = parents.get(session); parent && !busy.has(parent); parent = parents.get(parent)) busy.add(parent);
+  }
+  return sessions.map((session) =>
+    busy.has(session) && session.activity === "idle" ? { ...session, activity: "working", turnEnded: true } : session,
+  );
 }
 
 /** The status bar's right side: only the counts that are non-zero, working first. */
