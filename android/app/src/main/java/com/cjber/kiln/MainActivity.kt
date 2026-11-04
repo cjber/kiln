@@ -4,12 +4,10 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -111,14 +109,13 @@ class MainActivity : ComponentActivity() {
                 if (it) WatchService.start(this)
             }
         // Watch every paired machine in the background, once the phone may show notifications.
-        LaunchedEffect(hosts) {
+        // Rechecked on each return to the app, since the permission can be granted in Settings.
+        LaunchedEffect(hosts, foreground) {
             when {
+                !foreground -> {}
                 hosts.isEmpty() -> stopService(Intent(this@MainActivity, WatchService::class.java))
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                        PackageManager.PERMISSION_GRANTED ->
-                    notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                else -> WatchService.start(this@MainActivity)
+                WatchService.allowed(this@MainActivity) -> WatchService.start(this@MainActivity)
+                else -> notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
         var selected by rememberSaveable { mutableStateOf(hosts.firstOrNull()?.origin) }

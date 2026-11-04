@@ -32,6 +32,8 @@ class WatchService : Service() {
     private class Watch(val host: Host, val connection: Connection = Connection()) {
         var previous: Map<String, Activity>? = null
         var connected = false
+        /** Callbacks from an earlier attempt are dropped, since okhttp may deliver them late. */
+        var attempt = 0
     }
 
     override fun onBind(intent: Intent?) = null
@@ -67,7 +69,7 @@ class WatchService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == STOP) {
+        if (intent?.action == STOP || !allowed(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -114,14 +116,14 @@ class WatchService : Service() {
 
     private fun connect(watch: Watch) {
         handler.removeCallbacksAndMessages(watch)
+        val attempt = ++watch.attempt
+        fun current() = watched[watch.host.origin] === watch && watch.attempt == attempt
         watch.connection.connect(
             watch.host,
-            { snapshot ->
-                handler.post { if (watched[watch.host.origin] === watch) seen(watch, snapshot) }
-            },
+            { snapshot -> handler.post { if (current()) seen(watch, snapshot) } },
             { state ->
                 handler.post {
-                    if (watched[watch.host.origin] !== watch) return@post
+                    if (!current()) return@post
                     watch.connected = state == ConnectionState.CONNECTED
                     if (state == ConnectionState.DISCONNECTED || state == ConnectionState.INVALID)
                         handler.postAtTime(
@@ -131,20 +133,26 @@ class WatchService : Service() {
                         )
                 }
             },
-            // The app removes a revoked machine when it next opens; stop watching it now.
-            { handler.post { forget(watch.host.origin) } },
+            { handler.post { if (current()) revoked(watch.host) } },
         )
+    }
+
+    /** A machine that revoked this phone is removed here too, so a restart never reconnects it. */
+    private fun revoked(host: Host) {
+        forget(host.origin)
+        try {
+            val credentials = Credentials(this)
+            credentials.write(credentials.read().filter { it.origin != host.origin })
+        } catch (_: Exception) {
+            // The app removes it when it next connects to that machine.
+        }
+        if (watched.isEmpty()) stopSelf()
     }
 
     private fun seen(watch: Watch, snapshot: Snapshot) {
         val ended = endedTurns(watch.previous, snapshot.rows)
         watch.previous = activities(snapshot.rows)
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                    PackageManager.PERMISSION_GRANTED
-        )
-            return
+        if (!allowed(this)) return
         val manager = getSystemService(NotificationManager::class.java)
         ended.forEach { row ->
             val waiting = row.activity == Activity.WAITING
@@ -200,6 +208,12 @@ class WatchService : Service() {
             .build()
 
     companion object {
+        /** Without the notification permission there is nothing to show, so nothing is watched. */
+        fun allowed(context: Context): Boolean =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+
         private const val WATCHING = "watching"
         private const val TURNS = "turns"
         private const val ONGOING = 1
@@ -211,6 +225,7 @@ class WatchService : Service() {
          * none.
          */
         fun start(context: Context) {
+            if (!allowed(context)) return
             try {
                 context.startForegroundService(Intent(context, WatchService::class.java))
             } catch (_: IllegalStateException) {
