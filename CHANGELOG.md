@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **The phone notifies you when a turn ends.** The Android app keeps a connection to each paired machine open in the background and posts a notification when a session finishes its turn or needs your input, the same moments the desktop notifies. Android shows an ongoing notification while it watches; its Stop action ends the watch until the app is next opened. The watch resumes after the phone restarts.
 - **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.
 - **Time since latest activity is colour coded.** The updated column is green for the first minute, teal up to ten minutes, dim up to an hour and grey after that, so recently active sessions stand out.
 

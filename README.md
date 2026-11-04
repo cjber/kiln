@@ -157,6 +157,8 @@ Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving
 
 For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 and serves its web UI at `https://<your Tailscale name>:4096`, reachable only on your tailnet. "Open in OpenCode" then goes through kiln's own address, which signs the phone's browser in to OpenCode and opens the session; there is nothing to pair. Each link works once, for 15 minutes. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
 
+The phone notifies you when a session's turn ends: "Turn finished" when it is ready for a prompt, "Needs input" when it asks a question. It keeps a connection to each paired machine open in the background for this, which Android shows as an ongoing "Watching for finished turns" notification. Its Stop action ends the watch until you next open the app; denying the notification permission turns it off. Cloud tasks do not notify.
+
 On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day.
 
 Pairing invitations expire after five minutes and work once. The phone stores its bearer token privately. The server binds to localhost, rejects browser requests and checks pairing for each request and streamed update. Keep the tunnel origin HTTPS. Revocation disconnects the phone without affecting agent sessions.
