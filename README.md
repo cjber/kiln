@@ -160,7 +160,7 @@ Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving
 
 For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 and serves its web UI at `https://<your Tailscale name>:4096`, reachable only on your tailnet. "Open in OpenCode" then goes through kiln's own address, which signs the phone's browser in to OpenCode and opens the session; there is nothing to pair. Each link works once, for 15 minutes. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
 
-On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day.
+On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day. The phone's list opens in the order `sort` sets and orders sessions as the terminal list does.
 
 A paired phone only watches by default. To let it start sessions and send prompts, set `write = true` under `[phone]` in `config.toml`; a phone that can do this can run code on your computer. The app then shows a New session button: choose an agent, a directory from the ones kiln already knows (the directories of listed sessions, then zoxide's list) and a first prompt of up to 16 KB. The session starts in kiln's tmux with the provider's remote control on, and it opens in the app as a live conversation. A running session's details also have a Send box, which delivers a prompt the way `kiln msg send` does and shows "Delivered" or why it waits. A phone can start 20 sessions in ten minutes, and `kiln devices` lists each phone's latest starts.
 

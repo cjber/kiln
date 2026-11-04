@@ -23,6 +23,7 @@ import {
   sessionDirectory,
   sessionIdentity,
   sessionParents,
+  sessionRepository,
 } from "./sessions";
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
@@ -135,6 +136,8 @@ export function phoneSession(
     agent: session.agent,
     title: sessionTitle(session),
     cwd: sessionDirectory(session),
+    /** The repository a worktree belongs to, which the phone groups by as the list does. */
+    repository: session.place.kind === "cloud" ? undefined : sessionRepository(session),
     branch: session.branch,
     activity: session.activity,
     lifecycle: session.lifecycle,
@@ -199,6 +202,14 @@ export function startServer({
       return false;
     }
   };
+  /** The list order configured here, so the phone opens in the order the terminal list does. */
+  const order = () => {
+    try {
+      return settings().sort;
+    } catch {
+      return "project" as const;
+    }
+  };
   const instance = randomUUID();
   let snapshot = {
     version: 1,
@@ -209,6 +220,7 @@ export function startServer({
     problem: "Loading sessions",
     /** Whether this computer takes new sessions and prompts from its phones. */
     write: writable(),
+    sort: order(),
     sessions: [] as ReturnType<typeof phoneSession>[],
   };
   let listed: Session[] = [];
@@ -528,6 +540,7 @@ export function startServer({
         ),
         problem,
         write: writable(),
+        sort: order(),
       };
       try {
         transitions(sessions, pushing());

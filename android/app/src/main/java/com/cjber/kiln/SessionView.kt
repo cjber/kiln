@@ -517,8 +517,7 @@ private fun ConversationLine(line: Line) {
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-        ItemKind.AGENT ->
-            Text(line.text, color = Tui.fgBright, style = MaterialTheme.typography.bodyMedium)
+        ItemKind.AGENT -> Markdown(line.text)
         ItemKind.NOTICE ->
             Text(
                 line.text.lines().first().take(160),

@@ -17,6 +17,13 @@ text, such as "Tell Claude what to change" or "Type something.", send what is in
 The reply box has a + button to attach images and other files of up to 20 MB. Kiln keeps them on the
 computer for seven days, and the message tells the agent where they are.
 
+Agent replies in the session view render as Markdown: headings, lists, bold and italic text, inline
+code, code blocks, quotes, tables and links.
+
+The phone's session list opens in the order set by `sort` in `config.toml`, as the terminal list does,
+and orders sessions the same way. The project order now gathers a worktree under its repository,
+where it used to show as a group of its own.
+
 ## [0.18.1] - 2026-11-04
 
 Codex sessions opened in the app show what each command printed. Before, a command run through
