@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveSelection, selectionAt, sessionRows } from "./session-list";
 import { type Session, sessionIdentity } from "./sessions";
 
@@ -75,4 +78,31 @@ test("the cursor follows its session and rests in place when the session goes", 
   expect(resolveSelection([other, parent], at).index).toBe(0);
   expect(resolveSelection([parent], at).index).toBe(0);
   expect(resolveSelection([], at)).toEqual({ key: undefined, index: 0 });
+});
+
+test("project groups put a linked worktree under its repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-repo-"));
+  const repo = join(root, "atlas");
+  const worktree = join(root, "atlas-fix");
+  const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { stdout: "ignore", stderr: "ignore" });
+  try {
+    git("init", "-q", repo);
+    git("-C", repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "init");
+    git("-C", repo, "worktree", "add", "-q", worktree);
+    const rows = sessionRows(
+      [
+        { ...parent, cwd: repo },
+        { ...parent, pid: 3, cwd: join(worktree, "src") },
+      ],
+      "project",
+      "",
+      new Set(),
+    );
+    expect(rows.filter((row) => row.kind === "header")).toEqual([
+      { kind: "header", key: `dir:${repo}`, name: "atlas", directory: repo },
+    ]);
+    expect(entries(rows)).toEqual([1, 3]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

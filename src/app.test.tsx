@@ -1,9 +1,10 @@
 import { expect, spyOn, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
-import { App } from "./app";
+import { App, ageColor } from "./app";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
+import { color } from "./tui";
 
 test("the compact task list advances elapsed update time while discovery is stalled", async () => {
   const now = Date.now();
@@ -78,4 +79,15 @@ test("the selected session stays visible when a cloud list is taller than the te
       setup.renderer.destroy();
     });
   }
+});
+
+test("time since latest activity fades from green to grey", () => {
+  const now = 10_000_000;
+  expect([30, 300, 1_800, 7_200].map((seconds) => ageColor(now - seconds * 1_000, now))).toEqual([
+    color.green,
+    color.teal,
+    color.fgDim,
+    color.comment,
+  ]);
+  expect(ageColor(undefined, now)).toBe(color.comment);
 });

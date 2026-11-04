@@ -6,7 +6,7 @@ kiln opens native Claude, Codex, OpenCode and Pi terminal sessions and pairs wit
 
 Claude and Codex keep their own TUIs for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity.
 
-<img src="assets/list.png" alt="kiln sessions grouped by directory" />
+<img src="assets/list.png" alt="kiln sessions grouped by repository" />
 
 ## Install
 
@@ -126,7 +126,7 @@ pi = ["pi"]
 
 Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
 
-`sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. Directories are grouped by name and sessions by their most recent provider update. Branches are reread from the session directory on refresh.
+`sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. `project` groups sessions by git repository, with linked worktrees under the repository that owns them; a directory outside git is its own group. Within a group, sessions are ordered by their most recent provider update, and the time since that update fades from green to grey as it ages. Branches are reread from the session directory on refresh.
 
 Claude cloud listing is opt-in because it uses Claude's internal API. It reads an existing OAuth login and never accepts arbitrary API origins. Cloud reads are cached and refreshed asynchronously at most once per minute; provider failures retain the last successful list and show an error.
 

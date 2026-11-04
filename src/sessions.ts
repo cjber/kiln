@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 
@@ -69,6 +69,45 @@ export function sessionIdentity(session: Session): string {
 /** Where the agent works, for display and grouping; opening and resuming use `cwd`. */
 export function sessionDirectory(session: Session): string {
   return session.workdir ?? session.cwd;
+}
+
+const repositories = new Map<string, string>();
+
+/**
+ * The main repository a session works in, for project groups: a linked worktree resolves to the checkout
+ * that owns it. A directory outside git is its own project.
+ */
+export function sessionRepository(session: Session): string {
+  const directory = sessionDirectory(session);
+  let repository = repositories.get(directory);
+  if (repository === undefined) {
+    repository = mainCheckout(directory) ?? directory;
+    repositories.set(directory, repository);
+  }
+  return repository;
+}
+
+function mainCheckout(cwd: string): string | undefined {
+  try {
+    for (let dir = cwd; dir !== dirname(dir); dir = dirname(dir)) {
+      const dotGit = join(dir, ".git");
+      if (!existsSync(dotGit)) continue;
+      if (!statSync(dotGit).isFile()) return dir;
+      const gitDir = resolve(
+        dir,
+        readFileSync(dotGit, "utf8")
+          .replace(/^gitdir:\s*/, "")
+          .trim(),
+      );
+      // A submodule's git directory has no `commondir`; it is its own repository.
+      if (!existsSync(join(gitDir, "commondir"))) return dir;
+      const common = resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim());
+      return basename(common) === ".git" ? dirname(common) : common;
+    }
+  } catch {
+    // An unreadable repository groups by its directory.
+  }
+  return undefined;
 }
 
 export function gitBranch(cwd: string): string | undefined {
