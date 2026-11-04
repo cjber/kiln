@@ -73,6 +73,8 @@ fun SessionScreen(
     openTailscale: () -> Unit = {},
     notify: Boolean = false,
     onNotify: (Boolean) -> Unit = {},
+    push: Boolean = false,
+    onPush: (Boolean) -> Unit = {},
     openNotificationSettings: () -> Unit = {},
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
@@ -211,6 +213,8 @@ fun SessionScreen(
                     reconnect = onReconnect,
                     notify = notify,
                     setNotify = onNotify,
+                    push = push,
+                    setPush = onPush,
                     openNotificationSettings = openNotificationSettings,
                     pair = onPairAnother,
                     forget = { forget = true },

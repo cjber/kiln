@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
 import { flushInBackground } from "./messages";
+import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
+import { type PushAlert, pushTarget, sendPush } from "./push";
 import { sessionTitle } from "./session-list";
 import {
   type Discovered,
@@ -67,8 +69,10 @@ export function startServer({
   discover = settingsDiscovery(),
   interval = 2_000,
   idleInterval = 60_000,
+  pushInterval = 10_000,
   opencode = opencodeLinks((origin) => opencodeToken(origin, spawn)),
   tls,
+  push = sendPush,
 }: {
   port: number;
   pairing: Pairing;
@@ -77,8 +81,11 @@ export function startServer({
   interval?: number;
   /** Refresh period with no phone connected; it keeps the saved-session records current. */
   idleInterval?: number;
+  /** Refresh period with no phone connected but a phone registered for pushes. */
+  pushInterval?: number;
   /** Only the QA harness serves TLS itself; a real server sits behind Tailscale Serve or the user's tunnel. */
   tls?: Bun.TLSOptions;
+  push?: (target: Parameters<typeof sendPush>[0], alert: PushAlert) => ReturnType<typeof sendPush>;
 }) {
   const instance = randomUUID();
   let snapshot = {
@@ -152,6 +159,23 @@ export function startServer({
         refreshIfOld();
         return response(snapshot);
       }
+      if (path === "/v1/push" && request.method === "DELETE") {
+        pairing.deletePush(device.id);
+        return response({ ok: true });
+      }
+      if (path === "/v1/push" && request.method === "POST") {
+        if (!request.headers.get("Content-Type")?.startsWith("application/json"))
+          return response({ error: "Expected JSON" }, 415);
+        let target: ReturnType<typeof pushTarget>;
+        try {
+          target = pushTarget(await request.json());
+        } catch {
+          target = undefined;
+        }
+        if (!target) return response({ error: "Invalid push registration" }, 400);
+        pairing.setPush(device.id, target);
+        return response({ ok: true });
+      }
       if (request.method === "GET" && path === "/v1/events") {
         if (server.upgrade(request, { data: { token } })) return;
         return response({ error: "Expected WebSocket" }, 400);
@@ -182,6 +206,32 @@ export function startServer({
       else if (socket.send(source) === -1) socket.close(1013, "Client is too slow");
     }
   };
+  // The desktop's transition check; each change becomes an encrypted push to every registered phone.
+  const transitions = nativeNotifications((session) => {
+    const alert: Omit<PushAlert, "machine"> = {
+      v: 1,
+      host: snapshot.host,
+      session: sessionIdentity(session),
+      title: sessionTitle(session),
+      agent: session.agent,
+      cwd: sessionDirectory(session),
+      transition: session.activity === "waiting" ? "input" : "finished",
+      at: snapshot.updatedAt,
+    };
+    for (const target of pairing.pushTargets())
+      void push(target, { ...alert, machine: target.machine })
+        .then((result) => {
+          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
+        })
+        .catch(() => {});
+  });
+  const pushing = () => {
+    try {
+      return pairing.pushTargets().length > 0;
+    } catch {
+      return false;
+    }
+  };
   const refresh = async () => {
     if (refreshing) return;
     refreshing = true;
@@ -205,6 +255,11 @@ export function startServer({
         sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeLink)),
         problem,
       };
+      try {
+        transitions(sessions, pushing());
+      } catch {
+        // Push is best effort and never fails a refresh.
+      }
     } catch (error) {
       snapshot = {
         ...snapshot,
@@ -220,10 +275,14 @@ export function startServer({
       publish();
     }
   };
-  // Discovery starts several provider CLIs, so it runs every interval only while a phone watches.
+  // Discovery starts several provider CLIs, so it runs every interval only while a phone watches,
+  // or while a session works and a phone waits for its push. With pushes on and nothing working it
+  // still looks every `pushInterval`, so a turn that starts and ends between idle checks is caught.
   const timer = setInterval(() => {
     publish();
-    if (sockets.size || Date.now() - refreshedAt >= idleInterval) void refresh();
+    const working = snapshot.sessions.some((row) => row.where !== "cloud" && row.activity === "working");
+    const since = Date.now() - refreshedAt;
+    if (sockets.size || (pushing() && (working || since >= pushInterval)) || since >= idleInterval) void refresh();
   }, interval);
   void refresh();
   return {
