@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pending } from "./mailbox";
 import { Pairing, serverOrigin, startLimit } from "./pairing";
 import { offeredDirectories, phoneSession, promptLimit, startServer } from "./server";
 import { keepLast, type Session, sessionParents } from "./sessions";
@@ -60,6 +61,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     discover: keepLast(async () => {
       if (fail) throw new Error("private provider response");
@@ -134,6 +136,7 @@ test("a phone registered for pushes keeps discovery checking between idle refres
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     idleInterval: 60_000,
     pushInterval: 60,
@@ -159,6 +162,7 @@ test("discovery runs every interval only while a phone is connected", async () =
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     idleInterval: 60_000,
     discover: async () => {
@@ -227,6 +231,7 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     settings: () => current,
     discover: keepLast(
@@ -330,4 +335,113 @@ test("offered directories put listed sessions first, newest first, and drop miss
       (path) => path !== "/gone",
     ),
   ).toEqual(["/new", "/old", "/ranked"]);
+});
+
+test("a session view reads its transcript, posts a retried reply once and refuses what it cannot do", async () => {
+  const { directory, pairing } = fixture();
+  const before = { config: Bun.env.CLAUDE_CONFIG_DIR, state: Bun.env.XDG_STATE_HOME };
+  Bun.env.CLAUDE_CONFIG_DIR = join(directory, "claude");
+  Bun.env.XDG_STATE_HOME = join(directory, "state");
+  const id = "00000000-0000-0000-0000-0000000000c1";
+  const projects = join(directory, "claude", "projects", "-project");
+  mkdirSync(projects, { recursive: true });
+  writeFileSync(
+    join(projects, `${id}.jsonl`),
+    `${JSON.stringify({ type: "user", uuid: "u1", origin: { kind: "human" }, message: { content: "hello" } })}\n`,
+  );
+  const sessions: Session[] = [
+    {
+      agent: "claude",
+      id,
+      cwd: "/project",
+      startedAt: 1,
+      pid: 42,
+      activity: "working",
+      place: { kind: "kiln", name: "claude-1" },
+    },
+    { agent: "claude", id: "elsewhere-1", cwd: "/project", startedAt: 1, pid: 43, place: { kind: "elsewhere" } },
+    {
+      agent: "claude",
+      cwd: "/project",
+      startedAt: 1,
+      pid: 44,
+      activity: "idle",
+      place: { kind: "kiln", name: "claude-2" },
+    },
+  ];
+  let write = false;
+  const server = startServer({
+    port: 0,
+    pairing,
+    seen: async () => new Map(),
+    interval: 20,
+    settings: () => ({ ...defaults, zoxide: false, phoneWrite: write }),
+    discover: async () => ({ sessions, problem: "", stale: false }),
+  });
+  const origin = `http://127.0.0.1:${server.port}`;
+  try {
+    const invitation = pairing.invite();
+    const paired = pairing.exchange(invitation, "test");
+    if (!paired) throw new Error("pairing failed");
+    const headers = { Authorization: `Bearer ${paired.token}`, "Content-Type": "application/json" };
+    const base = `${origin}/v1/sessions/${encodeURIComponent(`claude:${id}`)}`;
+    await Bun.sleep(40);
+    expect((await fetch(`${base}/view`)).status).toBe(401);
+    // Reading a conversation and stopping a turn sit behind the same switch as sending to it.
+    expect((await fetch(`${base}/view`, { headers })).status).toBe(403);
+    expect((await fetch(`${base}/interrupt`, { method: "POST", headers })).status).toBe(403);
+    write = true;
+    const view = (await (await fetch(`${base}/view`, { headers })).json()) as {
+      abilities: { read: boolean; reply?: string; stop: boolean };
+      items: { text: string }[];
+      cursor: string;
+    };
+    expect(view.abilities).toEqual({ read: true, reply: undefined, stop: true });
+    expect(view.items.map((item) => item.text)).toEqual(["hello"]);
+    const again = (await (await fetch(`${base}/view?cursor=${view.cursor}`, { headers })).json()) as {
+      items: unknown[];
+      reset: boolean;
+    };
+    expect(again).toMatchObject({ items: [], reset: false });
+    // Claude is working, so the reply waits; a retry under the same id is the same message.
+    const send = () =>
+      fetch(`${base}/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ id: "message-0001", text: "next" }),
+      });
+    expect(await (await send()).json()).toMatchObject({ delivered: false });
+    expect((await send()).status).toBe(200);
+    expect(pending(join(directory, "state", "kiln", "mailbox.sqlite"))).toMatchObject([
+      { id: `phone-${paired.device.id}-message-0001`, from: "phone:test", to: `claude:${id}`, body: "next" },
+    ]);
+    const bad = await fetch(`${base}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: "x", text: "y" }),
+    });
+    expect(bad.status).toBe(400);
+    const other = `${origin}/v1/sessions/${encodeURIComponent("claude:elsewhere-1")}`;
+    expect((await fetch(`${other}/interrupt`, { method: "POST", headers })).status).toBe(409);
+    expect((await fetch(`${origin}/v1/sessions/nope/view`, { headers })).status).toBe(404);
+    // Without a provider id the mailbox could never deliver it, and an idle session has no turn to stop.
+    const unnamed = `${origin}/v1/sessions/${encodeURIComponent("claude:44:1")}`;
+    const abilities = ((await (await fetch(`${unnamed}/view`, { headers })).json()) as { abilities: unknown })
+      .abilities;
+    expect(abilities).toEqual({
+      read: false,
+      reply: "kiln can only write to a running session that reports its id",
+      stop: false,
+    });
+    expect((await fetch(`${unnamed}/interrupt`, { method: "POST", headers })).status).toBe(409);
+  } finally {
+    server.stop();
+    pairing.close();
+    for (const [key, value] of [
+      ["CLAUDE_CONFIG_DIR", before.config],
+      ["XDG_STATE_HOME", before.state],
+    ] as const)
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+  }
 });

@@ -54,11 +54,21 @@ const message = (row: Row): Message => ({
   failedAt: row.failedAt ?? undefined,
 });
 
-export function post(from: string, to: string, body: string, path = mailboxPath(), now = Date.now()): Message {
+export function post(
+  from: string,
+  to: string,
+  body: string,
+  path = mailboxPath(),
+  now = Date.now(),
+  id: string = crypto.randomUUID(),
+): Message {
   const db = open(path);
   // Immediate, so two senders cannot both count 19 and both insert.
   return db
     .transaction(() => {
+      // A retry of a message already posted under its id is the same message, not a second one.
+      const posted = db.query<Row, [string]>("SELECT * FROM messages WHERE id = ?").get(id);
+      if (posted) return message(posted);
       const { sent } = db
         .query<{ sent: number }, [string, string, number]>(
           'SELECT count(*) AS sent FROM messages WHERE "from" = ? AND "to" = ? AND createdAt > ?',
@@ -66,7 +76,7 @@ export function post(from: string, to: string, body: string, path = mailboxPath(
         .get(from, to, now - sendLimit.perMs) ?? { sent: 0 };
       if (sent >= sendLimit.count)
         throw new Error(`${sendLimit.count} messages to ${to} in ten minutes; wait before sending more`);
-      const created = { id: crypto.randomUUID(), from, to, body, createdAt: now };
+      const created = { id, from, to, body, createdAt: now };
       db.query('INSERT INTO messages (id, "from", "to", body, createdAt) VALUES (?, ?, ?, ?, ?)').run(
         created.id,
         from,

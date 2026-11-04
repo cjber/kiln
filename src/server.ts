@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { codexRemoteHost } from "./codex";
+import { conversationReader } from "./conversation";
 import { startFromPhone } from "./launcher";
 import { post } from "./mailbox";
-import { flush, flushInBackground, phoneSender, reachable } from "./messages";
+import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
 import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
@@ -24,6 +25,7 @@ import {
 } from "./sessions";
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
+import { attachedClients, lastSeen, sendKey } from "./tmux";
 import { rankedDirectories } from "./zoxide";
 
 /** The largest first prompt or message a phone can send, in UTF-8 bytes. */
@@ -86,6 +88,23 @@ export function offeredDirectories(
   return [...new Set([...recent, ...ranked])].filter(exists).slice(0, 500);
 }
 
+/** What the phone can do in a session's view, and why not when it cannot. */
+export function sessionAbilities(session: Session): { read: boolean; reply?: string; stop: boolean } {
+  const way = route(session);
+  return {
+    read: conversationReader(session) !== undefined,
+    // A reply the agent cannot take now waits in kiln's mailbox; only a session kiln can never type into refuses it.
+    reply: !reachable(session)
+      ? "kiln can only write to a running session that reports its id"
+      : "inbox" in way
+        ? way.inbox
+        : undefined,
+    // Only a turn kiln knows is running is stopped: Escape on a prompt or an unknown state could clear someone's typing.
+    // OpenCode's TUI wants Escape twice, so a single key could not stop it reliably.
+    stop: session.agent !== "opencode" && session.place.kind === "kiln" && session.activity === "working",
+  };
+}
+
 /** Phones know one `background` place; kiln's finer kinds stay off the wire so paired apps keep working. */
 function wireKind(place: Place): "kiln" | "kitty" | "background" | "elsewhere" | "cloud" {
   switch (place.kind) {
@@ -106,6 +125,7 @@ export function phoneSession(
   parent?: Session,
   codexHost?: string,
   opencodeLink?: (id: string) => string,
+  seenAt?: number,
 ) {
   return {
     id: sessionIdentity(session),
@@ -121,6 +141,8 @@ export function phoneSession(
     where: wireKind(session.place),
     /** Kiln's tmux name, which a phone matches against the session it just started. */
     terminal: session.place.kind === "kiln" ? session.place.name : undefined,
+    /** When the person last attached to or typed in its terminal here, so a phone clears what they have read. */
+    seenAt,
     handoff: phoneHandoff(session, codexHost, opencodeLink),
   };
 }
@@ -144,6 +166,7 @@ export function startServer({
   settings = loadSettings,
   start = startFromPhone,
   deliver = flush,
+  seen = lastSeen,
   offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
 }: {
   port: number;
@@ -162,6 +185,8 @@ export function startServer({
   settings?: () => Settings;
   start?: typeof startFromPhone;
   deliver?: (sessions: readonly Session[]) => ReturnType<typeof flush>;
+  /** When the person last looked at each kiln terminal, by tmux name. */
+  seen?: () => Promise<Map<string, number>>;
   /** The directories a phone may start in, given the listed sessions. */
   offer?: (sessions: readonly Session[], settings: Settings) => string[];
 }) {
@@ -212,21 +237,51 @@ export function startServer({
     void refresh();
     return { terminal: outcome.name };
   };
-  const sendMessage = async (device: { name: string }, id: string, request: Request) => {
+  const sendMessage = async (device: { id: string; name: string }, id: string, request: Request) => {
     writeSettings();
     const body = await jsonBody(request, 4 * promptLimit, "Invalid message");
     const text = typedText(body.text, "message");
+    // A phone that retries after a dropped response sends the same id, and the message is posted once.
+    if (body.id !== undefined && (typeof body.id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(body.id)))
+      throw new Refusal(400, "Invalid message id");
     if (!listed.some((session) => reachable(session) && sessionIdentity(session) === id))
       throw new Refusal(404, "That session is not running");
     let message: ReturnType<typeof post>;
     try {
-      message = post(phoneSender(device.name), id, text);
+      const key = body.id === undefined ? undefined : `phone-${device.id}-${body.id}`;
+      message = post(phoneSender(device.name), id, text, undefined, undefined, key);
     } catch (error) {
       throw new Refusal(429, error instanceof Error ? error.message : "Too many messages");
     }
     const outcome = (await deliver(listed)).find((item) => item.message.id === message.id);
     // Another pass claimed it first, which is a delivery too, as `kiln msg send` reports it.
     return outcome && !outcome.delivered ? { delivered: false, reason: outcome.reason } : { delivered: true };
+  };
+  const listedSession = (id: string) => {
+    writeSettings();
+    const session = listed.find((row) => sessionIdentity(row) === id);
+    if (!session) throw new Refusal(404, "That session is not listed");
+    return session;
+  };
+  const viewSession = (id: string, cursor: string | null) => {
+    const session = listedSession(id);
+    const abilities = sessionAbilities(session);
+    const read = conversationReader(session);
+    try {
+      if (read) return { abilities, ...read(cursor ?? undefined) };
+    } catch {
+      // A transcript not written yet, or unreadable, shows as an empty conversation.
+    }
+    return { abilities, items: [], cursor: "", reset: true };
+  };
+  const stopTurn = (id: string) => {
+    const session = listedSession(id);
+    if (!sessionAbilities(session).stop || session.place.kind !== "kiln")
+      throw new Refusal(409, "This session cannot be stopped from the phone");
+    // Escape is how Claude's own terminal ends a turn; it does nothing while Claude is idle.
+    if (attachedClients(session.place.name) === undefined || !sendKey(session.place.name, "Escape"))
+      throw new Refusal(409, "Its terminal has closed");
+    return { stopped: true };
   };
   let refreshing = false;
   let refreshedAt = 0;
@@ -314,6 +369,11 @@ export function startServer({
         const messages = path.match(/^\/v1\/sessions\/([^/]+)\/messages$/)?.[1];
         if (request.method === "POST" && messages)
           return response(await sendMessage(device, decodeURIComponent(messages), request));
+        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt)$/);
+        if (action?.[1] && action[2] === "view" && request.method === "GET")
+          return response(viewSession(decodeURIComponent(action[1]), new URL(request.url).searchParams.get("cursor")));
+        if (action?.[1] && action[2] === "interrupt" && request.method === "POST")
+          return response(stopTurn(decodeURIComponent(action[1])));
       } catch (error) {
         if (error instanceof Refusal) return response({ error: error.message }, error.status);
         if (error instanceof URIError) return response({ error: "Invalid session name" }, 400);
@@ -346,6 +406,16 @@ export function startServer({
       else if (socket.send(source) === -1) socket.close(1013, "Client is too slow");
     }
   };
+  const pushAll = (alert: Omit<PushAlert, "machine">) => {
+    for (const target of pairing.pushTargets())
+      void push(target, { ...alert, machine: target.machine })
+        .then((result) => {
+          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
+        })
+        .catch(() => {});
+  };
+  /** Alerts pushed and not yet read here, by session; reading one clears it on the phones. */
+  const unread = new Map<string, Omit<PushAlert, "machine">>();
   // The desktop's transition check; each change becomes an encrypted push to every registered phone.
   const transitions = nativeNotifications((session) => {
     const alert: Omit<PushAlert, "machine"> = {
@@ -358,13 +428,18 @@ export function startServer({
       transition: session.activity === "waiting" ? "input" : "finished",
       at: snapshot.updatedAt,
     };
-    for (const target of pairing.pushTargets())
-      void push(target, { ...alert, machine: target.machine })
-        .then((result) => {
-          if (result === "gone") pairing.deletePush(target.device, target.endpoint);
-        })
-        .catch(() => {});
+    unread.set(alert.session, alert);
+    pushAll(alert);
   });
+  /** A session that is working again, was looked at after its alert, or has closed, has been read. */
+  const clearRead = () => {
+    for (const [id, alert] of unread) {
+      const row = snapshot.sessions.find((session) => session.id === id);
+      if (row && row.activity !== "working" && (row.seenAt ?? 0) <= alert.at) continue;
+      unread.delete(id);
+      pushAll({ ...alert, transition: "read" });
+    }
+  };
   const pushing = () => {
     try {
       return pairing.pushTargets().length > 0;
@@ -388,17 +463,27 @@ export function startServer({
           ? (id: string) => opencode.path(id)
           : undefined;
       const parents = sessionParents(sessions);
+      const looked = sessions.some((row) => row.place.kind === "kiln") ? await seen() : new Map<string, number>();
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
         // Phones time freshness from this, so it moves only on a full successful load.
         updatedAt: stale ? snapshot.updatedAt : Date.now(),
-        sessions: sessions.map((session) => phoneSession(session, parents.get(session), codexHost.id, opencodeLink)),
+        sessions: sessions.map((session) =>
+          phoneSession(
+            session,
+            parents.get(session),
+            codexHost.id,
+            opencodeLink,
+            session.place.kind === "kiln" ? looked.get(session.place.name) : undefined,
+          ),
+        ),
         problem,
         write: writable(),
       };
       try {
         transitions(sessions, pushing());
+        if (!stale) clearRead();
       } catch {
         // Push is best effort and never fails a refresh.
       }

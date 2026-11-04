@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
         var sort by rememberSaveable { mutableStateOf(SessionOrder.PROJECT) }
         var expanded by remember { mutableStateOf(emptySet<String>()) }
         var details by remember { mutableStateOf<Row?>(null) }
+        var opened by rememberSaveable { mutableStateOf<String?>(null) }
         var handoff by remember { mutableStateOf<Row?>(null) }
         var state by remember { mutableStateOf(ConnectionState.CONNECTING) }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
@@ -187,6 +188,13 @@ class MainActivity : ComponentActivity() {
             remember(host?.origin) {
                 mutableStateOf(host != null && notifyEnabled(this@MainActivity, host.origin))
             }
+        // Opening a session here reads it, so its notification goes.
+        LaunchedEffect(host?.origin, opened, details?.id) {
+            val origin = host?.origin ?: return@LaunchedEffect
+            listOfNotNull(opened, details?.id).forEach {
+                Alerts.clear(this@MainActivity, origin, it)
+            }
+        }
         val askedPreferences = remember { getSharedPreferences("notifications", MODE_PRIVATE) }
         var askNotifications by remember { mutableStateOf(false) }
         val permission =
@@ -381,7 +389,7 @@ class MainActivity : ComponentActivity() {
                     }
                 },
             )
-        // A tapped notification opens its machine, then the session's details once it is listed.
+        // A tapped notification opens its machine, then the session once it is listed.
         LaunchedEffect(target) {
             val origin = target?.first ?: return@LaunchedEffect
             if (hosts.any { it.origin == origin }) {
@@ -393,7 +401,11 @@ class MainActivity : ComponentActivity() {
             val (origin, id) = target ?: return@LaunchedEffect
             if (host?.origin != origin) return@LaunchedEffect
             val rows = snapshot?.rows ?: return@LaunchedEffect
-            details = rows.find { it.id == id }
+            rows
+                .find { it.id == id }
+                ?.let {
+                    if (opensView(snapshot, it)) opened = it.id else details = it
+                }
             target = null
         }
         DisposableEffect(Unit) {
@@ -421,9 +433,13 @@ class MainActivity : ComponentActivity() {
             )
             onDispose { manager.unregisterNetworkCallback(callback) }
         }
-        fun launch(row: Row) {
+        fun handOff(row: Row) {
             if (row.url == null) details = row
             else if (row.exact) openSession(row) { error = it } else handoff = row
+        }
+        // Claude sessions open in kiln's own view; the others still hand off to their app.
+        fun launch(row: Row) {
+            if (opensView(snapshot, row)) opened = row.id else handOff(row)
         }
         details?.let { original ->
             val row = snapshot?.rows?.find { it.id == original.id } ?: original
@@ -433,7 +449,7 @@ class MainActivity : ComponentActivity() {
                 dismiss = { details = null },
                 open = {
                     details = null
-                    launch(row)
+                    handOff(row)
                 },
                 copy = { copyId(row) },
                 hidden = row.id in effectiveHidden,
@@ -554,6 +570,10 @@ class MainActivity : ComponentActivity() {
                     invitation = ""
                 },
             )
+        } else if (host != null && opened != null) {
+            val row = snapshot?.rows?.find { it.id == opened }
+            if (row == null) LaunchedEffect(snapshot) { if (snapshot != null) opened = null }
+            else SessionView(host, row, back = { opened = null }, details = { details = row })
         } else {
             screenState.SaveableStateProvider(host?.origin ?: "unpaired") {
                 key(host?.origin) {

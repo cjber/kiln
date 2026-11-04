@@ -13,6 +13,7 @@ const val WATCHING = "watching"
 const val OPEN_SESSION = "com.cjber.kiln.OPEN_SESSION"
 const val EXTRA_ORIGIN = "origin"
 const val EXTRA_SESSION = "session"
+private const val EXTRA_AT = "com.cjber.kiln.at"
 
 /** One session's turn ending, from the live connection or from a push. */
 data class TurnAlert(
@@ -46,6 +47,9 @@ class RecentAlerts(stored: String, private val limit: Int = 64) {
             listOf(origin, alert.session, alert.at.toString()).joinToString("\t").replace('\n', ' ')
     }
 }
+
+/** Whether an alert shown at [at], by the machine's clock, has been read on that machine. */
+fun isRead(row: Row, at: Long): Boolean = row.activity == Activity.WORKING || row.seen > at
 
 /** Posts the turn notifications the watch service and the push service share. */
 object Alerts {
@@ -99,6 +103,39 @@ object Alerts {
         )
     }
 
+    private fun notificationId(origin: String, session: String) =
+        (origin + "\n" + session).hashCode()
+
+    /** Removes the session's alert, and the machine's summary once nothing is left under it. */
+    fun clear(context: Context, origin: String, session: String) {
+        val notifications = context.getSystemService(NotificationManager::class.java)
+        notifications.cancel(notificationId(origin, session))
+        val left =
+            notifications.activeNotifications.any {
+                it.notification.group == origin &&
+                    it.id != origin.hashCode() &&
+                    it.id != notificationId(origin, session)
+            }
+        if (!left) notifications.cancel(origin.hashCode())
+    }
+
+    /**
+     * Clears each alert from this machine that has been read there: its session is working again,
+     * was attached to or typed in after the alert, or is no longer listed.
+     */
+    fun clearRead(context: Context, origin: String, snapshot: Snapshot) {
+        val notifications = context.getSystemService(NotificationManager::class.java)
+        for (shown in notifications.activeNotifications) {
+            if (shown.notification.group != origin) continue
+            val session = shown.notification.extras.getString(EXTRA_SESSION) ?: continue
+            val at = shown.notification.extras.getLong(EXTRA_AT)
+            val row = snapshot.rows.find { it.id == session }
+            // The machine's first snapshot lists nothing yet, which is not every session closing.
+            val closed = row == null && snapshot.updated > at
+            if (closed || (row != null && isRead(row, at))) clear(context, origin, session)
+        }
+    }
+
     /** Records `alert` as shown and returns false when it already was. */
     @Synchronized
     private fun firstDelivery(context: Context, origin: String, alert: TurnAlert): Boolean {
@@ -114,7 +151,7 @@ object Alerts {
         createChannels(context)
         val notifications = context.getSystemService(NotificationManager::class.java)
         val title = alert.title.ifBlank { "${agentName(alert.agent)} session" }
-        val id = (host.origin + "\n" + alert.session).hashCode()
+        val id = notificationId(host.origin, alert.session)
         notifications.notify(
             id,
             Notification.Builder(context, if (alert.waiting) NEEDS_INPUT else TURN_FINISHED)
@@ -127,6 +164,12 @@ object Alerts {
                 .setGroup(host.origin)
                 .setAutoCancel(true)
                 .setContentIntent(openApp(context, id, host.origin to alert.session))
+                .addExtras(
+                    android.os.Bundle().apply {
+                        putString(EXTRA_SESSION, alert.session)
+                        putLong(EXTRA_AT, alert.at)
+                    }
+                )
                 .build(),
         )
         notifications.notify(

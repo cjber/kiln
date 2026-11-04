@@ -55,6 +55,8 @@ data class Row(
     val parent: String? = null,
     /** Kiln's tmux name for a session it runs, which a session this phone started is found by. */
     val terminal: String? = null,
+    /** When the person last attached to or typed in its terminal on the machine, by its clock. */
+    val seen: Long = 0,
 )
 
 data class Snapshot(
@@ -98,6 +100,13 @@ fun parseSent(source: String): String {
     return if (json.getBoolean("delivered")) "Delivered"
     else "Waiting: ${json.getString("reason").replaceFirstChar { it.uppercase() }}"
 }
+
+/**
+ * A session on the computer opens in the app's own view on a machine that takes writes; a cloud
+ * task opens its details.
+ */
+fun opensView(snapshot: Snapshot?, row: Row): Boolean =
+    snapshot?.write == true && row.where != Place.CLOUD
 
 /** Phones send prompts only to sessions that are running somewhere kiln can reach. */
 fun canMessage(row: Row): Boolean =
@@ -245,6 +254,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 handoff.optBoolean("exact"),
                 item.optString("parentId").takeIf { it.isNotEmpty() },
                 item.optString("terminal").takeIf { it.isNotEmpty() },
+                item.optLong("seenAt"),
             )
         }
     return Snapshot(

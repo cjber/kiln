@@ -148,13 +148,14 @@ export function claudeSessionStatus(pid: number, dir = claudeConfigDir()): strin
   }
 }
 
-function claudeTranscriptPath(item: ClaudeAgent): string | undefined {
-  if (!item.sessionId || !/^[A-Za-z0-9-]+$/.test(item.sessionId)) return undefined;
-  return join(claudeConfigDir(), "projects", item.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${item.sessionId}.jsonl`);
+/** Where Claude writes a session's transcript: under the directory it started in, named by its session id. */
+export function claudeTranscript(cwd: string, sessionId: string | undefined): string | undefined {
+  if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
+  return join(claudeConfigDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
 function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {
-  const path = claudeTranscriptPath(item);
+  const path = claudeTranscript(item.cwd, item.sessionId);
   try {
     return path ? statSync(path).mtimeMs : undefined;
   } catch {
@@ -176,7 +177,7 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
       !item.cwd.startsWith("/")
     )
       return [];
-    const transcript = claudeTranscriptPath(item);
+    const transcript = claudeTranscript(item.cwd, item.sessionId);
     const { title, workdir } = transcript ? readTranscript(transcript) : {};
     return [
       {
@@ -225,7 +226,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     )
     .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
     .flatMap((item) => {
-      const transcript = claudeTranscriptPath(item);
+      const transcript = claudeTranscript(item.cwd, item.sessionId);
       const { title, workdir } = transcript ? readTranscript(transcript) : {};
       // The record only tells `shell` apart from `busy`, so a stale one never makes a busy session idle.
       // A failed listing has no status, and stays unknown.

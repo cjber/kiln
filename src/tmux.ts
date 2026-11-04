@@ -45,6 +45,38 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
 }
 
 /**
+ * When the person last looked at each session, in milliseconds: the later of its last attach and the last key a
+ * client attached to it sent. tmux keeps both to the second.
+ */
+export async function lastSeen(): Promise<Map<string, number>> {
+  const read = async (args: string[]) => {
+    try {
+      const process = Bun.spawn([...tmux, ...args], { stdout: "pipe", stderr: "ignore" });
+      const timeout = setTimeout(() => process.kill(), 2_000);
+      const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
+      clearTimeout(timeout);
+      return code ? [] : source.split("\n").filter(Boolean);
+    } catch {
+      // Without tmux nothing has been looked at, and the sessions still list.
+      return [];
+    }
+  };
+  const lines = (
+    await Promise.all([
+      read(["list-sessions", "-F", "#{session_name}\t#{session_last_attached}"]),
+      read(["list-clients", "-F", "#{session_name}\t#{client_activity}"]),
+    ])
+  ).flat();
+  const seen = new Map<string, number>();
+  for (const line of lines) {
+    const [name = "", seconds = ""] = line.split("\t");
+    const at = Number(seconds) * 1000;
+    if (name && at > (seen.get(name) ?? 0)) seen.set(name, at);
+  }
+  return seen;
+}
+
+/**
  * Paste text into a session's pane as one bracketed paste, then press Enter, as if it were typed. A paste keeps
  * newlines from submitting early; the pause lets the agent's TUI take the paste before the key that sends it.
  */
@@ -57,6 +89,11 @@ export async function submitText(name: string, text: string): Promise<void> {
   }
   await Bun.sleep(300);
   if (!run("send-keys", "-t", target, "Enter")) throw new Error(`could not type into ${name}`);
+}
+
+/** Press a key in a session's pane, as tmux names it (`Escape`, `Enter`, `C-c`). */
+export function sendKey(name: string, key: string): boolean {
+  return run("send-keys", "-t", `=${name}:`, key);
 }
 
 /** How many terminals have the session open; none when it has closed. */

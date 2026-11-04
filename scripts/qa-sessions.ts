@@ -101,3 +101,53 @@ export const many: Session[] = Array.from({ length: 60 }, (_, index) => ({
 }));
 
 export const seeds: Record<string, Session[]> = { empty: [], short, many };
+
+/** A short conversation for each seeded Claude session, as Claude writes it, so the phone's session view has lines. */
+export function seededTranscript(title: string): string {
+  const at = (minutes: number) => new Date(now - minutes * minute).toISOString();
+  const records = [
+    { type: "user", uuid: "q1", timestamp: at(9), origin: { kind: "human" }, message: { content: `${title}, please` } },
+    {
+      type: "assistant",
+      uuid: "q2",
+      timestamp: at(8),
+      message: {
+        content: [
+          { type: "text", text: "Looking at the failing check first." },
+          { type: "tool_use", id: "qt1", name: "Bash", input: { command: "bun test", description: "Run the tests" } },
+        ],
+      },
+    },
+    {
+      type: "user",
+      uuid: "q3",
+      timestamp: at(7),
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "qt1", is_error: true, content: "1 fail\nexpected 3, got 2" }],
+      },
+    },
+    {
+      type: "assistant",
+      uuid: "q4",
+      timestamp: at(6),
+      message: {
+        content: [
+          { type: "tool_use", id: "qt2", name: "Edit", input: { file_path: "/home/demo/code/atlas/src/count.ts" } },
+        ],
+      },
+    },
+    {
+      type: "user",
+      uuid: "q5",
+      timestamp: at(5),
+      message: { content: [{ type: "tool_result", tool_use_id: "qt2", content: "Updated count.ts" }] },
+    },
+    {
+      type: "assistant",
+      uuid: "q6",
+      timestamp: at(4),
+      message: { content: [{ type: "text", text: "Fixed the off-by-one in count.ts. The test passes now." }] },
+    },
+  ];
+  return records.map((record) => `${JSON.stringify(record)}\n`).join("");
+}

@@ -73,7 +73,7 @@ fun SessionCard(
                 .background(MaterialTheme.colorScheme.background)
                 .heightIn(min = 48.dp)
                 .combinedClickable(
-                    onClick = { if (row.url != null) open() else details() },
+                    onClick = open,
                     onLongClickLabel = "Details",
                     onLongClick = details,
                 )

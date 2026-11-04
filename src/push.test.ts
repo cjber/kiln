@@ -228,10 +228,13 @@ test("the push route validates, replaces, unregisters, pushes turn ends and forg
     });
     expect(sent[0]?.alert.at).toBeLessThanOrEqual(snapshot.updatedAt);
 
+    // Working again means the person answered, so the phone clears the alert.
+    activity = "working";
+    while (sent.at(-1)?.alert.transition !== "read") await Bun.sleep(10);
+    expect(sent.at(-1)?.alert).toMatchObject({ session: "claude:s1", at: sent[0]?.alert.at });
+
     // An endpoint the distributor says is gone is dropped after its next push.
     reply = "gone";
-    activity = "working";
-    await Bun.sleep(60);
     activity = "waiting";
     while (pairing.pushTargets().length) await Bun.sleep(10);
     expect(sent.at(-1)?.alert.transition).toBe("input");
@@ -247,6 +250,72 @@ test("the push route validates, replaces, unregisters, pushes turn ends and forg
     expect((await register(body, paired.token)).status).toBe(200);
     pairing.revoke(paired.device.id);
     expect(pairing.pushTargets()).toEqual([]);
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
+test("an alert is cleared once its terminal is attached or typed in after it, and only once", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kiln-push-test-"));
+  directories.push(directory);
+  const pairing = new Pairing(join(directory, "devices.sqlite"));
+  let activity: Session["activity"] = "working";
+  let seenAt = 0;
+  const sent: PushAlert[] = [];
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    idleInterval: 20,
+    discover: async () => ({
+      sessions: [
+        {
+          agent: "claude",
+          id: "s1",
+          cwd: "/project",
+          startedAt: 1,
+          activity,
+          place: { kind: "kiln", name: "claude-1" },
+        },
+      ],
+      problem: "",
+      stale: false,
+    }),
+    seen: async () => new Map([["claude-1", seenAt]]),
+    push: async (_, next) => {
+      sent.push(next);
+      return "sent";
+    },
+  });
+  try {
+    const paired = pairing.exchange(pairing.invite(), "Pixel");
+    if (!paired) throw new Error("pairing failed");
+    const keys = phoneKeys();
+    pairing.setPush(paired.device.id, {
+      endpoint: "https://ntfy.sh/upOne",
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      machine: "https://desk.example",
+    });
+    await Bun.sleep(60);
+    activity = "idle";
+    while (!sent.length) await Bun.sleep(10);
+    const at = sent[0]?.at ?? 0;
+    // Looking before the alert is not reading it.
+    seenAt = at;
+    await Bun.sleep(80);
+    expect(sent.map((alert) => alert.transition)).toEqual(["finished"]);
+    const rows = (await (
+      await fetch(`http://127.0.0.1:${server.port}/v1/sessions`, {
+        headers: { Authorization: `Bearer ${paired.token}` },
+      })
+    ).json()) as { sessions: { seenAt?: number }[] };
+    expect(rows.sessions[0]?.seenAt).toBe(at);
+    seenAt = at + 1000;
+    while (sent.length < 2) await Bun.sleep(10);
+    await Bun.sleep(80);
+    expect(sent.map((alert) => alert.transition)).toEqual(["finished", "read"]);
   } finally {
     server.stop();
     pairing.close();
