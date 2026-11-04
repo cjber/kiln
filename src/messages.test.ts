@@ -60,6 +60,8 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
   expect(route(session({ activity: undefined }))).toEqual({ wait: "its status is unknown" });
   expect("inbox" in route(session({ place: { kind: "elsewhere" } }))).toBe(true);
   expect(route(session({ agent: "codex", activity: "working" }))).toEqual({ wait: "Codex is working" });
+  expect(route(session({ activity: "working", turnEnded: true }))).toEqual({ push: "tmux" });
+  expect(route(session({ agent: "codex", activity: "working", turnEnded: true }))).toEqual({ push: "codex" });
   expect(route(session({ agent: "codex", activity: "idle", place: { kind: "thread", id: "c1", attach: [] } }))).toEqual(
     {
       push: "codex",
