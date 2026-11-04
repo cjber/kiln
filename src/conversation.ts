@@ -188,10 +188,27 @@ function codexScript(input: string): string {
   return clip(input.trim().split("\n")[0] ?? "", 300);
 }
 
-function codexOutput(output: unknown): string {
-  const text = typeof output === "string" ? output : texts(output, "input_text").join("\n");
-  // Code mode wraps every result in a status header that says nothing about the command.
-  return resultText(text.replace(/^(Script completed\n)?(Wall time[^\n]*\n)?(Output:\n)?/, ""));
+function codexOutput(output: unknown): { text: string; error: boolean } {
+  let error = false;
+  const parts = (typeof output === "string" ? [output] : texts(output, "input_text"))
+    // Code mode wraps every result in a status header that says nothing about the command.
+    .map((part) => part.replace(/^(Script completed\n)?(Wall time[^\n]*\n)?(Output:\n)?/, "").trim())
+    .map((part) => {
+      // A command run through code mode returns its chunk as JSON, with the output in `output`.
+      try {
+        const chunk = JSON.parse(part);
+        if (typeof chunk?.output === "string") {
+          error ||= typeof chunk.exit_code === "number" && chunk.exit_code !== 0;
+          return chunk.output.trim();
+        }
+        if (chunk && typeof chunk === "object" && !Object.keys(chunk).length) return "";
+      } catch {
+        // Plain text, or a chunk Codex cut short.
+      }
+      return part;
+    })
+    .filter(Boolean);
+  return { text: resultText(parts.join("\n")), error };
 }
 
 /** The items one Codex rollout record holds. */
@@ -227,9 +244,7 @@ export function codexItems(record: Record<string, unknown>): Item[] {
       return [{ id: call, at, kind: "tool", tool: payload.name, text: codexScript(String(payload.input ?? "")) }];
     case "function_call_output":
     case "custom_tool_call_output":
-      return call
-        ? [{ id: `${id}:result`, at, kind: "result", of: call, text: codexOutput(payload.output), error: false }]
-        : [];
+      return call ? [{ id: `${id}:result`, at, kind: "result", of: call, ...codexOutput(payload.output) }] : [];
     default:
       return [];
   }

@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+Codex sessions opened in the app show what each command printed. Before, a command run through
+Codex's code mode showed its raw JSON result, and a failed command now shows as an error.
+
 ## [0.18.0] - 2026-11-04
 
 - **Start sessions and send prompts from the phone.** With `write = true` under `[phone]` in `config.toml`, the Android app gains a New session button: pick an agent, one of the directories kiln already knows (your listed sessions and zoxide's list) and a first prompt, and the session starts on your computer with the provider's remote control on. The app then opens its details, where Claude and Codex sessions open in the provider's own app. Each running session's details also get a Send box that delivers a prompt the way `kiln msg send` does and says whether it was delivered or why it waits. Writes are off by default, `kiln pair` says which mode it pairs for, and `kiln devices` lists the sessions each phone started.

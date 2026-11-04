@@ -121,6 +121,16 @@ test("Codex and Pi records map to the same items, without Codex's injected conte
         call_id: "c2",
         output: [{ type: "input_text", text: "Script completed\nWall time 1s\nOutput:\n3 pass" }],
       }),
+      response({
+        type: "custom_tool_call_output",
+        id: "o3",
+        call_id: "c3",
+        output: [
+          { type: "input_text", text: "Script completed\nWall time 1s\nOutput:\n" },
+          { type: "input_text", text: "{}" },
+          { type: "input_text", text: '{"chunk_id":"a1","exit_code":1,"output":"no such file"}' },
+        ],
+      }),
       response({ type: "message", role: "assistant", id: "m2", content: [{ type: "output_text", text: "Done." }] }),
     ]
       .flatMap(codexItems)
@@ -131,6 +141,7 @@ test("Codex and Pi records map to the same items, without Codex's injected conte
     ["tool", "exec", "bun test"],
     ["tool", "exec", "Edit src/a.ts"],
     ["result", "", "3 pass"],
+    ["result", "", "no such file"],
     ["agent", "", "Done."],
   ]);
   const pi = (message: unknown) => ({ type: "message", id: "p", timestamp: "2026-11-04T10:00:00Z", message });
