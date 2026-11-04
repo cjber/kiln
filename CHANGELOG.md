@@ -9,8 +9,15 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-04
+
 - **Sessions group by git repository.** The default `project` order now groups a session under the repository it works in, so sessions in linked worktrees sit with the repository that owns them instead of in a group per worktree. A directory outside git is still its own group.
 - **Time since latest activity is colour coded.** The updated column is green for the first minute, teal up to ten minutes, dim up to an hour and grey after that, so recently active sessions stand out.
+- **The phone notifies you.** While a session on your computer works, the Android app keeps a quiet "Watching" notification and tells you when a session needs input or finishes a turn. Tapping one opens that session. Each machine has a "Notify me" switch, and the app asks for notification permission the first time a session starts working, never at launch.
+- **`kiln msg inbox` no longer fails with `database is locked`.** Reading an inbox while other sessions send messages now waits for them instead of failing. Pairing and the saved-session records wait the same way.
+- **The list fits narrow terminals.** The title line keeps the waiting count and the end of the filter you are typing, and the close prompt, agent picker and filter hints shorten instead of being cut off. A directory heading that scrolls off the top stays pinned above its rows.
+- **Clearer list details.** With nothing selected the hints drop the row keys, and a kept filter offers `esc clear`. Emoji titles no longer push the status column out of line. Inside the harness order the most recent session comes first. A completed job says completed in its detail line, and a session that never reported activity shows when it started.
+- **Phone app fixes.** A bad pairing invitation shows its error on the invitation field and no longer follows you to the session list. Last active reads "Unknown, started 12m ago" when there is no activity time, and the app says computer everywhere. The Copy session ID button no longer looks disabled, and the setup steps link and the "Nothing hidden" hint line up with their text.
 
 ## [0.15.1] - 2026-11-03
 
