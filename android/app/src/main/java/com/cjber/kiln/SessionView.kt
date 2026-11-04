@@ -6,17 +6,26 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import java.net.URLEncoder
+import java.text.DateFormat
+import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +53,7 @@ data class Line(
     val tool: String = "",
     val result: String? = null,
     val error: Boolean = false,
+    val at: Long = 0,
 )
 
 data class Abilities(val read: Boolean, val reply: String?, val stop: Boolean)
@@ -72,7 +82,7 @@ fun parseView(text: String, held: List<Line> = emptyList()): ViewPage {
         val id = item.getString("id")
         val body = item.optString("text")
         when (item.getString("kind")) {
-            "you" -> lines += Line(id, ItemKind.YOU, body)
+            "you" -> lines += Line(id, ItemKind.YOU, body, at = item.optLong("at"))
             "agent" -> lines += Line(id, ItemKind.AGENT, body)
             "notice" -> lines += Line(id, ItemKind.NOTICE, body)
             "tool" -> lines += Line(id, ItemKind.TOOL, body, tool = item.optString("tool"))
@@ -263,20 +273,43 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
             )
         else
             Row(
-                Modifier.fillMaxWidth().padding(8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedTextField(
+                TextField(
                     value = draft,
                     onValueChange = { draft = it },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Reply to ${agentName(row.agent)}") },
                     maxLines = 6,
+                    shape = RoundedCornerShape(22.dp),
+                    colors =
+                        TextFieldDefaults.colors(
+                            focusedContainerColor = field,
+                            unfocusedContainerColor = field,
+                            disabledContainerColor = field,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                            focusedTextColor = Tui.fgBright,
+                            unfocusedTextColor = Tui.fgBright,
+                            cursorColor = Tui.orange,
+                            focusedPlaceholderColor = Tui.fgDim,
+                            unfocusedPlaceholderColor = Tui.fgDim,
+                        ),
                 )
-                Button(
+                FilledIconButton(
                     enabled = !sending && draft.isNotBlank() && abilities != null,
-                    shape = MaterialTheme.shapes.small,
+                    shape = CircleShape,
+                    modifier = Modifier.size(52.dp),
+                    colors =
+                        IconButtonDefaults.filledIconButtonColors(
+                            containerColor = Tui.orange,
+                            contentColor = Tui.bg,
+                            disabledContainerColor = field,
+                            disabledContentColor = Tui.comment,
+                        ),
                     onClick = {
                         val text = draft.trimEnd()
                         val id = UUID.randomUUID().toString()
@@ -292,7 +325,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                         }
                     },
                 ) {
-                    Text("Send")
+                    Icon(Icons.AutoMirrored.Filled.Send, "Send", Modifier.size(20.dp))
                 }
             }
     }
@@ -303,15 +336,27 @@ private fun ConversationLine(line: Line) {
     val mono = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
     when (line.kind) {
         ItemKind.YOU ->
-            Text(
-                "› ${line.text}",
-                color = Tui.peach,
-                style = mono,
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .background(Tui.bg2, RoundedCornerShape(6.dp))
-                        .padding(8.dp),
-            )
+            Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (line.at > 0)
+                            "you · ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(line.at))}"
+                        else "you",
+                        color = Tui.orange,
+                        style =
+                            MaterialTheme.typography.labelSmall.copy(
+                                fontFamily = FontFamily.Monospace
+                            ),
+                    )
+                    HorizontalDivider(Modifier.weight(1f).padding(start = 8.dp), color = turnRule)
+                }
+                Text(
+                    line.text,
+                    color = Tui.fgBright,
+                    style = mono,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         ItemKind.AGENT ->
             Text(line.text, color = Tui.fgBright, style = MaterialTheme.typography.bodyMedium)
         ItemKind.NOTICE ->
@@ -323,21 +368,53 @@ private fun ConversationLine(line: Line) {
             )
         ItemKind.TOOL ->
             Column {
+                val kind = toolColor(line.tool)
                 Text(
-                    "● ${line.tool}  ${line.text}",
-                    color = if (line.error) Tui.red else Tui.teal,
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = kind)) { append("● ") }
+                        withStyle(SpanStyle(color = kind, fontWeight = FontWeight.Bold)) {
+                            append(line.tool)
+                        }
+                        append("  ${line.text}")
+                    },
+                    color = Tui.fg,
                     style = mono,
-                    maxLines = 3,
+                    maxLines = 2,
                 )
                 line.result?.let {
                     if (it.isNotBlank())
                         Text(
-                            "  ⎿ " + it.replace("\n", "\n    "),
+                            "  ⎿ " + it.trim().replace("\n", "\n    "),
                             color = if (line.error) Tui.red else Tui.fgDim,
                             style = mono,
-                            maxLines = 4,
+                            maxLines = 2,
                         )
                 }
             }
     }
 }
+
+private val field = Color(0xff1c1b1d)
+private val turnRule = Color(0xff3a2c22)
+
+/**
+ * Edits read purple and lookups grey, so the shell commands that change state stand out in teal.
+ */
+internal fun toolColor(tool: String): Color =
+    when (tool.lowercase()) {
+        "edit",
+        "multiedit",
+        "write",
+        "notebookedit",
+        "apply_patch",
+        "patch" -> Tui.purple
+        "read",
+        "grep",
+        "glob",
+        "ls",
+        "find",
+        "list",
+        "webfetch",
+        "websearch" -> Tui.fgDim
+        else -> Tui.teal
+    }
