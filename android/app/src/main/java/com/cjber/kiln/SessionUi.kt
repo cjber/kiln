@@ -71,6 +71,9 @@ fun SessionScreen(
     selectedMachine: Int = 0,
     tailscaleOn: Boolean = true,
     openTailscale: () -> Unit = {},
+    notify: Boolean = false,
+    onNotify: (Boolean) -> Unit = {},
+    openNotificationSettings: () -> Unit = {},
 ) {
     var machinesPage by rememberSaveable { mutableStateOf(false) }
     var scope by rememberSaveable { mutableStateOf(SessionScope.LIVE) }
@@ -206,6 +209,9 @@ fun SessionScreen(
                         machinesPage = false
                     },
                     reconnect = onReconnect,
+                    notify = notify,
+                    setNotify = onNotify,
+                    openNotificationSettings = openNotificationSettings,
                     pair = onPairAnother,
                     forget = { forget = true },
                 )

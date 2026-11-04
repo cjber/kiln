@@ -2,16 +2,24 @@ package com.cjber.kiln
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,20 +28,44 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 
+/** The machine origin and session id a notification tap opens, if `intent` came from one. */
+private fun sessionTarget(intent: Intent): Pair<String, String>? {
+    if (intent.action != OPEN_SESSION) return null
+    val origin = intent.getStringExtra(EXTRA_ORIGIN) ?: return null
+    val session = intent.getStringExtra(EXTRA_SESSION) ?: return null
+    return origin to session
+}
+
 class MainActivity : ComponentActivity() {
     private var foreground by mutableStateOf(false)
+    private var watch by mutableStateOf<WatchService?>(null)
+    private val binding =
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                watch = (service as WatchService.Link).service
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                watch = null
+            }
+        }
 
     override fun onStart() {
         super.onStart()
         foreground = true
+        bindService(Intent(this, WatchService::class.java), binding, BIND_AUTO_CREATE)
     }
 
     override fun onStop() {
         foreground = false
+        watch?.detach()
+        watch = null
+        unbindService(binding)
         super.onStop()
     }
 
     private var incoming by mutableStateOf("")
+    private var target by mutableStateOf<Pair<String, String>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +73,7 @@ class MainActivity : ComponentActivity() {
         val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         enableEdgeToEdge(bars, bars)
         incoming = if (savedInstanceState == null) intent.dataString.orEmpty() else ""
+        target = if (savedInstanceState == null) sessionTarget(intent) else null
         setContent {
             KilnTheme { Kiln() }
         }
@@ -49,6 +82,21 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         incoming = intent.dataString.orEmpty()
+        sessionTarget(intent)?.let { target = it }
+    }
+
+    private fun canNotify(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+
+    private fun openNotificationSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        } catch (_: android.content.ActivityNotFoundException) {}
     }
 
     /** kiln reaches the computer only through Tailscale, which Android runs as a VPN. */
@@ -114,7 +162,6 @@ class MainActivity : ComponentActivity() {
         var state by remember { mutableStateOf(ConnectionState.CONNECTING) }
         var snapshot by remember { mutableStateOf<Snapshot?>(null) }
         var received by remember { mutableLongStateOf(0L) }
-        var retry by remember { mutableIntStateOf(0) }
         var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
         var tailscaleOn by remember { mutableStateOf(vpnOn()) }
         val connection = remember {
@@ -128,6 +175,19 @@ class MainActivity : ComponentActivity() {
         }
         val screenState = rememberSaveableStateHolder()
         val host = hosts.find { it.origin == selected }
+        var notify by
+            remember(host?.origin) {
+                mutableStateOf(host != null && notifyEnabled(this@MainActivity, host.origin))
+            }
+        val askedPreferences = remember { getSharedPreferences("notifications", MODE_PRIVATE) }
+        var askNotifications by remember { mutableStateOf(false) }
+        val permission =
+            rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        fun requestNotifications() {
+            askedPreferences.edit().putBoolean("asked", true).apply()
+            if (Build.VERSION.SDK_INT >= 33)
+                permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         val viewPreferences = remember { getSharedPreferences("session-views", MODE_PRIVATE) }
         var hidden by
             remember(host?.origin) {
@@ -200,32 +260,89 @@ class MainActivity : ComponentActivity() {
                 error = ""
             }
         }
-        DisposableEffect(host, retry, pairing, foreground) {
-            if (host != null && !pairing && foreground) {
-                state = ConnectionState.CONNECTING
-                connection.connect(
-                    host,
-                    { next ->
-                        runOnUiThread {
-                            received =
-                                receivedAt(snapshot, next, received, System.currentTimeMillis())
-                            snapshot = next
+        DisposableEffect(watch, host, pairing, foreground) {
+            val service = watch
+            if (service == null || host == null || pairing || !foreground)
+                return@DisposableEffect onDispose {}
+            service.attach(
+                object : WatchService.Listener {
+                    override fun snapshot(next: Snapshot) {
+                        received = receivedAt(snapshot, next, received, System.currentTimeMillis())
+                        snapshot = next
+                    }
+
+                    override fun state(next: ConnectionState) {
+                        state = next
+                    }
+
+                    override fun revoked(host: Host) {
+                        state = ConnectionState.REVOKED
+                        if (save(hosts.filter { it.origin != host.origin })) {
+                            selected = hosts.firstOrNull()?.origin
+                            pairing = hosts.isEmpty()
                         }
-                    },
-                    { next -> runOnUiThread { state = next } },
-                    {
-                        runOnUiThread {
-                            state = ConnectionState.REVOKED
-                            if (save(hosts.filter { it.origin != host.origin })) {
-                                selected = hosts.firstOrNull()?.origin
-                                pairing = hosts.isEmpty()
-                            }
-                            error = "Machine revoked this phone. Pair again to reconnect."
+                        error = "Machine revoked this phone. Pair again to reconnect."
+                    }
+                },
+                host,
+            )
+            onDispose { service.detach() }
+        }
+        // Ask for notifications the first time a session works, never at launch.
+        LaunchedEffect(snapshot) {
+            if (
+                notify &&
+                    !canNotify() &&
+                    !askedPreferences.getBoolean("asked", false) &&
+                    snapshot?.rows.orEmpty().any {
+                        it.where != Place.CLOUD && it.activity == Activity.WORKING
+                    }
+            )
+                askNotifications = true
+        }
+        if (askNotifications)
+            AlertDialog(
+                onDismissRequest = {
+                    askNotifications = false
+                    askedPreferences.edit().putBoolean("asked", true).apply()
+                },
+                title = { Text("Get notified?") },
+                text = { Text("kiln can tell you when a session needs input or finishes a turn.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            askNotifications = false
+                            requestNotifications()
                         }
-                    },
-                )
-            }
-            onDispose { connection.close() }
+                    ) {
+                        Text("Allow")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            askNotifications = false
+                            askedPreferences.edit().putBoolean("asked", true).apply()
+                        }
+                    ) {
+                        Text("Not now")
+                    }
+                },
+            )
+        // A tapped notification opens its machine, then the session's details once it is listed.
+        LaunchedEffect(target) {
+            val origin = target?.first ?: return@LaunchedEffect
+            if (hosts.any { it.origin == origin }) {
+                selected = origin
+                pairing = false
+            } else target = null
+        }
+        LaunchedEffect(target, snapshot) {
+            val (origin, id) = target ?: return@LaunchedEffect
+            if (host?.origin != origin) return@LaunchedEffect
+            val rows = snapshot?.rows ?: return@LaunchedEffect
+            details = rows.find { it.id == id }
+            target = null
         }
         DisposableEffect(Unit) {
             val manager = getSystemService(ConnectivityManager::class.java)
@@ -235,7 +352,7 @@ class MainActivity : ComponentActivity() {
                         runOnUiThread {
                             tailscaleOn = true
                             // Reconnect now rather than at the next five-second retry.
-                            if (state != ConnectionState.CONNECTED) retry++
+                            if (state != ConnectionState.CONNECTED) watch?.reconnect()
                         }
                     }
 
@@ -251,12 +368,6 @@ class MainActivity : ComponentActivity() {
                 callback,
             )
             onDispose { manager.unregisterNetworkCallback(callback) }
-        }
-        LaunchedEffect(state, host, pairing, foreground) {
-            if (state == ConnectionState.DISCONNECTED && host != null && !pairing && foreground) {
-                delay(5000)
-                retry++
-            }
         }
         fun launch(row: Row) {
             if (row.url == null) details = row
@@ -339,7 +450,6 @@ class MainActivity : ComponentActivity() {
                                         selected = paired.origin
                                         invitation = ""
                                         pairing = false
-                                        retry++
                                     }
                                 } else error = problem
                             }
@@ -369,7 +479,16 @@ class MainActivity : ComponentActivity() {
                         hosts.map { it.name },
                         selectedMachine = hosts.indexOf(host),
                         onMachine = { selected = hosts[it].origin },
-                        onReconnect = { retry++ },
+                        onReconnect = { watch?.reconnect() },
+                        notify = notify,
+                        onNotify = { on ->
+                            if (host != null) {
+                                setNotifyEnabled(this@MainActivity, host.origin, on)
+                                notify = on
+                                if (on && !canNotify()) requestNotifications()
+                            }
+                        },
+                        openNotificationSettings = ::openNotificationSettings,
                         onPairAnother = { pairing = true },
                         onForget = {
                             if (host != null && save(hosts.filter { it.origin != host.origin })) {
