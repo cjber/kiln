@@ -103,7 +103,8 @@ object Alerts {
         )
     }
 
-    private fun notificationId(origin: String, session: String) = (origin + "\n" + session).hashCode()
+    private fun notificationId(origin: String, session: String) =
+        (origin + "\n" + session).hashCode()
 
     /** Removes the session's alert, and the machine's summary once nothing is left under it. */
     fun clear(context: Context, origin: String, session: String) {
@@ -111,7 +112,8 @@ object Alerts {
         notifications.cancel(notificationId(origin, session))
         val left =
             notifications.activeNotifications.any {
-                it.notification.group == origin && it.id != origin.hashCode() &&
+                it.notification.group == origin &&
+                    it.id != origin.hashCode() &&
                     it.id != notificationId(origin, session)
             }
         if (!left) notifications.cancel(origin.hashCode())

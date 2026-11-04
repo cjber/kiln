@@ -191,7 +191,9 @@ class MainActivity : ComponentActivity() {
         // Opening a session here reads it, so its notification goes.
         LaunchedEffect(host?.origin, opened, details?.id) {
             val origin = host?.origin ?: return@LaunchedEffect
-            listOfNotNull(opened, details?.id).forEach { Alerts.clear(this@MainActivity, origin, it) }
+            listOfNotNull(opened, details?.id).forEach {
+                Alerts.clear(this@MainActivity, origin, it)
+            }
         }
         val askedPreferences = remember { getSharedPreferences("notifications", MODE_PRIVATE) }
         var askNotifications by remember { mutableStateOf(false) }
@@ -437,8 +439,7 @@ class MainActivity : ComponentActivity() {
         }
         // Claude sessions open in kiln's own view; the others still hand off to their app.
         fun launch(row: Row) {
-            if (opensView(snapshot, row)) opened = row.id
-            else handOff(row)
+            if (opensView(snapshot, row)) opened = row.id else handOff(row)
         }
         details?.let { original ->
             val row = snapshot?.rows?.find { it.id == original.id } ?: original

@@ -137,7 +137,8 @@ class SessionClient(
         )
 
     /** The id makes a retry of the same message harmless: the machine keeps one copy. */
-    fun send(id: String, text: String) = post("messages", JSONObject().put("id", id).put("text", text))
+    fun send(id: String, text: String) =
+        post("messages", JSONObject().put("id", id).put("text", text))
 
     fun interrupt() = post("interrupt", JSONObject())
 }

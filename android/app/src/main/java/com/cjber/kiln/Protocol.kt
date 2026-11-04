@@ -101,8 +101,12 @@ fun parseSent(source: String): String {
     else "Waiting: ${json.getString("reason").replaceFirstChar { it.uppercase() }}"
 }
 
-/** A session on the computer opens in the app's own view on a machine that takes writes; a cloud task opens its details. */
-fun opensView(snapshot: Snapshot?, row: Row): Boolean = snapshot?.write == true && row.where != Place.CLOUD
+/**
+ * A session on the computer opens in the app's own view on a machine that takes writes; a cloud
+ * task opens its details.
+ */
+fun opensView(snapshot: Snapshot?, row: Row): Boolean =
+    snapshot?.write == true && row.where != Place.CLOUD
 
 /** Phones send prompts only to sessions that are running somewhere kiln can reach. */
 fun canMessage(row: Row): Boolean =

@@ -61,6 +61,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     discover: keepLast(async () => {
       if (fail) throw new Error("private provider response");
@@ -75,7 +76,6 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
         },
       ];
     }, "Session host"),
-    seen: async () => new Map(),
   });
   const origin = `http://127.0.0.1:${server.port}`;
   try {
@@ -136,6 +136,7 @@ test("a phone registered for pushes keeps discovery checking between idle refres
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     idleInterval: 60_000,
     pushInterval: 60,
@@ -161,6 +162,7 @@ test("discovery runs every interval only while a phone is connected", async () =
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     idleInterval: 60_000,
     discover: async () => {
@@ -229,6 +231,7 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     settings: () => current,
     discover: keepLast(
@@ -370,6 +373,7 @@ test("a session view reads its transcript, posts a retried reply once and refuse
   const server = startServer({
     port: 0,
     pairing,
+    seen: async () => new Map(),
     interval: 20,
     settings: () => ({ ...defaults, zoxide: false, phoneWrite: write }),
     discover: async () => ({ sessions, problem: "", stale: false }),

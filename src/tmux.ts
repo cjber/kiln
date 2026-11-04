@@ -50,11 +50,16 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
  */
 export async function lastSeen(): Promise<Map<string, number>> {
   const read = async (args: string[]) => {
-    const process = Bun.spawn([...tmux, ...args], { stdout: "pipe", stderr: "ignore" });
-    const timeout = setTimeout(() => process.kill(), 2_000);
-    const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
-    clearTimeout(timeout);
-    return code ? [] : source.split("\n").filter(Boolean);
+    try {
+      const process = Bun.spawn([...tmux, ...args], { stdout: "pipe", stderr: "ignore" });
+      const timeout = setTimeout(() => process.kill(), 2_000);
+      const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
+      clearTimeout(timeout);
+      return code ? [] : source.split("\n").filter(Boolean);
+    } catch {
+      // Without tmux nothing has been looked at, and the sessions still list.
+      return [];
+    }
   };
   const lines = (
     await Promise.all([
