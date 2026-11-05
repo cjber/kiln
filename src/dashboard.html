@@ -92,12 +92,16 @@ function render(data) {
   document.getElementById("problem").textContent = data.problem;
   const rows = data.rows;
   // Sessions sharing a branch share its pull request; count and draw it once.
-  const open = [...new Map(rows.filter((row) => row.pr && row.pr.state === "OPEN").map((row) => [row.pr.url, row])).values()];
+  // Session pull requests first, then every other open one you authored, each drawn once.
+  const open = [...new Map([
+    ...(data.openPrs ?? []).map((pr) => [pr.url, { project: pr.project, pr }]),
+    ...rows.filter((row) => row.pr && row.pr.state === "OPEN").map((row) => [row.pr.url, row]),
+  ]).values()].sort((a, b) => a.project.localeCompare(b.project) || a.pr.number - b.pr.number);
   const tiles = [
     // A session whose pull request merged is finished, even while its agent is still open.
     [rows.filter((row) => !row.lifecycle && row.stage !== "done").length, "sessions running"],
-    [open.length, "open PRs from sessions"],
-    [open.filter((row) => row.stage === "green").length, "PRs fully green"],
+    [open.length, "open PRs"],
+    [open.filter((row) => !row.pr.checks.failed && !row.pr.checks.running).length, "PRs fully green"],
     [open.filter((row) => row.pr.checks.failed).length, "PRs with a failed check"],
     [rows.filter((row) => row.stage === "done").length, "sessions finished"],
   ];
@@ -130,7 +134,7 @@ function render(data) {
         return `<span class="label" title="${esc(`${row.project}: ${tip}`)}">${esc(row.project)} ${link(row.pr)}${row.pr.queued ? ` <span class="sub">queued</span>` : ""}</span>` +
           `<div class="bar" title="${esc(total ? tip : `no checks, ${tip}`)}">${bar}</div><span class="count">${checks.passed}/${total}</span>`;
       }).join("")}</div>`
-    : `<p class="empty">No open pull requests from sessions.</p>`;
+    : `<p class="empty">No open pull requests.</p>`;
 
   const order = Object.fromEntries(stages.map(([id], index) => [id, index]));
   const sorted = [...rows].sort((a, b) => order[a.stage] - order[b.stage] || a.project.localeCompare(b.project) || a.title.localeCompare(b.title));
