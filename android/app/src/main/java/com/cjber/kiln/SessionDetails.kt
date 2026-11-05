@@ -75,17 +75,19 @@ fun SessionDetails(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (row.where != Place.CLOUD) DetailField("Directory", tildePath(row.cwd))
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
-                    if (row.pr != null)
+                    if (row.pulls.isNotEmpty())
                         DetailField(
-                            "Pull request",
-                            listOfNotNull(
-                                    "#${row.pr.number}",
-                                    row.stage?.label?.lowercase(),
-                                    checkCounts(row.pr).text.ifEmpty { null },
-                                    "draft".takeIf { row.pr.draft },
-                                    "queued".takeIf { row.pr.queued },
-                                )
-                                .joinToString(" · "),
+                            if (row.pulls.size == 1) "Pull request" else "Pull requests",
+                            row.pulls.joinToString("\n") { pr ->
+                                listOfNotNull(
+                                        "${pr.repository} #${pr.number}",
+                                        pr.stage.label.lowercase(),
+                                        checkCounts(pr).text.ifEmpty { null },
+                                        "draft".takeIf { pr.draft },
+                                        "queued".takeIf { pr.queued },
+                                    )
+                                    .joinToString(" · ")
+                            },
                         )
                     DetailField(
                         "Location",
@@ -116,10 +118,11 @@ fun SessionDetails(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            if (row.pr != null) {
-                val links = LocalUriHandler.current
+            val links = LocalUriHandler.current
+            // A session can open dozens; the merged and closed ones stay in the list above, without a button.
+            row.pulls.filter { it.state == "OPEN" }.ifEmpty { row.pulls.take(1) }.forEach { pr ->
                 OutlinedButton(
-                    onClick = { links.openUri(row.pr.url) },
+                    onClick = { links.openUri(pr.url) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.small,
                     colors =
@@ -128,7 +131,10 @@ fun SessionDetails(
                         ),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
                 ) {
-                    Text("Open pull request #${row.pr.number}")
+                    Text(
+                        if (row.pulls.size == 1) "Open pull request #${pr.number}"
+                        else "Open ${pr.repository} #${pr.number}"
+                    )
                 }
             }
             if (send != null) SendBox(row.id, send)

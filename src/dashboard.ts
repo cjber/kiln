@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import page from "./dashboard.html" with { type: "text" };
 import { parsePort } from "./serve";
 import { sessionTitle } from "./session-list";
+import { openedPullRequests } from "./session-prs";
 import {
   type Activity,
   agentName,
@@ -31,6 +32,18 @@ export type PullRequest = {
   /** Labelled for the MergeLoop queue. */
   queued: boolean;
   checks: Checks;
+  /** The repository's name, read from the URL. */
+  repository: string;
+  /** The head commit, once looked up by URL. */
+  head?: string;
+  mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+  /** Names of the checks that failed on the head commit. */
+  failedChecks?: string[];
+  /** Reviews submitted so far, and the latest one. */
+  reviews?: number;
+  review?: { author: string; state: string };
+  /** The session it belongs to opened it with `gh pr create`, rather than only working on its branch. */
+  opened?: boolean;
 };
 
 export type DashboardRow = {
@@ -42,7 +55,8 @@ export type DashboardRow = {
   branch?: string;
   /** Uncommitted files in the session's checkout, once counted. */
   changes?: number;
-  pr?: PullRequest;
+  /** Every pull request the session's branch has or the session opened, most urgent first. */
+  prs: PullRequest[];
   stage: Stage;
 };
 
@@ -53,11 +67,8 @@ export type DashboardSnapshot = {
   checking: number;
   rows: DashboardRow[];
   /** Every open pull request you authored, sessions or not, once GitHub has answered. */
-  openPrs: OpenPullRequest[];
+  openPrs: PullRequest[];
 };
-
-/** An open pull request found by searching GitHub, named by its repository. */
-export type OpenPullRequest = PullRequest & { project: string };
 
 type Run = (argv: string[], cwd: string) => Promise<string>;
 
@@ -106,7 +117,14 @@ export function projectName(directory: string): string {
   return directory === homedir() ? "~" : basename(directory);
 }
 
-type CheckEntry = { __typename?: string; status?: string; conclusion?: string; state?: string };
+type CheckEntry = {
+  __typename?: string;
+  name?: string;
+  context?: string;
+  status?: string;
+  conclusion?: string;
+  state?: string;
+};
 
 function checkResult(entry: CheckEntry): keyof Checks {
   if (entry.__typename === "StatusContext") {
@@ -139,6 +157,9 @@ function checkResult(entry: CheckEntry): keyof Checks {
   }
 }
 
+/** The repository name in a pull request URL. */
+const repositoryOf = (url: string) => url.match(/github\.com\/[^/]+\/([^/]+)\/pull\//)?.[1] ?? "";
+
 export function countChecks(entries: readonly CheckEntry[]): Checks {
   const checks = { passed: 0, failed: 0, running: 0 };
   for (const entry of entries) checks[checkResult(entry)]++;
@@ -168,8 +189,68 @@ export function parsePullRequest(output: string, queueLabel: string): PullReques
     deletions: pr.deletions,
     queued: pr.labels.some((label) => label.name === queueLabel),
     checks: countChecks(pr.statusCheckRollup ?? []),
+    repository: repositoryOf(pr.url),
   };
 }
+
+/** The fields every GraphQL pull request lookup asks for. */
+const pullFields = `number url state isDraft additions deletions mergeable headRefOid
+  labels(first: 20) { nodes { name } }
+  reviews(last: 1) { totalCount nodes { author { login } state } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+    __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state }
+  } } } } } }`;
+
+type PullNode = {
+  number?: number;
+  url: string;
+  state: PullRequest["state"];
+  isDraft: boolean;
+  additions: number;
+  deletions: number;
+  mergeable: PullRequest["mergeable"];
+  headRefOid: string;
+  labels: { nodes: { name: string }[] };
+  reviews: { totalCount: number; nodes: { author: { login: string } | null; state: string }[] };
+  commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: CheckEntry[] } } | null } }[] };
+};
+
+/** A pull request from a GraphQL node holding `pullFields`, or undefined for a node that is not one. */
+function parsePullNode(node: PullNode | null | undefined, queueLabel = "mergepatrol"): PullRequest | undefined {
+  if (node?.number === undefined) return undefined;
+  const checks = node.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
+  const review = node.reviews.nodes.at(-1);
+  return {
+    number: node.number,
+    url: node.url,
+    state: node.state,
+    draft: node.isDraft,
+    additions: node.additions,
+    deletions: node.deletions,
+    queued: node.labels.nodes.some((label) => label.name === queueLabel),
+    checks: countChecks(checks),
+    repository: repositoryOf(node.url),
+    head: node.headRefOid,
+    mergeable: node.mergeable,
+    failedChecks: checks
+      .filter((entry) => checkResult(entry) === "failed")
+      .map((entry) => entry.name ?? entry.context ?? "check"),
+    reviews: node.reviews.totalCount,
+    review: review && { author: review.author?.login ?? "someone", state: review.state },
+  };
+}
+
+/** Pull requests by URL from one batched `resource(url:)` query's output; unknown URLs are left out. */
+export function parsePullRequestsByUrl(output: string): PullRequest[] {
+  const data = (JSON.parse(output) as { data: Record<string, PullNode | null> }).data ?? {};
+  return Object.values(data).flatMap((node) => parsePullNode(node) ?? []);
+}
+
+const urgency: Record<Stage, number> = { failing: 0, checks: 1, green: 2, done: 3, working: 4 };
+
+/** Most urgent first: failing, then checks running, green, merged and closed; ties keep the given order. */
+export const byUrgency = (prs: readonly PullRequest[]) =>
+  [...prs].sort((a, b) => urgency[stageOf(a)] - urgency[stageOf(b)]);
 
 export function stageOf(pr: PullRequest | undefined): Stage {
   if (!pr) return "working";
@@ -221,9 +302,17 @@ export type PullRequestOptions = {
   gh?: boolean;
 };
 
+/** One query for many pull requests by URL; GitHub answers null for one it cannot see. */
+const byUrlQuery = (urls: readonly string[]) =>
+  `query {\n${urls.map((url, index) => `p${index}: resource(url: ${JSON.stringify(url)}) { ... on PullRequest { ${pullFields} } }`).join("\n")}\n}`;
+
+/** How many pull requests one `resource(url:)` query asks for. */
+const batchSize = 40;
+
 /**
- * Each session branch's pull request, from a cache `gh` fills in the background, so a slow `gh` never
- * holds up a refresh. A branch is looked up at most once per `prAge`.
+ * Each session's pull requests: the one for the branch it works on and every one it opened with
+ * `gh pr create`, from caches `gh` fills in the background, so a slow `gh` never holds up a refresh.
+ * A branch or a pull request is looked up at most once per `prAge`.
  */
 export function pullRequests({
   exec = run,
@@ -232,73 +321,130 @@ export function pullRequests({
   gh = Bun.which("gh") !== null,
 }: PullRequestOptions = {}) {
   const prs = new Map<string, Cached<PullRequest | undefined>>();
+  const byUrl = new Map<string, Cached<PullRequest>>();
   const queue: { key: string; root: string; branch: string }[] = [];
+  let waiting: string[] = [];
   const used = new Set<string>();
+  const usedUrls = new Set<string>();
+  const opened = openedPullRequests();
   let running = 0;
+  const finish = () => {
+    running--;
+    drain();
+  };
   const drain = () => {
     while (running < ghSlots) {
       const job = queue.shift();
-      if (!job) return;
-      running++;
-      exec(
-        [
-          "gh",
-          "pr",
-          "list",
-          "--head",
-          job.branch,
-          "--state",
-          "all",
-          "--limit",
-          "5",
-          "--json",
-          "number,url,state,isDraft,labels,statusCheckRollup,additions,deletions",
-        ],
-        job.root,
-      )
-        .then((output) => parsePullRequest(output, queueLabel(job.root)))
-        .then(
-          (pr) => store(prs, job.key, pr, true),
-          () => store(prs, job.key, undefined, false),
+      if (job) {
+        running++;
+        exec(
+          [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            job.branch,
+            "--state",
+            "all",
+            "--limit",
+            "5",
+            "--json",
+            "number,url,state,isDraft,labels,statusCheckRollup,additions,deletions",
+          ],
+          job.root,
         )
-        .finally(() => {
-          running--;
-          drain();
-        });
+          .then((output) => parsePullRequest(output, queueLabel(job.root)))
+          .then(
+            (pr) => store(prs, job.key, pr, true),
+            () => store(prs, job.key, undefined, false),
+          )
+          .finally(finish);
+        continue;
+      }
+      const batch = waiting.slice(0, batchSize);
+      if (!batch.length) return;
+      waiting = waiting.slice(batchSize);
+      running++;
+      exec(["gh", "api", "graphql", "-f", `query=${byUrlQuery(batch)}`], homedir())
+        .then(parsePullRequestsByUrl)
+        .then(
+          (found) => {
+            for (const url of batch)
+              store(
+                byUrl,
+                url,
+                found.find((pr) => pr.url === url),
+                true,
+              );
+          },
+          () => {
+            for (const url of batch) store(byUrl, url, undefined, false);
+          },
+        )
+        .finally(finish);
     }
+  };
+  /** The pull request for the branch a session works on, as last looked up. */
+  const ofBranch = (session: Session, lookUp: boolean): PullRequest | undefined => {
+    const directory = sessionDirectory(session);
+    const root = checkout(directory);
+    // Read from the checkout each time, so a session that switches branch is looked up on its new one.
+    const branch = root && gitBranch(directory);
+    // A default branch is shared by many sessions, so a pull request found for it says nothing about one of them.
+    if (!root || !branch || ["main", "master"].includes(branch)) return undefined;
+    const key = `${commonGitDir(root)}\0${branch}`;
+    used.add(key);
+    if (lookUp && !fresh(prs, key, prAge)) {
+      prs.set(key, { ...(prs.get(key) ?? { checkedAt: 0 }), pending: true });
+      queue.push({ key, root, branch });
+      drain();
+    }
+    return prs.get(key)?.value;
   };
   return {
     gh,
     /**
-     * The pull request for the branch a session works on, as last looked up; cloud tasks have none. A
-     * default branch is shared by many sessions, so a pull request found for it says nothing about one
-     * of them. With `lookUp` false it only reads the cache.
+     * A session's pull requests as last looked up, most urgent first; cloud tasks have none. Each one it
+     * opened itself is marked `opened`. With `lookUp` false it only reads the caches.
      */
-    of(session: Session, lookUp = true): PullRequest | undefined {
-      if (!gh || session.place.kind === "cloud") return undefined;
-      const directory = sessionDirectory(session);
-      const root = checkout(directory);
-      // Read from the checkout each time, so a session that switches branch is looked up on its new one.
-      const branch = root && gitBranch(directory);
-      if (!root || !branch || ["main", "master"].includes(branch)) return undefined;
-      const key = `${commonGitDir(root)}\0${branch}`;
-      used.add(key);
-      if (lookUp && !fresh(prs, key, prAge)) {
-        prs.set(key, { ...(prs.get(key) ?? { checkedAt: 0 }), pending: true });
-        queue.push({ key, root, branch });
-        drain();
+    of(session: Session, lookUp = true): PullRequest[] {
+      if (!gh || session.place.kind === "cloud") return [];
+      const branchPr = ofBranch(session, lookUp);
+      const mine = opened.of(session);
+      const urls = [...new Set([...(branchPr ? [branchPr.url] : []), ...mine])];
+      for (const url of urls) {
+        usedUrls.add(url);
+        if (lookUp && !fresh(byUrl, url, prAge)) {
+          byUrl.set(url, { ...(byUrl.get(url) ?? { checkedAt: 0 }), pending: true });
+          waiting.push(url);
+        }
       }
-      return prs.get(key)?.value;
+      if (lookUp) drain();
+      return byUrgency(
+        urls.flatMap((url) => {
+          // The branch lookup answers first; the lookup by URL adds what the autopilot needs.
+          const pr = byUrl.get(url)?.value ?? (url === branchPr?.url ? branchPr : undefined);
+          return pr ? [mine.includes(url) ? { ...pr, opened: true } : pr] : [];
+        }),
+      );
     },
     /** Lookups still running, so a row may yet leave Working. */
-    pending: () => [...prs.values()].filter((entry) => entry.pending).length,
-    /** Forgets branches no session asked about since the last sweep. */
-    sweep: () => sweep(prs, used),
+    pending: () => [...prs.values(), ...byUrl.values()].filter((entry) => entry.pending).length,
+    /** Forgets branches, pull requests and transcripts no session asked about since the last sweep. */
+    sweep() {
+      sweep(prs, used);
+      sweep(byUrl, usedUrls);
+      opened.sweep();
+    },
     /** Drops lookups not started yet, so `gh` stops once nobody is watching; they queue again when asked for. */
     cancel() {
       for (const job of queue.splice(0)) {
         const entry = prs.get(job.key);
         if (entry) prs.set(job.key, { ...entry, pending: false });
+      }
+      for (const url of waiting.splice(0)) {
+        const entry = byUrl.get(url);
+        if (entry) byUrl.set(url, { ...entry, pending: false });
       }
     },
   };
@@ -306,44 +452,14 @@ export function pullRequests({
 
 const authoredQuery = `query {
   search(query: "is:pr is:open author:@me archived:false", type: ISSUE, first: 100) {
-    nodes { ... on PullRequest {
-      number url state isDraft additions deletions
-      repository { name }
-      labels(first: 20) { nodes { name } }
-      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
-        __typename ... on CheckRun { status conclusion } ... on StatusContext { state }
-      } } } } } }
-    } }
+    nodes { ... on PullRequest { ${pullFields} } }
   }
 }`;
 
-/** Open pull requests from the GitHub search behind `authoredQuery`, oldest last as GitHub sorts them. */
-export function parseAuthoredPullRequests(output: string, queueLabel = "mergepatrol"): OpenPullRequest[] {
-  type Node = {
-    number?: number;
-    url: string;
-    state: PullRequest["state"];
-    isDraft: boolean;
-    additions: number;
-    deletions: number;
-    repository: { name: string };
-    labels: { nodes: { name: string }[] };
-    commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: CheckEntry[] } } | null } }[] };
-  };
-  const nodes = (JSON.parse(output) as { data: { search: { nodes: Node[] } } }).data.search.nodes;
-  return nodes
-    .filter((node) => node.number !== undefined)
-    .map((node) => ({
-      number: node.number as number,
-      url: node.url,
-      state: node.state,
-      draft: node.isDraft,
-      additions: node.additions,
-      deletions: node.deletions,
-      queued: node.labels.nodes.some((label) => label.name === queueLabel),
-      checks: countChecks(node.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []),
-      project: node.repository.name,
-    }));
+/** Open pull requests from the GitHub search behind `authoredQuery`. */
+export function parseAuthoredPullRequests(output: string): PullRequest[] {
+  const nodes = (JSON.parse(output) as { data: { search: { nodes: PullNode[] } } }).data.search.nodes;
+  return nodes.flatMap((node) => parsePullNode(node) ?? []);
 }
 
 /**
@@ -366,7 +482,7 @@ export function dashboardData({
   const used = new Set<string>();
   const prs = pullRequests({ exec, ...options });
   // Every open pull request you authored, looked up in the background at most once per `prAge`.
-  const authored: Cached<OpenPullRequest[]> = { checkedAt: 0, pending: false };
+  const authored: Cached<PullRequest[]> = { checkedAt: 0, pending: false };
   const searchAuthored = () => {
     if (!prs.gh || authored.pending || Date.now() - authored.checkedAt < (options.prAge ?? 60_000)) return;
     authored.pending = true;
@@ -394,7 +510,7 @@ export function dashboardData({
     const directory = sessionDirectory(session);
     const root = checkout(directory);
     if (root) countChanges(root);
-    const pr = prs.of(session);
+    const found = prs.of(session);
     return {
       title: sessionTitle(session),
       agent: agentName(session.agent),
@@ -403,8 +519,8 @@ export function dashboardData({
       project: projectName(directory),
       branch: root ? gitBranch(directory) : undefined,
       changes: root ? changes.get(root)?.value : undefined,
-      pr,
-      stage: stageOf(pr),
+      prs: found,
+      stage: stageOf(found[0]),
     };
   };
 

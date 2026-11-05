@@ -57,6 +57,10 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 
 Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered by the next `kiln msg send`, and on each refresh of the list or the phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
 
+### Pull request messages
+
+With `pr_messages = true` in `config.toml`, `kiln serve` (the service `kiln setup` installs) watches each session's pull requests and sends its agent a kiln message when its checks fail, naming the failed checks; when it has merge conflicts; when it gets a new review; and when it merges. A pull request's messages go to the session that opened it, or else to the most recently active session on its branch. Each message is sent once, failures and conflicts once per commit, and waits in the mailbox like any other until the agent is idle. A review message names the reviewer and verdict but never quotes them, since anyone can review a public pull request. Messages come from `kiln-autopilot`, which takes no replies. Pull requests are looked up once a minute with the GitHub CLI while this is on, whether or not a phone is open. OpenCode sessions keep their history in a database kiln does not scan, so only the pull request for their branch counts.
+
 ## Dashboard
 
 ```sh
@@ -65,13 +69,13 @@ kiln dashboard --open     # and opens it in your browser
 kiln dashboard --port 8000
 ```
 
-A web page of every running session's progress, for keeping an eye on many agents at once. It shows how many sessions are running and how many have finished, a bar per project split by stage, a bar per open pull request with its passed, failed and running checks, and a table of every session with its agent, project, stage, pull request and number of uncommitted files.
+A web page of every running session's progress, for keeping an eye on many agents at once. It shows how many sessions are running and how many have finished, a bar per project split by stage, a bar per open pull request with its passed, failed and running checks, and a table of every session with its agent, project, stage, pull requests and number of uncommitted files. The pull request bars cover every open pull request you authored in a repository that is not archived, including ones no running session works on.
 
-A session's project is the repository its directory belongs to, so worktrees count as their repository. Its stage comes from the pull request for its branch: Working with no pull request or a closed one, PR failing when a check failed, PR checks running, PR green, and Done once it is merged. A pull request labelled for the MergeLoop queue (the `label` in `.mergepatrol/mergepatrol.yml`, `mergepatrol` by default) is marked queued. Sessions on `main` or `master` have no pull request of their own.
+A session's project is the repository its directory belongs to, so worktrees count as their repository. A session's pull requests are the one for its branch and every one it opened with `gh pr create`, read from a Claude, Codex or Pi session's transcript. Its stage comes from the most urgent of them: Working with no pull request or a closed one, PR failing when a check failed, PR checks running, PR green, and Done once it is merged. A pull request labelled for the MergeLoop queue (the `label` in `.mergepatrol/mergepatrol.yml`, `mergepatrol` by default) is marked queued. A session on `main` or `master` has no branch pull request, only the ones it opened.
 
-The terminal list and the phone show the same stages: the list adds a `pr` column with each branch's pull request number, coloured by stage, and its checks in the details line under the list; the phone has a progress tab.
+The terminal list and the phone show the same stages: the list adds a `pr` column with the most urgent pull request's number, `+3` when the session has three more, coloured by stage, and each one's checks in the details line under the list; the phone has a progress tab.
 
-The page updates itself over a server-sent event stream: session status every two seconds while it is open, uncommitted files every ten seconds, and pull requests at most once a minute per branch, fetched in the background with the GitHub CLI (`gh`). Nothing is read while no page is open. The server listens on 127.0.0.1 only, answers only requests addressed to that name, and is separate from the phone server and its tunnel.
+The page updates itself over a server-sent event stream: session status every two seconds while it is open, uncommitted files every ten seconds, and pull requests at most once a minute per branch or pull request, fetched in the background with the GitHub CLI (`gh`). Nothing is read while no page is open. The server listens on 127.0.0.1 only, answers only requests addressed to that name, and is separate from the phone server and its tunnel.
 
 ## Terminal
 
@@ -162,7 +166,7 @@ Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving
 
 For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 and serves its web UI at `https://<your Tailscale name>:4096`, reachable only on your tailnet. "Open in OpenCode" then goes through kiln's own address, which signs the phone's browser in to OpenCode and opens the session; there is nothing to pair. Each link works once, for 15 minutes. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
 
-The progress tab groups the sessions on your computer by how far their branch has got: PR failing, checks running, PR green, working, and merged, the stage that needs you first at the top. Each row shows its project, pull request number, check counts and whether it is queued for merging; hold a row for its details and a link to the pull request. Pull requests are looked up with the GitHub CLI (`gh`) on the computer, only while the app is open, at most once a minute per branch.
+The progress tab groups the sessions on your computer by how far their branch has got: PR failing, checks running, PR green, working, and merged, the stage that needs you first at the top. Each row shows its project, its most urgent pull request's number and how many more it has, check counts and whether it is queued for merging; hold a row for its details, every pull request it has and a link to each open one. Pull requests are looked up with the GitHub CLI (`gh`) on the computer, only while the app is open, at most once a minute per branch or pull request.
 
 On the phone, finished Claude background jobs show as Completed or Stopped and leave the list after a day. The phone's list opens in the order `sort` sets and orders sessions as the terminal list does.
 

@@ -33,6 +33,9 @@ test("a typo is an error naming the file and key, not a silent default", () => {
 test("phones stay read-only unless [phone] write is on", () => {
   expect(defaults.phoneWrite).toBe(false);
   expect(parseSettings(`[phone]\nwrite = true\n`).phoneWrite).toBe(true);
+  expect(defaults.prMessages).toBe(false);
+  expect(parseSettings("pr_messages = true\n").prMessages).toBe(true);
+  expect(() => parseSettings('pr_messages = "on"\n', "config.toml")).toThrow("pr_messages must be true or false");
 });
 
 test("the README settings example matches the shipped defaults", async () => {

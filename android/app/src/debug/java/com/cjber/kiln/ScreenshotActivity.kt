@@ -123,15 +123,24 @@ private fun demo(
         parent,
     )
 
-private fun pull(number: Int, passed: Int, failed: Int, running: Int, queued: Boolean = false) =
+private fun pull(
+    number: Int,
+    passed: Int,
+    failed: Int,
+    running: Int,
+    queued: Boolean = false,
+    repository: String = "repo",
+    state: String = "OPEN",
+) =
     PullInfo(
         number,
-        "https://github.com/demo/repo/pull/$number",
+        "https://github.com/demo/$repository/pull/$number",
         false,
         queued,
         passed,
         failed,
         running,
+        state,
     )
 
 /** Each demo session's stage and pull request, as `kiln serve` reports them. */
@@ -212,6 +221,15 @@ private val demoRows =
                 ),
         )
         .map { row ->
-            demoProgress[row.id]?.let { (stage, pr) -> row.copy(stage = stage, pr = pr) }
-                ?: row.copy(stage = Stage.WORKING)
+            demoProgress[row.id]?.let { (stage, pr) ->
+                // One session opened two more pull requests, in other repositories.
+                val more =
+                    if (row.id == "codex:102")
+                        listOf(
+                            pull(88, 7, 0, 2, repository = "api"),
+                            pull(19, 5, 0, 0, repository = "docs", state = "MERGED"),
+                        )
+                    else emptyList()
+                row.copy(stage = stage, pr = pr, prs = listOf(pr) + more)
+            } ?: row.copy(stage = Stage.WORKING)
         }

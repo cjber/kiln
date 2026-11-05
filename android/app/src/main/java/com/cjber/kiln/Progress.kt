@@ -97,8 +97,10 @@ fun ProgressCard(row: Row, now: Long, open: () -> Unit, details: () -> Unit) {
                 Text(
                     listOfNotNull(
                             project,
-                            row.pr?.let { "#${it.number}${if (it.draft) " draft" else ""}" }
-                                ?: row.branch.takeIf { it.isNotBlank() },
+                            row.pr?.let {
+                                "#${it.number}${if (row.pulls.size > 1) "+${row.pulls.size - 1}" else ""}" +
+                                    if (it.draft) " draft" else ""
+                            } ?: row.branch.takeIf { it.isNotBlank() },
                         )
                         .joinToString("  "),
                     style = MaterialTheme.typography.labelSmall,

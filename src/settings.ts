@@ -27,6 +27,8 @@ export type Settings = {
   agents: Record<Agent, string[]>;
   /** Let paired phones start sessions and send prompts. Off by default: a phone that can do so can run code here. */
   phoneWrite: boolean;
+  /** `kiln serve` messages an agent when its pull request's checks fail, it conflicts, gets a review or merges. */
+  prMessages: boolean;
 };
 
 export const defaults: Settings = {
@@ -40,6 +42,7 @@ export const defaults: Settings = {
   claudeCloud: false,
   agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"] },
   phoneWrite: false,
+  prMessages: false,
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -70,6 +73,10 @@ notifications = true
 # Opt into Claude cloud listing through its internal API using the existing login.
 # Enter opens the session on claude.ai. This API can change between CLI versions.
 claude_cloud = false
+
+# kiln serve messages an agent when its pull request's checks fail, it has merge conflicts,
+# it gets a review or it merges. Needs the GitHub CLI and kiln serve running (kiln setup).
+pr_messages = false
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
@@ -143,6 +150,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "notifications":
         if (typeof value !== "boolean") fail(path, "notifications must be true or false");
         settings.notifications = value;
+        break;
+      case "pr_messages":
+        if (typeof value !== "boolean") fail(path, "pr_messages must be true or false");
+        settings.prMessages = value;
         break;
       case "agents":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[agents] must be a table");
