@@ -72,7 +72,7 @@ fun ViewOptions(
                 }
             }
             Text(
-                "Live includes local sessions, working or waiting cloud tasks, and cloud tasks updated in the last 24 hours. Older cloud tasks stay in History.",
+                "Live includes local sessions, working or waiting cloud tasks, and cloud tasks updated in the last 24 hours.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

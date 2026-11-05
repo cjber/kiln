@@ -12,7 +12,6 @@ enum class SessionOrder(val label: String, val config: String) {
 enum class SessionScope(val label: String) {
     LIVE("Live"),
     PROGRESS("Progress"),
-    HISTORY("History"),
     HIDDEN("Hidden"),
 }
 
@@ -115,7 +114,6 @@ fun sessionItems(
                     SessionScope.HIDDEN -> true
                     SessionScope.LIVE,
                     SessionScope.PROGRESS -> isCurrentSession(row, now)
-                    SessionScope.HISTORY -> !isCurrentSession(row, now)
                 }) &&
                     (agent == null || row.agent == agent) &&
                     (activity == null || row.activity == activity)

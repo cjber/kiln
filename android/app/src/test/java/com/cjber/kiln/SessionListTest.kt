@@ -94,7 +94,7 @@ class SessionListTest {
     }
 
     @Test
-    fun liveKeepsLocalAndBusyCloudSessionsButSeparatesOlderHistory() {
+    fun liveKeepsLocalAndBusyCloudSessionsButDropsOlderOnes() {
         val now = 10 * 86_400_000L
         val recent = parent.copy(id = "recent", where = Place.CLOUD, active = now - 1000)
         val boundary = recent.copy(id = "boundary", active = now - 86_400_000)
@@ -107,11 +107,6 @@ class SessionListTest {
         assertEquals(
             setOf("parent", "recent", "working", "waiting", "created"),
             ids(sessionItems(rows, SessionOrder.RECENT, "", emptySet(), SessionScope.LIVE, now))
-                .toSet(),
-        )
-        assertEquals(
-            setOf("boundary", "unknown", "undated"),
-            ids(sessionItems(rows, SessionOrder.RECENT, "", emptySet(), SessionScope.HISTORY, now))
                 .toSet(),
         )
     }

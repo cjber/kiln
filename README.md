@@ -164,7 +164,7 @@ For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 
 
 The progress tab groups the sessions on your computer by how far their branch has got: PR failing, checks running, PR green, working, and merged, the stage that needs you first at the top. Each row shows its project, pull request number, check counts and whether it is queued for merging; hold a row for its details and a link to the pull request. Pull requests are looked up with the GitHub CLI (`gh`) on the computer, only while the app is open, at most once a minute per branch.
 
-On the phone, finished Claude background jobs show as Completed or Stopped and move to History after a day. The phone's list opens in the order `sort` sets and orders sessions as the terminal list does.
+On the phone, finished Claude background jobs show as Completed or Stopped and leave the list after a day. The phone's list opens in the order `sort` sets and orders sessions as the terminal list does.
 
 A paired phone only watches by default. To let it start sessions and send prompts, set `write = true` under `[phone]` in `config.toml`; a phone that can do this can run code on your computer. The app then shows a New session button: choose an agent, a directory from the ones kiln already knows (the directories of listed sessions, then zoxide's list) and a first prompt of up to 16 KB. The session starts in kiln's tmux with the provider's remote control on, and it opens in the app as a live conversation. A running session's details also have a Send box, which delivers a prompt the way `kiln msg send` does and shows "Delivered" or why it waits. A phone can start 20 sessions in ten minutes, and `kiln devices` lists each phone's latest starts.
 
