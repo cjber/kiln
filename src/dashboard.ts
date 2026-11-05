@@ -52,7 +52,12 @@ export type DashboardSnapshot = {
   /** Pull request lookups still running, so a row may yet leave Working. */
   checking: number;
   rows: DashboardRow[];
+  /** Every open pull request you authored, sessions or not, once GitHub has answered. */
+  openPrs: OpenPullRequest[];
 };
+
+/** An open pull request found by searching GitHub, named by its repository. */
+export type OpenPullRequest = PullRequest & { project: string };
 
 type Run = (argv: string[], cwd: string) => Promise<string>;
 
@@ -299,6 +304,48 @@ export function pullRequests({
   };
 }
 
+const authoredQuery = `query {
+  search(query: "is:pr is:open author:@me archived:false", type: ISSUE, first: 100) {
+    nodes { ... on PullRequest {
+      number url state isDraft additions deletions
+      repository { name }
+      labels(first: 20) { nodes { name } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+        __typename ... on CheckRun { status conclusion } ... on StatusContext { state }
+      } } } } } }
+    } }
+  }
+}`;
+
+/** Open pull requests from the GitHub search behind `authoredQuery`, oldest last as GitHub sorts them. */
+export function parseAuthoredPullRequests(output: string, queueLabel = "mergepatrol"): OpenPullRequest[] {
+  type Node = {
+    number?: number;
+    url: string;
+    state: PullRequest["state"];
+    isDraft: boolean;
+    additions: number;
+    deletions: number;
+    repository: { name: string };
+    labels: { nodes: { name: string }[] };
+    commits: { nodes: { commit: { statusCheckRollup: { contexts: { nodes: CheckEntry[] } } | null } }[] };
+  };
+  const nodes = (JSON.parse(output) as { data: { search: { nodes: Node[] } } }).data.search.nodes;
+  return nodes
+    .filter((node) => node.number !== undefined)
+    .map((node) => ({
+      number: node.number as number,
+      url: node.url,
+      state: node.state,
+      draft: node.isDraft,
+      additions: node.additions,
+      deletions: node.deletions,
+      queued: node.labels.nodes.some((label) => label.name === queueLabel),
+      checks: countChecks(node.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []),
+      project: node.repository.name,
+    }));
+}
+
 /**
  * Sessions with their git and GitHub state. Session rows are read on every refresh; uncommitted counts
  * and pull requests come from caches filled in the background, so a slow `gh` never holds up the page.
@@ -318,6 +365,21 @@ export function dashboardData({
   const changes = new Map<string, Cached<number>>();
   const used = new Set<string>();
   const prs = pullRequests({ exec, ...options });
+  // Every open pull request you authored, looked up in the background at most once per `prAge`.
+  const authored: Cached<OpenPullRequest[]> = { checkedAt: 0, pending: false };
+  const searchAuthored = () => {
+    if (!prs.gh || authored.pending || Date.now() - authored.checkedAt < (options.prAge ?? 60_000)) return;
+    authored.pending = true;
+    exec(["gh", "api", "graphql", "-f", `query=${authoredQuery}`], homedir())
+      .then(
+        (output) => (authored.value = parseAuthoredPullRequests(output)),
+        () => {},
+      )
+      .finally(() => {
+        authored.checkedAt = Date.now();
+        authored.pending = false;
+      });
+  };
   const countChanges = (root: string) => {
     used.add(root);
     if (fresh(changes, root, statusAge)) return;
@@ -349,14 +411,16 @@ export function dashboardData({
   return async (): Promise<DashboardSnapshot> => {
     const { sessions, problem } = await discover();
     const rows = sessions.filter((session) => session.place.kind !== "cloud").map(row);
+    searchAuthored();
     // Forget checkouts and branches no session works in any more.
     sweep(changes, used);
     prs.sweep();
     return {
       updatedAt: Date.now(),
       problem: [problem, prs.gh ? "" : "Install the GitHub CLI (gh) to see pull requests"].filter(Boolean).join(" · "),
-      checking: prs.pending(),
+      checking: prs.pending() + (authored.pending ? 1 : 0),
       rows,
+      openPrs: authored.value ?? [],
     };
   };
 }
@@ -411,6 +475,7 @@ export function startDashboard({
         problem: "Session discovery unavailable",
         checking: 0,
         rows: [],
+        openPrs: [],
       });
     } finally {
       refreshing = false;
