@@ -10,6 +10,9 @@ const pullUrl = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
  * behind variable assignments. A search such as `grep 'gh pr create'` names it inside quotes and does not count.
  */
 const creates = /(?:^|[\n;&|(]|\$\()\s*(?:[A-Za-z_]\w*=\S*\s+)*gh\s+pr\s+create\b/;
+/** Quoted shell text, which runs nothing: `grep '; gh pr create'` searches for the words. */
+const quoted = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+const runsCreate = (command: unknown) => creates.test(text(command).replace(quoted, "''"));
 
 type Scan = { inode: number; offset: number; calls: Set<string>; urls: string[] };
 
@@ -39,7 +42,7 @@ function createCalls(record: Record<string, unknown>): string[] {
   const payload = record.payload as Record<string, unknown> | undefined;
   if (record.type === "response_item" && payload && typeof payload.call_id === "string")
     return (payload.type === "function_call" || payload.type === "custom_tool_call") &&
-      codexCommands(payload).some((command) => creates.test(command))
+      codexCommands(payload).some(runsCreate)
       ? [payload.call_id]
       : [];
   // Claude `tool_use` and Pi `toolCall` parts carry the command in `input` or `arguments`.
@@ -48,7 +51,7 @@ function createCalls(record: Record<string, unknown>): string[] {
   return content.flatMap((part) =>
     (part?.type === "tool_use" || part?.type === "toolCall") &&
     typeof part.id === "string" &&
-    creates.test(text((part.input ?? part.arguments)?.command))
+    runsCreate((part.input ?? part.arguments)?.command)
       ? [part.id]
       : [],
   );
@@ -115,7 +118,7 @@ export function scanTranscript(path: string, scan?: Scan): Scan {
     if (done?.type === "CommandExecution") {
       // The command is the shell and its flags, then the command line itself.
       const command = Array.isArray(done.command) ? done.command.at(-1) : done.command;
-      if (creates.test(text(command)))
+      if (runsCreate(command))
         for (const url of String(done.aggregated_output ?? "").match(pullUrl) ?? [])
           if (!state.urls.includes(url)) state.urls.push(url);
       continue;

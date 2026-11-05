@@ -126,6 +126,9 @@ test("a linked worktree counts as its repository's project", () => {
 
 test("the server streams sessions with their pull requests and answers only to its loopback name", async () => {
   const { worktree } = repository();
+  // A repository with its own queue label: only the branch lookup reads it.
+  mkdirSync(join(worktree, ".mergepatrol"));
+  writeFileSync(join(worktree, ".mergepatrol", "mergepatrol.yml"), "label: land\n");
   const session: Session = {
     agent: "claude",
     id: "a1",
@@ -146,9 +149,13 @@ test("the server streams sessions with their pull requests and answers only to i
       if (argv[2] === "graphql" && argv[4]?.includes("search(")) return JSON.stringify(authored);
       if (argv[2] === "graphql")
         return JSON.stringify({
-          data: { p0: node("https://github.com/cjber/kiln/pull/7", [run("ci", null, "IN_PROGRESS")]) },
+          data: {
+            p0: node("https://github.com/cjber/kiln/pull/7", [run("ci", null, "IN_PROGRESS")], {
+              labels: { nodes: [{ name: "land" }] },
+            }),
+          },
         });
-      return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["mergepatrol"])]);
+      return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["land"])]);
     },
   });
   try {

@@ -31,6 +31,8 @@ test("a Claude session's opened pull requests come from its gh pr create results
     claudeResult("a", "https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/2"),
     claudeCall("g", "grep 'gh pr create' transcript.jsonl"),
     claudeResult("g", "https://github.com/o/r/pull/8"),
+    claudeCall("q", `rg "; gh pr create" . && echo '| gh pr create'`),
+    claudeResult("q", "https://github.com/o/r/pull/10"),
     claudeCall("b", 'git push && gh pr create --title "x" --body "Refs https://github.com/o/r/pull/1"'),
     claudeResult("b", "https://github.com/o/r/pull/3"),
   );

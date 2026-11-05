@@ -423,8 +423,11 @@ export function pullRequests({
       if (lookUp) drain();
       return byUrgency(
         urls.flatMap((url) => {
-          // The branch lookup answers first; the lookup by URL adds what the autopilot needs.
-          const pr = byUrl.get(url)?.value ?? (url === branchPr?.url ? branchPr : undefined);
+          // The branch lookup answers first; the lookup by URL adds what the autopilot needs. Only the branch
+          // lookup knows the repository's queue label, so its `queued` stands.
+          const branch = url === branchPr?.url ? branchPr : undefined;
+          const found = byUrl.get(url)?.value;
+          const pr = found && branch ? { ...found, queued: branch.queued } : (found ?? branch);
           return pr ? [mine.includes(url) ? { ...pr, opened: true } : pr] : [];
         }),
       );
