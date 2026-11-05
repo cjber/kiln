@@ -119,24 +119,28 @@ fun SessionDetails(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             val links = LocalUriHandler.current
-            // A session can open dozens; the merged and closed ones stay in the list above, without a button.
-            row.pulls.filter { it.state == "OPEN" }.ifEmpty { row.pulls.take(1) }.forEach { pr ->
-                OutlinedButton(
-                    onClick = { links.openUri(pr.url) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
-                    colors =
-                        ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
-                ) {
-                    Text(
-                        if (row.pulls.size == 1) "Open pull request #${pr.number}"
-                        else "Open ${pr.repository} #${pr.number}"
-                    )
+            // A session can open dozens; the merged and closed ones stay in the list above, without
+            // a button.
+            row.pulls
+                .filter { it.state == "OPEN" }
+                .ifEmpty { row.pulls.take(1) }
+                .forEach { pr ->
+                    OutlinedButton(
+                        onClick = { links.openUri(pr.url) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        colors =
+                            ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
+                    ) {
+                        Text(
+                            if (row.pulls.size == 1) "Open pull request #${pr.number}"
+                            else "Open ${pr.repository} #${pr.number}"
+                        )
+                    }
                 }
-            }
             if (send != null) SendBox(row.id, send)
             TextButton(onClick = changeHidden, modifier = Modifier.fillMaxWidth()) {
                 Text(if (hidden) "Restore on this phone" else "Hide on this phone")
