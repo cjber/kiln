@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-05
+
 Every pull request a session opened, not only the one for its branch. Kiln reads the pull requests a
 Claude, Codex or Pi session created with `gh pr create` from its transcript. The terminal list shows the
 most urgent one with a count of the rest, such as `#212+3`, and each one's checks in the details line.
