@@ -129,7 +129,7 @@ pi = ["pi"]
 write = false
 ```
 
-Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
+Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. The status bar's session counts are shared by every attached session and refreshed at most every 15 seconds. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
 
 `sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. `project` groups sessions by git repository, with linked worktrees under the repository that owns them; a directory outside git is its own group. Within a group, sessions are ordered by their most recent provider update, and the time since that update fades from green to grey as it ages. Branches are reread from the session directory on refresh.
 
