@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-05
+
 Every agent's pull request in one place. The phone has a progress tab that groups the sessions on your
 computer by stage, from failing checks to merged, with each pull request's check counts and merge queue
 label, and a link to the pull request in the session details. The terminal list shows each branch's
