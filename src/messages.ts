@@ -11,6 +11,9 @@ import { tilde } from "./tui";
 /** The name a message from a person at a shell, rather than an agent, carries. */
 export const terminal = "terminal";
 
+/** The name kiln's own messages about an agent's pull requests carry; nobody reads replies to it. */
+export const autopilotSender = "kiln-autopilot";
+
 /** The name a message typed on a paired phone carries. */
 export const phoneSender = (device: string) => `phone:${device}`;
 
@@ -137,7 +140,7 @@ export function frame(message: Message, sender: Session | undefined, command = k
   const quoted = /^[\w./-]+$/.test(command) ? command : `'${command.replaceAll("'", "'\\''")}'`;
   // A person cannot be messaged back.
   const reply =
-    message.from === terminal || message.from.startsWith(phoneSender(""))
+    message.from === terminal || message.from === autopilotSender || message.from.startsWith(phoneSender(""))
       ? ""
       : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;

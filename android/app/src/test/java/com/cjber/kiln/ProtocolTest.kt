@@ -89,6 +89,18 @@ class ProtocolTest {
         assertNull(
             row(""","stage":"green","pr":{"number":1,"url":"https://evil.example/o/r/pull/1"}""").pr
         )
+        val several =
+            row(
+                ""","pr":{"number":3,"url":"https://github.com/o/a/pull/3","state":"OPEN"},
+                "prs":[{"number":3,"url":"https://github.com/o/a/pull/3","state":"OPEN"},
+                {"number":4,"url":"https://evil.example/o/b/pull/4"},
+                {"number":5,"url":"https://github.com/o/b/pull/5","state":"MERGED"}]"""
+            )
+        assertEquals(listOf(3, 5), several.pulls.map { it.number })
+        assertEquals(listOf("a", "b"), several.pulls.map { it.repository })
+        assertEquals(Stage.DONE, several.pulls[1].stage)
+        // A machine that sends only `pr` still shows it.
+        assertEquals(listOf(212), failing.pulls.map { it.number })
         assertNull(row(""","stage":"later"""").stage)
         assertNull(row("").stage)
     }

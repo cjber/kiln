@@ -241,8 +241,11 @@ test("phone sessions carry their pull request stage, looked up only while a phon
     };
     await Bun.sleep(200);
     socket.close();
-    expect(lookups).toHaveLength(1);
+    // One lookup for the branch, then one by URL for the details the branch lookup lacks.
+    expect(lookups.filter((argv) => argv[1] === "pr")).toHaveLength(1);
+    expect(lookups.filter((argv) => argv[2] === "graphql")).toHaveLength(1);
     expect(lookups[0]).toContain("cb/x");
+    expect(row?.prs).toHaveLength(1);
     expect(row?.stage).toBe("failing");
     expect(row?.pr).toMatchObject({
       number: 7,
@@ -253,6 +256,43 @@ test("phone sessions carry their pull request stage, looked up only while a phon
   } finally {
     server.stop();
     pairing.close();
+  }
+});
+
+test("with pr_messages on, pull requests are looked up and told to their agent with no phone connected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kiln-autopilot-"));
+  mkdirSync(join(directory, ".git"));
+  writeFileSync(join(directory, ".git", "HEAD"), "ref: refs/heads/cb/x\n");
+  const pairing = new Pairing(join(directory, "devices.sqlite"));
+  const told: number[] = [];
+  const session: Session = {
+    id: "s",
+    agent: "claude",
+    cwd: directory,
+    startedAt: 1,
+    place: { kind: "kiln", name: "k" },
+  };
+  const server = startServer({
+    port: 0,
+    pairing,
+    seen: async () => new Map(),
+    interval: 20,
+    idleInterval: 20,
+    settings: () => ({ ...defaults, prMessages: true }),
+    discover: async () => ({ sessions: [session], problem: "", stale: false }),
+    prs: pullRequests({ gh: true, exec: async () => "[]" }),
+    tell: (found) => {
+      told.push(found.size);
+      return 0;
+    },
+  });
+  try {
+    await Bun.sleep(150);
+    expect(told.length).toBeGreaterThan(0);
+  } finally {
+    server.stop();
+    pairing.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

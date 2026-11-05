@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
+import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
 import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
@@ -130,7 +131,7 @@ export function phoneSession(
   codexHost?: string,
   opencodeLink?: (id: string) => string,
   seenAt?: number,
-  pr?: PullRequest,
+  prs: PullRequest[] = [],
 ) {
   return {
     id: sessionIdentity(session),
@@ -152,8 +153,11 @@ export function phoneSession(
     seenAt,
     handoff: phoneHandoff(session, codexHost, opencodeLink),
     /** How far its branch has got: no pull request yet, its checks, or merged. Cloud tasks have none. */
-    stage: session.place.kind === "cloud" ? undefined : stageOf(pr),
-    pr,
+    stage: session.place.kind === "cloud" ? undefined : stageOf(prs[0]),
+    /** The most urgent of `prs`, for phones that show one. */
+    pr: prs[0],
+    /** Every pull request its branch has or it opened, most urgent first. */
+    prs,
   };
 }
 
@@ -179,6 +183,7 @@ export function startServer({
   seen = lastSeen,
   offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
   prs = pullRequests(),
+  tell = autopilot(),
 }: {
   port: number;
   pairing: Pairing;
@@ -200,12 +205,21 @@ export function startServer({
   seen?: () => Promise<Map<string, number>>;
   /** The directories a phone may start in, given the listed sessions. */
   offer?: (sessions: readonly Session[], settings: Settings) => string[];
-  /** Each session branch's pull request; `gh` is asked only while a phone watches. */
+  /** Each session's pull requests; `gh` is asked only while a phone watches or `pr_messages` is on. */
   prs?: ReturnType<typeof pullRequests>;
+  /** Posts what changed on each session's pull requests to its agent, when `pr_messages` is on. */
+  tell?: ReturnType<typeof autopilot>;
 }) {
   const writable = () => {
     try {
       return settings().phoneWrite;
+    } catch {
+      return false;
+    }
+  };
+  const prMessages = () => {
+    try {
+      return settings().prMessages;
     } catch {
       return false;
     }
@@ -464,7 +478,7 @@ export function startServer({
       },
       close(socket) {
         sockets.delete(socket);
-        if (!sockets.size) prs.cancel();
+        if (!sockets.size && !prMessages()) prs.cancel();
       },
     },
   });
@@ -534,6 +548,8 @@ export function startServer({
       const parents = sessionParents(sessions);
       const looked = sessions.some((row) => row.place.kind === "kiln") ? await seen() : new Map<string, number>();
       const watched = sockets.size > 0;
+      const messaging = prMessages();
+      const found = new Map(sessions.map((session) => [session, prs.of(session, watched || messaging)]));
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
@@ -546,7 +562,7 @@ export function startServer({
             codexHost.id,
             opencodeLink,
             session.place.kind === "kiln" ? looked.get(session.place.name) : undefined,
-            prs.of(session, watched),
+            found.get(session),
           ),
         ),
         problem,
@@ -554,7 +570,14 @@ export function startServer({
         sort: order(),
       };
       // Unwatched refreshes only read the cache, so they keep what a phone will want next time.
-      if (watched) prs.sweep();
+      if (watched || messaging) prs.sweep();
+      // Posted messages wait in the mailbox until their agent can take them; the next flush delivers them.
+      if (messaging && !stale)
+        try {
+          if (tell(found)) flushInBackground(sessions);
+        } catch {
+          // A broken mailbox never fails a refresh.
+        }
       try {
         transitions(sessions, pushing());
         if (!stale) clearRead();

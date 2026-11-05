@@ -183,7 +183,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
   const prs = useMemo(() => givenPrs ?? pullRequests(loadSessions ? { gh: false } : {}), [givenPrs, loadSessions]);
-  const [pulls, setPulls] = useState<ReadonlyMap<string, PullRequest>>(new Map());
+  const [pulls, setPulls] = useState<ReadonlyMap<string, PullRequest[]>>(new Map());
   const notifyNative = useMemo(() => nativeNotifications(), []);
   const discover = useMemo(() => {
     if (loadSessions) return keepLast(loadSessions, "Session discovery");
@@ -203,10 +203,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
-      const foundPrs = new Map<string, PullRequest>();
+      const foundPrs = new Map<string, PullRequest[]>();
       for (const session of found.sessions) {
-        const pr = prs.of(session);
-        if (pr) foundPrs.set(sessionIdentity(session), pr);
+        const list = prs.of(session);
+        if (list.length) foundPrs.set(sessionIdentity(session), list);
       }
       if (!found.stale) prs.sweep();
       setPulls(foundPrs);
@@ -480,7 +480,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
                   {showStatus ? (
                     <span fg={toneColor[sessionStatus(session).tone]}>{sessionStatus(session).label.padEnd(12)}</span>
                   ) : null}
-                  {showPr ? <PrCell pr={pulls.get(row.key)} /> : null}
+                  {showPr ? <PrCell prs={pulls.get(row.key)} /> : null}
                   {showUpdated ? (
                     <span fg={ageColor(session.lastActiveAt, now)}>{age(session.lastActiveAt, now).padStart(8)}</span>
                   ) : null}
@@ -509,7 +509,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       {current ? (
         <text fg={color.comment}>
           {fit(
-            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""}${currentPr ? ` · ${pullRequestLine(currentPr)}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · ${updated(current, now)}`,
+            `${agentName(current.agent)}${current.branch ? ` · ${current.branch}` : ""}${currentPr ? ` · ${currentPr.map(pullRequestLine).join(" · ")}` : ""} · ${label(current)} · ${sessionStatus(current).hint} · ${updated(current, now)}`,
             Math.max(1, width - 2),
             "end",
           )}
@@ -600,9 +600,13 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
   }
 }
 
-/** `#212 ✗`, ten columns wide, coloured by how far the pull request has got. */
-function PrCell({ pr }: { pr: PullRequest | undefined }) {
+/** `#212 ✗`, or `#212+3 ✗` with three more, ten columns wide, coloured by the most urgent pull request. */
+function PrCell({ prs }: { prs: readonly PullRequest[] | undefined }) {
+  const pr = prs?.[0];
   if (!pr) return <span>{" ".repeat(10)}</span>;
   const stage = stageOf(pr);
-  return <span fg={stageColor[stage]}>{fit(`#${pr.number} ${stageMark[stage]}`.trim(), 9, "end").padEnd(10)}</span>;
+  const more = prs.length > 1 ? `+${prs.length - 1}` : "";
+  return (
+    <span fg={stageColor[stage]}>{fit(`#${pr.number}${more} ${stageMark[stage]}`.trim(), 9, "end").padEnd(10)}</span>
+  );
 }

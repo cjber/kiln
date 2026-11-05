@@ -70,29 +70,27 @@ function repository() {
   return { root, main, worktree };
 }
 
+/** A GraphQL pull request node, as `pullFields` asks for it. */
+const node = (url: string, checks: object[], extra: object = {}) => ({
+  number: Number(url.split("/").at(-1)),
+  url,
+  state: "OPEN",
+  isDraft: false,
+  additions: 2,
+  deletions: 1,
+  mergeable: "MERGEABLE",
+  headRefOid: "abc123",
+  labels: { nodes: [{ name: "mergepatrol" }] },
+  reviews: { totalCount: 0, nodes: [] },
+  commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: checks } } } }] },
+  ...extra,
+});
+
 const authored = {
   data: {
     search: {
       nodes: [
-        {
-          number: 7,
-          url: "https://github.com/o/other/pull/7",
-          state: "OPEN",
-          isDraft: false,
-          additions: 2,
-          deletions: 1,
-          repository: { name: "other" },
-          labels: { nodes: [{ name: "mergepatrol" }] },
-          commits: {
-            nodes: [
-              {
-                commit: {
-                  statusCheckRollup: { contexts: { nodes: [{ __typename: "StatusContext", state: "FAILURE" }] } },
-                },
-              },
-            ],
-          },
-        },
+        node("https://github.com/o/other/pull/7", [{ __typename: "StatusContext", context: "ci", state: "FAILURE" }]),
         {},
       ],
     },
@@ -110,7 +108,12 @@ test("open pull requests without a session come from one GitHub search", () => {
       deletions: 1,
       queued: true,
       checks: { passed: 0, failed: 1, running: 0 },
-      project: "other",
+      repository: "other",
+      head: "abc123",
+      mergeable: "MERGEABLE",
+      failedChecks: ["ci"],
+      reviews: 0,
+      review: undefined,
     },
   ]);
 });
@@ -123,6 +126,9 @@ test("a linked worktree counts as its repository's project", () => {
 
 test("the server streams sessions with their pull requests and answers only to its loopback name", async () => {
   const { worktree } = repository();
+  // A repository with its own queue label: only the branch lookup reads it.
+  mkdirSync(join(worktree, ".mergepatrol"));
+  writeFileSync(join(worktree, ".mergepatrol", "mergepatrol.yml"), "label: land\n");
   const session: Session = {
     agent: "claude",
     id: "a1",
@@ -140,8 +146,16 @@ test("the server streams sessions with their pull requests and answers only to i
     exec: async (argv) => {
       calls.push(argv);
       if (argv[0] === "git") return " M src/a.ts\n?? b.ts\n";
-      if (argv[2] === "graphql") return JSON.stringify(authored);
-      return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["mergepatrol"])]);
+      if (argv[2] === "graphql" && argv[4]?.includes("search(")) return JSON.stringify(authored);
+      if (argv[2] === "graphql")
+        return JSON.stringify({
+          data: {
+            p0: node("https://github.com/cjber/kiln/pull/7", [run("ci", null, "IN_PROGRESS")], {
+              labels: { nodes: [{ name: "land" }] },
+            }),
+          },
+        });
+      return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["land"])]);
     },
   });
   try {
@@ -155,7 +169,7 @@ test("the server streams sessions with their pull requests and answers only to i
     const reader = events.body?.pipeThrough(new TextDecoderStream()).getReader();
     let row: DashboardSnapshot["rows"][number] | undefined;
     let openPrs: DashboardSnapshot["openPrs"] = [];
-    for (let buffer = ""; !row?.pr || !openPrs.length; ) {
+    for (let buffer = ""; !row?.prs[0]?.head || !openPrs.length; ) {
       const chunk = await reader?.read();
       if (!chunk || chunk.done) throw new Error("stream ended");
       buffer += chunk.value;
@@ -167,13 +181,13 @@ test("the server streams sessions with their pull requests and answers only to i
         openPrs = snapshot.openPrs;
       }
     }
-    expect(openPrs.map((pr) => pr.project)).toEqual(["other"]);
+    expect(openPrs.map((pr) => pr.repository)).toEqual(["other"]);
     await reader?.cancel();
     expect(row).toMatchObject({ project: "kiln", branch: "cb/feature", changes: 2, stage: "checks" });
-    expect(row.pr?.queued).toBe(true);
-    // Refreshes every 50 ms reuse the cached answer instead of asking GitHub again.
+    expect(row.prs).toMatchObject([{ number: 7, queued: true, head: "abc123", repository: "kiln" }]);
+    // Refreshes every 50 ms reuse the cached answers instead of asking GitHub again.
     expect(calls.filter((argv) => argv[0] === "gh" && argv[1] === "pr")).toHaveLength(1);
-    expect(calls.filter((argv) => argv[2] === "graphql")).toHaveLength(1);
+    expect(calls.filter((argv) => argv[2] === "graphql")).toHaveLength(2);
   } finally {
     dashboard.stop();
   }

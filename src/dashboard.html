@@ -91,11 +91,11 @@ document.getElementById("check-legend").innerHTML = checkKinds.map(([, name, col
 function render(data) {
   document.getElementById("problem").textContent = data.problem;
   const rows = data.rows;
-  // Sessions sharing a branch share its pull request; count and draw it once.
-  // Session pull requests first, then every other open one you authored, each drawn once.
+  // Every open pull request a session has or you authored, drawn once even when sessions share it.
   const open = [...new Map([
-    ...(data.openPrs ?? []).map((pr) => [pr.url, { project: pr.project, pr }]),
-    ...rows.filter((row) => row.pr && row.pr.state === "OPEN").map((row) => [row.pr.url, row]),
+    ...[...(data.openPrs ?? []), ...rows.flatMap((row) => row.prs)]
+      .filter((pr) => pr.state === "OPEN")
+      .map((pr) => [pr.url, { project: pr.repository, pr }]),
   ]).values()].sort((a, b) => a.project.localeCompare(b.project) || a.pr.number - b.pr.number);
   const tiles = [
     // A session whose pull request merged is finished, even while its agent is still open.
@@ -144,7 +144,7 @@ function render(data) {
         <td class="wide">${esc(row.agent)}</td>
         <td class="wide">${esc(row.project)}</td>
         <td><span class="pill">${swatch(row.stage)}${stageName[row.stage]}</span></td>
-        <td>${row.pr ? link(row.pr) : ""}</td>
+        <td>${row.prs.map(link).join(" ")}</td>
         <td class="num wide">${row.changes ?? ""}</td>
       </tr>`).join("")}</tbody></table>`
     : `<p class="empty">No sessions running.</p>`;

@@ -380,30 +380,45 @@ function sessionFile(root: string, pattern: string, now = Date.now()): string | 
 
 const dataHome = () => Bun.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
 
-/** How to read a session's conversation from what its agent writes to disk, or undefined when kiln cannot. */
-export function conversationReader(session: Session): ((cursor?: string) => Page) | undefined {
+/** The JSONL transcript a local Claude, Codex or Pi session writes, or undefined when it has none kiln can find. */
+export function transcriptFile(session: Session): { path: string; agent: "claude" | "codex" | "pi" } | undefined {
   const id = session.id;
   if (!id || session.place.kind === "cloud") return undefined;
   // An id becomes part of a glob, so only the characters provider ids use are accepted.
   if (!/^[A-Za-z0-9_-]+$/.test(id)) return undefined;
+  let path: string | undefined;
   switch (session.agent) {
-    case "claude": {
-      const path = claudeTranscript(session.cwd, id);
-      return path ? (cursor) => readConversation(path, cursor) : undefined;
-    }
-    case "codex": {
-      const root = join(Bun.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions");
-      const path = sessionFile(root, `*/*/*/rollout-*-${id}.jsonl`);
-      return path ? (cursor) => readConversation(path, cursor, undefined, codexItems) : undefined;
-    }
-    case "pi": {
-      const root = join(Bun.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions");
-      const path = sessionFile(root, `*/*_${id}.jsonl`);
-      return path ? (cursor) => readConversation(path, cursor, undefined, piItems) : undefined;
-    }
-    case "opencode": {
-      const path = join(dataHome(), "opencode", "opencode.db");
-      return existsSync(path) ? (cursor) => readOpencodeConversation(path, id, cursor) : undefined;
-    }
+    case "claude":
+      path = claudeTranscript(session.cwd, id);
+      break;
+    case "codex":
+      path = sessionFile(
+        join(Bun.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions"),
+        `*/*/*/rollout-*-${id}.jsonl`,
+      );
+      break;
+    case "pi":
+      path = sessionFile(
+        join(Bun.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "sessions"),
+        `*/*_${id}.jsonl`,
+      );
+      break;
+    default:
+      return undefined;
   }
+  return path ? { path, agent: session.agent } : undefined;
+}
+
+/** How to read a session's conversation from what its agent writes to disk, or undefined when kiln cannot. */
+export function conversationReader(session: Session): ((cursor?: string) => Page) | undefined {
+  if (session.agent === "opencode") {
+    if (!session.id || session.place.kind === "cloud" || !/^[A-Za-z0-9_-]+$/.test(session.id)) return undefined;
+    const path = join(dataHome(), "opencode", "opencode.db");
+    const id = session.id;
+    return existsSync(path) ? (cursor) => readOpencodeConversation(path, id, cursor) : undefined;
+  }
+  const file = transcriptFile(session);
+  if (!file) return undefined;
+  const toItems = { claude: recordItems, codex: codexItems, pi: piItems }[file.agent];
+  return (cursor) => readConversation(file.path, cursor, undefined, toItems);
 }

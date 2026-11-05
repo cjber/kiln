@@ -9,6 +9,17 @@ verbatim.
 
 ## [Unreleased]
 
+Every pull request a session opened, not only the one for its branch. Kiln reads the pull requests a
+Claude, Codex or Pi session created with `gh pr create` from its transcript. The terminal list shows the
+most urgent one with a count of the rest, such as `#212+3`, and each one's checks in the details line.
+The dashboard lists them all, and the phone shows them all in a session's details, with a link to each
+open one.
+
+Kiln can tell an agent about its pull requests. With `pr_messages = true` in `config.toml`, `kiln serve`
+sends a session's agent a message when its checks fail, naming the failed checks, when it has merge
+conflicts, when it gets a review, and when it merges. Each one is sent once, and waits until the agent
+is idle.
+
 The phone drops its History tab. Cloud tasks and finished background jobs leave the list once they have
 been quiet for a day.
 

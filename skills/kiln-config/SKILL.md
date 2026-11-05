@@ -19,6 +19,8 @@ Supported top-level settings:
   It requires a desktop notification service; approval pauses are not completion.
 - `claude_cloud`: boolean, default `false`; uses Claude's internal cloud API and
   existing login. Enable alongside `cloud` for Claude cloud rows.
+- `pr_messages`: boolean, default `false`; `kiln serve` messages a session's agent when its pull
+  request's checks fail, it conflicts, gets a review or merges. Needs `gh` and the `kiln setup` service.
 - `[agents]`: `claude`, `codex`, `opencode` and `pi` are arrays of command arguments. An empty
   array hides that harness from new-session choices. Keep arguments separate;
   these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex`, `opencode` and `pi`.

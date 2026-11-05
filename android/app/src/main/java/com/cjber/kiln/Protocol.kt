@@ -40,7 +40,7 @@ enum class Stage(val id: String, val label: String) {
     DONE("done", "Merged"),
 }
 
-/** The pull request for a session's branch and its check counts. */
+/** One of a session's pull requests and its check counts. */
 data class PullInfo(
     val number: Int,
     val url: String,
@@ -50,7 +50,22 @@ data class PullInfo(
     val passed: Int,
     val failed: Int,
     val running: Int,
-)
+    /** OPEN, MERGED or CLOSED; older machines leave it out. */
+    val state: String = "OPEN",
+    /** The repository's name, from the link. */
+    val repository: String = url.substringAfter("github.com/").split("/").getOrElse(1) { "" },
+) {
+    /** How far this pull request has got, as `Stage` names it for a session. */
+    val stage: Stage
+        get() =
+            when {
+                state == "MERGED" -> Stage.DONE
+                state != "OPEN" -> Stage.WORKING
+                failed > 0 -> Stage.FAILING
+                running > 0 -> Stage.CHECKS
+                else -> Stage.GREEN
+            }
+}
 
 enum class ConnectionState {
     CONNECTING,
@@ -82,8 +97,14 @@ data class Row(
     val repository: String? = null,
     /** Null for cloud tasks and machines that do not report it. */
     val stage: Stage? = null,
+    /** The most urgent of `prs`, which machines before multiple pull requests send alone. */
     val pr: PullInfo? = null,
-)
+    val prs: List<PullInfo> = emptyList(),
+) {
+    /** Every pull request the session's branch has or it opened, most urgent first. */
+    val pulls: List<PullInfo>
+        get() = prs.ifEmpty { listOfNotNull(pr) }
+}
 
 data class Snapshot(
     val instance: String,
@@ -264,6 +285,7 @@ private fun parsePull(json: JSONObject?): PullInfo? {
         checks?.optInt("passed") ?: 0,
         checks?.optInt("failed") ?: 0,
         checks?.optInt("running") ?: 0,
+        json.optString("state", "OPEN"),
     )
 }
 
@@ -304,6 +326,11 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                 item.optString("repository").takeIf { it.isNotEmpty() },
                 item.optString("stage").let { id -> Stage.entries.find { it.id == id } },
                 runCatching { parsePull(item.optJSONObject("pr")) }.getOrNull(),
+                item.optJSONArray("prs").let { list ->
+                    (0 until minOf(list?.length() ?: 0, 100)).mapNotNull { index ->
+                        runCatching { parsePull(list?.optJSONObject(index)) }.getOrNull()
+                    }
+                },
             )
         }
     return Snapshot(
