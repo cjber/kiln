@@ -29,6 +29,8 @@ test("a Claude session's opened pull requests come from its gh pr create results
   const path = transcript(
     claudeCall("a", "gh search prs --author @me"),
     claudeResult("a", "https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/2"),
+    claudeCall("g", "grep 'gh pr create' transcript.jsonl"),
+    claudeResult("g", "https://github.com/o/r/pull/8"),
     claudeCall("b", 'git push && gh pr create --title "x" --body "Refs https://github.com/o/r/pull/1"'),
     claudeResult("b", "https://github.com/o/r/pull/3"),
   );

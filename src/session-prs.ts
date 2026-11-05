@@ -5,26 +5,50 @@ import type { Session } from "./sessions";
 /** One call reads at most this much of a transcript; a long one is caught up over the next refreshes. */
 const stepBytes = 8 * 1024 * 1024;
 const pullUrl = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
-const creates = /\bgh\s+pr\s+create\b/;
+/**
+ * `gh pr create` run as a command: at the start of the command or after `;`, `&&`, `||`, `|`, `(` or `$(`, optionally
+ * behind variable assignments. A search such as `grep 'gh pr create'` names it inside quotes and does not count.
+ */
+const creates = /(?:^|[\n;&|(]|\$\()\s*(?:[A-Za-z_]\w*=\S*\s+)*gh\s+pr\s+create\b/;
 
 type Scan = { inode: number; offset: number; calls: Set<string>; urls: string[] };
+
+const text = (value: unknown): string =>
+  typeof value === "string" ? value : Array.isArray(value) ? value.map(String).join(" ") : "";
+
+/** The shell commands a Codex call runs: `cmd` or `command` in its arguments, or every `cmd:` in a code-mode script. */
+function codexCommands(payload: Record<string, unknown>): string[] {
+  if (payload.type === "function_call")
+    try {
+      const input = JSON.parse(String(payload.arguments)) as Record<string, unknown>;
+      return [text(input.cmd ?? input.command)];
+    } catch {
+      return [];
+    }
+  return [...String(payload.input ?? "").matchAll(/\bcmd:\s*"((?:[^"\\]|\\.)*)"/g)].flatMap((match) => {
+    try {
+      return [JSON.parse(`"${match[1]}"`) as string];
+    } catch {
+      return [];
+    }
+  });
+}
 
 /** The tool call ids in one record that run `gh pr create`, for Claude, Codex and Pi records. */
 function createCalls(record: Record<string, unknown>): string[] {
   const payload = record.payload as Record<string, unknown> | undefined;
-  // Codex: a function or custom tool call carries its command in `arguments` or `input`.
   if (record.type === "response_item" && payload && typeof payload.call_id === "string")
     return (payload.type === "function_call" || payload.type === "custom_tool_call") &&
-      creates.test(String(payload.arguments ?? payload.input ?? ""))
+      codexCommands(payload).some((command) => creates.test(command))
       ? [payload.call_id]
       : [];
-  // Claude `tool_use` and Pi `toolCall` parts.
+  // Claude `tool_use` and Pi `toolCall` parts carry the command in `input` or `arguments`.
   const content = (record.message as { content?: unknown } | undefined)?.content;
   if (!Array.isArray(content)) return [];
   return content.flatMap((part) =>
     (part?.type === "tool_use" || part?.type === "toolCall") &&
     typeof part.id === "string" &&
-    creates.test(JSON.stringify(part.input ?? part.arguments ?? {}))
+    creates.test(text((part.input ?? part.arguments)?.command))
       ? [part.id]
       : [],
   );
@@ -67,7 +91,11 @@ export function scanTranscript(path: string, scan?: Scan): Scan {
   }
   // Only complete lines are consumed; a line still being written is read on the next call.
   const last = bytes.lastIndexOf(10);
-  if (last === -1) return state;
+  if (last === -1) {
+    // One line longer than a whole step holds a pasted file, not a command; skip past it rather than stall.
+    if (bytes.length === stepBytes) state.offset += bytes.length;
+    return state;
+  }
   for (const line of bytes
     .subarray(0, last + 1)
     .toString("utf8")
@@ -85,7 +113,9 @@ export function scanTranscript(path: string, scan?: Scan): Scan {
     const done = (record.payload as { item?: { type?: unknown; command?: unknown; aggregated_output?: unknown } })
       ?.item;
     if (done?.type === "CommandExecution") {
-      if (creates.test(JSON.stringify(done.command ?? "")))
+      // The command is the shell and its flags, then the command line itself.
+      const command = Array.isArray(done.command) ? done.command.at(-1) : done.command;
+      if (creates.test(text(command)))
         for (const url of String(done.aggregated_output ?? "").match(pullUrl) ?? [])
           if (!state.urls.includes(url)) state.urls.push(url);
       continue;

@@ -369,11 +369,12 @@ export function pullRequests({
         .then(parsePullRequestsByUrl)
         .then(
           (found) => {
+            // GitHub answers with the canonical URL, which may differ in case from the one asked for.
             for (const url of batch)
               store(
                 byUrl,
                 url,
-                found.find((pr) => pr.url === url),
+                found.find((pr) => pr.url.toLowerCase() === url.toLowerCase()),
                 true,
               );
           },
