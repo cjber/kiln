@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+The phone drops its History tab. Cloud tasks and finished background jobs leave the list once they have
+been quiet for a day.
+
 ## [0.20.0] - 2026-11-05
 
 Every agent's pull request in one place. The phone has a progress tab that groups the sessions on your

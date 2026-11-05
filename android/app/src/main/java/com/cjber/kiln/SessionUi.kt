@@ -258,7 +258,6 @@ fun SessionScreen(
                         else if (filter.isNotEmpty() || activity != null || agent != null)
                             "No matching sessions"
                         else if (scope == SessionScope.HIDDEN) "Nothing hidden"
-                        else if (scope == SessionScope.HISTORY) "No older cloud tasks"
                         else "All quiet here",
                     emptyMessage =
                         if (progress && filter.isEmpty() && oldServer)
@@ -270,8 +269,6 @@ fun SessionScreen(
                             "Try another search or clear your filters."
                         else if (scope == SessionScope.HIDDEN)
                             "Swipe a session left to hide it on this phone."
-                        else if (scope == SessionScope.HISTORY)
-                            "Cloud tasks older than 24 hours appear here."
                         else "Your live sessions and recent cloud tasks will appear here.",
                     clear =
                         if (filter.isNotEmpty() || activity != null || agent != null)
