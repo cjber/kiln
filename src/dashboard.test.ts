@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DashboardSnapshot,
+  parseAuthoredPullRequests,
   parsePullRequest,
   projectName,
   pullRequests,
@@ -69,6 +70,51 @@ function repository() {
   return { root, main, worktree };
 }
 
+const authored = {
+  data: {
+    search: {
+      nodes: [
+        {
+          number: 7,
+          url: "https://github.com/o/other/pull/7",
+          state: "OPEN",
+          isDraft: false,
+          additions: 2,
+          deletions: 1,
+          repository: { name: "other" },
+          labels: { nodes: [{ name: "mergepatrol" }] },
+          commits: {
+            nodes: [
+              {
+                commit: {
+                  statusCheckRollup: { contexts: { nodes: [{ __typename: "StatusContext", state: "FAILURE" }] } },
+                },
+              },
+            ],
+          },
+        },
+        {},
+      ],
+    },
+  },
+};
+
+test("open pull requests without a session come from one GitHub search", () => {
+  expect(parseAuthoredPullRequests(JSON.stringify(authored))).toEqual([
+    {
+      number: 7,
+      url: "https://github.com/o/other/pull/7",
+      state: "OPEN",
+      draft: false,
+      additions: 2,
+      deletions: 1,
+      queued: true,
+      checks: { passed: 0, failed: 1, running: 0 },
+      project: "other",
+    },
+  ]);
+});
+
 test("a linked worktree counts as its repository's project", () => {
   const { main, worktree } = repository();
   expect(projectName(join(worktree, "src"))).toBe("kiln");
@@ -94,6 +140,7 @@ test("the server streams sessions with their pull requests and answers only to i
     exec: async (argv) => {
       calls.push(argv);
       if (argv[0] === "git") return " M src/a.ts\n?? b.ts\n";
+      if (argv[2] === "graphql") return JSON.stringify(authored);
       return JSON.stringify([pr("OPEN", [run("ci", null, "IN_PROGRESS")], ["mergepatrol"])]);
     },
   });
@@ -107,19 +154,26 @@ test("the server streams sessions with their pull requests and answers only to i
     const events = await fetch(`${origin}/v1/events`);
     const reader = events.body?.pipeThrough(new TextDecoderStream()).getReader();
     let row: DashboardSnapshot["rows"][number] | undefined;
-    for (let buffer = ""; !row?.pr; ) {
+    let openPrs: DashboardSnapshot["openPrs"] = [];
+    for (let buffer = ""; !row?.pr || !openPrs.length; ) {
       const chunk = await reader?.read();
       if (!chunk || chunk.done) throw new Error("stream ended");
       buffer += chunk.value;
       const frames = buffer.split("\n\n");
       buffer = frames.pop() ?? "";
-      for (const frame of frames) row = (JSON.parse(frame.replace(/^data: /, "")) as DashboardSnapshot).rows[0];
+      for (const frame of frames) {
+        const snapshot = JSON.parse(frame.replace(/^data: /, "")) as DashboardSnapshot;
+        row = snapshot.rows[0];
+        openPrs = snapshot.openPrs;
+      }
     }
+    expect(openPrs.map((pr) => pr.project)).toEqual(["other"]);
     await reader?.cancel();
     expect(row).toMatchObject({ project: "kiln", branch: "cb/feature", changes: 2, stage: "checks" });
     expect(row.pr?.queued).toBe(true);
     // Refreshes every 50 ms reuse the cached answer instead of asking GitHub again.
-    expect(calls.filter((argv) => argv[0] === "gh")).toHaveLength(1);
+    expect(calls.filter((argv) => argv[0] === "gh" && argv[1] === "pr")).toHaveLength(1);
+    expect(calls.filter((argv) => argv[2] === "graphql")).toHaveLength(1);
   } finally {
     dashboard.stop();
   }

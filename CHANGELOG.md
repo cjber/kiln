@@ -16,6 +16,9 @@ computer by stage, from failing checks to merged, with each pull request's check
 label, and a link to the pull request in the session details. The terminal list shows each branch's
 pull request number in a `pr` column coloured by stage, and its checks in the details line.
 
+`kiln dashboard` lists every open pull request you authored, in any repository that is not archived,
+with its checks and merge queue label, including ones no running session works on.
+
 ## [0.19.0] - 2026-11-04
 
 The phone can answer an agent that stops to ask you something. When a session in kiln's tmux shows a
