@@ -28,6 +28,17 @@ function run(...args: string[]): boolean {
   return Bun.spawnSync([...tmux, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
 }
 
+/** The PID of a session's pane command, when tmux can say. */
+export async function panePid(name: string): Promise<number | undefined> {
+  const shown = Bun.spawnSync([...tmux, "display-message", "-p", "-t", `=${name}:`, "#{pane_pid}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (shown.exitCode !== 0) return undefined;
+  const pid = Number(shown.stdout.toString().trim());
+  return Number.isInteger(pid) && pid > 1 ? pid : undefined;
+}
+
 export async function panes(): Promise<{ name: string; pid: number }[]> {
   const format = "#{session_name}\t#{pane_pid}";
   const process = Bun.spawn([...tmux, "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });

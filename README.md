@@ -31,7 +31,7 @@ Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provide
 
 ## Set up with your agent
 
-kiln ships three skills: `kiln-agents` lets running agents message each other, `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs them into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
+kiln ships three skills: `kiln-agents` lets running agents message each other and start subagents, `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs them into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
 
 ```sh
 npx skills add cjber/kiln
@@ -49,7 +49,13 @@ kiln msg send codex:019a "Run the API tests on cb/login and tell me what fails"
 kiln msg send --all -               # every other session, text from stdin
 kiln msg inbox                      # messages kiln could not type into this session
 kiln msg whoami
+kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "Run the API tests and fix what fails"
 ```
+
+`kiln msg spawn` starts an agent headless in kiln's tmux server, records the caller as its parent
+and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
+`kiln msg list`, and a child messages its parent when it finishes. OpenCode runs started this way
+are archived when they exit; a headless run kiln did not start is hidden after six hours idle.
 
 Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln puts a message in front of its recipient as a new prompt, starting with the sender's name and the command to reply:
 

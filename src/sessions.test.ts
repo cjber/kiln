@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { nestSessions, openable, type Session, sessionParents, withSubagentActivity } from "./sessions";
+import {
+  nestSessions,
+  openable,
+  type Session,
+  sessionIdentity,
+  sessionParents,
+  withSubagentActivity,
+} from "./sessions";
 
 describe("nested sessions", () => {
   const parent: Session = { pid: 1, agent: "codex", cwd: "/z", startedAt: 1, place: { kind: "kiln", name: "parent" } };
@@ -26,6 +33,13 @@ describe("nested sessions", () => {
   });
   test("a child stays visible when its parent is absent", () => {
     expect(nestSessions([child, other])).toEqual([child, other]);
+  });
+  test("the parent recorded by spawn outranks process ancestry", () => {
+    const recorded = { ...child, spawnParent: sessionIdentity(parent), parentSessionPid: 3 };
+    expect(sessionParents([recorded, parent, other]).get(recorded)).toBe(parent);
+    expect(nestSessions([recorded, other, parent])).toEqual([other, parent, recorded]);
+    // Once the recorded parent has gone, the child lists at the top level instead of under a stray process.
+    expect(sessionParents([{ ...recorded, parentSessionPid: 3 }, other]).get(recorded)).toBeUndefined();
   });
 });
 

@@ -293,7 +293,7 @@ describe("OpenCode pairing", () => {
     expect(unattached.headless[0]).toMatchObject({ cwd: "/repo/sub", workdir: "/worktrees/fix" });
   });
 
-  test("stopped history, even a failed run, is not listed, but helpers keep their parent", () => {
+  test("finished runs stay until their service listing hides them, and helpers keep their parent", () => {
     const { headless } = withOpencodeSessions([], {
       sessions: [
         { ...stored, id: "ses_old", activity: "idle", running: false },
@@ -302,7 +302,21 @@ describe("OpenCode pairing", () => {
       ],
       live: true,
     });
-    expect(headless.map((session) => [session.id, session.parentSessionId])).toEqual([["ses_child", "ses_a"]]);
+    expect(headless.map((session) => [session.id, session.parentSessionId])).toEqual([
+      ["ses_old", undefined],
+      ["ses_failed", undefined],
+      ["ses_child", "ses_a"],
+    ]);
+  });
+
+  test("an unattached run carries the PID of its opencode run process", () => {
+    const { headless } = withOpencodeSessions(
+      [],
+      { sessions: [stored], live: true },
+      new Map(),
+      new Map([["ses_a", 4242]]),
+    );
+    expect(headless[0]).toMatchObject({ id: "ses_a", pid: 4242 });
   });
 
   test("a session not stored yet is idle only when the service answered", () => {

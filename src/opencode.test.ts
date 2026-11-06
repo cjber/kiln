@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  headlessIdleMs,
   isOpencodeService,
+  matchHeadlessProcesses,
   newOpencodeSessionId,
   opencodeActivity,
   opencodeInvocation,
@@ -86,7 +88,9 @@ test("a terminal session is told from a subcommand on argv, and only a valid id 
   expect(opencodeInvocation(["opencode", "mini"])).toBeDefined();
   // The value of a flag is not a subcommand, even when it reads like one.
   expect(opencodeInvocation(["opencode", "--prompt", "run"])).toBeDefined();
-  for (const command of ["run", "serve", "api", "session", "acp"])
+  // `run` is headless but still a conversation; its process is matched to the service row.
+  expect(opencodeInvocation(["opencode", "run", "--session", id])).toEqual({ id, shared: true, headless: true });
+  for (const command of ["serve", "api", "session", "acp"])
     expect(opencodeInvocation(["opencode", command])).toBeUndefined();
 });
 
@@ -118,4 +122,33 @@ test("a closed conversation is history, unless it is still running and spending"
   expect(opencodeShown(undefined, true)).toBe(true);
   expect(opencodeShown(1_793_696_431_870, true)).toBe(true);
   expect(opencodeShown(1_793_696_431_870, false)).toBe(false);
+});
+
+test("a finished headless run stays for six hours idle, then is hidden", () => {
+  const now = 1_793_696_431_870;
+  expect(opencodeShown(undefined, false, now - headlessIdleMs + 1, now)).toBe(true);
+  expect(opencodeShown(undefined, false, now - headlessIdleMs, now)).toBe(false);
+  expect(opencodeShown(undefined, false, now - headlessIdleMs - 1, now)).toBe(false);
+  // A running one still shows, since it is spending where you can stop it.
+  expect(opencodeShown(undefined, true, now - headlessIdleMs - 1, now)).toBe(true);
+});
+
+test("a headless run is matched to its process by session id, then by directory and start", () => {
+  const sessions = [
+    { id: "ses_a", cwd: "/repo", createdAt: 1_000 },
+    { id: "ses_b", cwd: "/repo", createdAt: 2_000 },
+    { id: "ses_c", cwd: "/other", createdAt: 3_000 },
+    { id: "ses_far", cwd: "/far", createdAt: 9_000_000 },
+  ];
+  const processes = [
+    { pid: 10, id: "ses_b", cwd: "/elsewhere", startedAt: 8_000 },
+    { pid: 11, cwd: "/repo", startedAt: 1_100 },
+    { pid: 12, cwd: "/other", startedAt: 3_100 },
+    { pid: 13, cwd: "/far", startedAt: 1 },
+  ];
+  expect(Object.fromEntries(matchHeadlessProcesses(processes, sessions))).toEqual({
+    ses_a: 11,
+    ses_b: 10,
+    ses_c: 12,
+  });
 });

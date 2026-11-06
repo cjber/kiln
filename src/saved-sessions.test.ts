@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { forget, reconcile, restartStopped } from "./saved-sessions";
+import { attachParents, forget, reconcile, recordSpawn, restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 
 const running: Session = {
@@ -106,4 +106,24 @@ test("the saved list is stored, and forgetting removes one session from it", () 
   expect(ids()).toEqual(["a", "b"]);
   forget(running, path);
   expect(ids()).toEqual(["b"]);
+});
+
+test("a parent recorded for a spawn survives reconciliation and reaches the session", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  recordSpawn(
+    { agent: "opencode", id: "child", cwd: "/repo", title: "task", parent: "claude:parent", startedAt: 2 },
+    path,
+  );
+  const child: Session = {
+    agent: "opencode",
+    id: "child",
+    pid: 30,
+    cwd: "/repo",
+    startedAt: 2,
+    place: { kind: "thread", id: "child", attach: [] },
+  };
+  restartStopped([child], path);
+  expect(attachParents([child], path)[0]?.spawnParent).toBe("claude:parent");
+  expect(restartStopped([child], path)).toEqual([]);
+  expect(attachParents([child], path)[0]?.spawnParent).toBe("claude:parent");
 });
