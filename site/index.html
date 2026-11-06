@@ -146,19 +146,13 @@
       .brand {
         display: inline-flex;
         align-items: center;
-        gap: 10px;
-        color: var(--text);
         text-decoration: none;
-        font-size: 1.05rem;
-        font-weight: 600;
-        letter-spacing: -0.02em;
       }
 
       .brand img {
         display: block;
-        width: 30px;
-        height: 30px;
-        border-radius: 7px;
+        width: 104px;
+        height: auto;
       }
 
       .site-nav {
@@ -823,8 +817,8 @@
           min-height: 58px;
         }
 
-        .brand {
-          font-size: 0.98rem;
+        .brand img {
+          width: 92px;
         }
 
         .hero {
@@ -888,8 +882,10 @@
     <header class="site-header">
       <div class="wrap">
         <a class="brand" href="#top">
-          <img src="icon.svg" width="30" height="30" alt="" />
-          kiln
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="wordmark-dark.svg" />
+            <img src="wordmark.svg" width="104" height="50" alt="kiln" />
+          </picture>
         </a>
         <nav class="site-nav" aria-label="Site">
           <a href="#install">Install</a>

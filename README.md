@@ -1,6 +1,11 @@
-<p align="center"><img src="assets/icon.png" width="96" alt="kiln" /></p>
+<div align="center">
 
-# kiln
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
+  <img src="assets/wordmark.svg" alt="kiln" width="360">
+</picture>
+
+</div>
 
 kiln opens native Claude, Codex, OpenCode and Pi terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 

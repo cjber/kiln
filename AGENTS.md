@@ -27,7 +27,8 @@ After every visible change, regenerate and inspect both terminal and mobile mock
 `bun scripts/screenshots.tsx 2>/dev/null` renders the terminal;
 `ANDROID_HOME=/path/to/sdk JAVA_HOME=/path/to/jdk21 python3 scripts/android-screenshots.py`
 renders seeded production Android list, pairing and handoff screens on a dedicated emulator, never a real phone.
-`assets/icon.svg` is the shared mark; `python3 scripts/icons.py` regenerates README and launcher assets.
+`assets/icon.svg` is the shared mark; `python3 scripts/icons.py` regenerates its PNG and launcher assets,
+and `python3 scripts/wordmark.py` draws the wordmark for the README and site.
 Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its tag.
 
 ## Layout
@@ -71,7 +72,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   Typing waits for `idle` or `turnEnded`; the list and phone server flush pending messages on refresh.
 - `src/bundled-skills.ts`, `skills/` - embedded helpers synced to the shared user store before the TUI starts.
   Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
-- `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds.
+- `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds, and the
+  light and dark wordmark outlines from `scripts/wordmark.py`.
 - `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
 - `scripts/qa-drive.ts`, `scripts/qa-phone.ts` - seeded list and phone app for Bugpatrol (`.bugpatrol/bugpatrol.yml`, `.bugpatrol/android.yml`); never the real sessions or a paired phone.
 - `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
