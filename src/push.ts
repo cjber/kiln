@@ -1,4 +1,5 @@
 import { createCipheriv, createECDH, hkdfSync, randomBytes } from "node:crypto";
+import type { Stage } from "./dashboard";
 
 /**
  * A phone's UnifiedPush endpoint and its Web Push keys, all as the phone sent them. `machine` is the
@@ -16,11 +17,71 @@ export type PushAlert = {
   title: string;
   agent: string;
   cwd: string;
-  /** `read` clears the earlier alert for the session, once it has been looked at on the computer. */
-  transition: "finished" | "input" | "read";
+  /**
+   * `read` clears the earlier turn alert for the session, once it has been looked at on the computer.
+   * `failing` says the session's pull request checks failed, and `failing-cleared` clears that alert
+   * once the stage leaves `failing`. Apps that predate them drop both.
+   */
+  transition: "finished" | "input" | "read" | "failing" | "failing-cleared";
+  /** The failing pull request's number, on `failing` and `failing-cleared`. */
+  pr?: number;
   /** The snapshot's `updatedAt` for the refresh that saw the change; the phone dedupes on it. */
   at: number;
 };
+
+/** The parts of a phone row a failing alert needs. */
+export type StagedRow = {
+  id: string;
+  title: string;
+  agent: string;
+  cwd: string;
+  stage?: Stage;
+  pr?: { number: number };
+};
+
+/**
+ * Watches each session's pull request stage across refreshes. Each call returns a `failing` alert for
+ * every session whose open pull request went from `checks` or `green` to `failing`, and a
+ * `failing-cleared` alert for each earlier one whose session left `failing` or closed. Only a pull
+ * request seen passing or running first counts, so a server start, whose first lookups turn rows from
+ * `working` straight to `failing`, never replays a red pull request. `enabled` false forgets everything.
+ */
+export function failingAlerts() {
+  let previous = new Map<string, Stage | undefined>();
+  const open = new Map<string, Omit<PushAlert, "machine">>();
+  return (rows: StagedRow[], host: string, at: number, enabled: boolean): Omit<PushAlert, "machine">[] => {
+    if (!enabled) {
+      previous = new Map();
+      open.clear();
+      return [];
+    }
+    const alerts: Omit<PushAlert, "machine">[] = [];
+    for (const [id, alert] of open) {
+      if (rows.some((row) => row.id === id && row.stage === "failing")) continue;
+      open.delete(id);
+      alerts.push({ ...alert, transition: "failing-cleared", at });
+    }
+    for (const row of rows) {
+      const before = previous.get(row.id);
+      if (row.stage !== "failing" || (before !== "checks" && before !== "green")) continue;
+      const alert: Omit<PushAlert, "machine"> = {
+        v: 1,
+        host,
+        session: row.id,
+        title: row.title,
+        agent: row.agent,
+        cwd: row.cwd,
+        transition: "failing",
+        pr: row.pr?.number,
+        at,
+      };
+      open.set(row.id, alert);
+      alerts.push(alert);
+    }
+    previous = new Map(rows.map((row) => [row.id, row.stage]));
+    return alerts;
+  };
+}
 
 const RECORD_SIZE = 4096;
 const base64url = /^[A-Za-z0-9_-]+$/;

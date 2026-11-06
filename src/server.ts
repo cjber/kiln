@@ -13,7 +13,7 @@ import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-w
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
-import { type PushAlert, pushTarget, sendPush } from "./push";
+import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
 import { sessionTitle } from "./session-list";
 import {
   type Agent,
@@ -478,7 +478,7 @@ export function startServer({
       },
       close(socket) {
         sockets.delete(socket);
-        if (!sockets.size && !prMessages()) prs.cancel();
+        if (!sockets.size && !prMessages() && !pushing()) prs.cancel();
       },
     },
   });
@@ -523,13 +523,15 @@ export function startServer({
       pushAll({ ...alert, transition: "read" });
     }
   };
-  const pushing = () => {
+  // Pull request checks turning red, pushed under their own alert so a turn alert never replaces them.
+  const failing = failingAlerts();
+  function pushing() {
     try {
       return pairing.pushTargets().length > 0;
     } catch {
       return false;
     }
-  };
+  }
   const refresh = async () => {
     if (refreshing) return;
     refreshing = true;
@@ -549,7 +551,10 @@ export function startServer({
       const looked = sessions.some((row) => row.place.kind === "kiln") ? await seen() : new Map<string, number>();
       const watched = sockets.size > 0;
       const messaging = prMessages();
-      const found = new Map(sessions.map((session) => [session, prs.of(session, watched || messaging)]));
+      const alerting = pushing();
+      // Still at most one lookup a minute per branch, whichever of these wants it.
+      const lookUp = watched || messaging || alerting;
+      const found = new Map(sessions.map((session) => [session, prs.of(session, lookUp)]));
       snapshot = {
         ...snapshot,
         sequence: snapshot.sequence + 1,
@@ -570,7 +575,7 @@ export function startServer({
         sort: order(),
       };
       // Unwatched refreshes only read the cache, so they keep what a phone will want next time.
-      if (watched || messaging) prs.sweep();
+      if (lookUp) prs.sweep();
       // Posted messages wait in the mailbox until their agent can take them; the next flush delivers them.
       if (messaging && !stale)
         try {
@@ -579,8 +584,11 @@ export function startServer({
           // A broken mailbox never fails a refresh.
         }
       try {
-        transitions(sessions, pushing());
-        if (!stale) clearRead();
+        transitions(sessions, alerting);
+        if (!stale) {
+          clearRead();
+          for (const alert of failing(snapshot.sessions, snapshot.host, snapshot.updatedAt, alerting)) pushAll(alert);
+        }
       } catch {
         // Push is best effort and never fails a refresh.
       }

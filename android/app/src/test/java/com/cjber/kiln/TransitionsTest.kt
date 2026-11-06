@@ -87,4 +87,34 @@ class TransitionsTest {
         muted.update(snapshot(Activity.WORKING), true)
         assertEquals(0, muted.update(snapshot(Activity.WAITING), false).size)
     }
+
+    private fun staged(vararg stages: Stage?, instance: String = "a") =
+        Snapshot(
+            instance,
+            0,
+            0,
+            "",
+            stages.mapIndexed { index, stage -> row.copy(id = "claude:$index", stage = stage) },
+        )
+
+    @Test
+    fun notifiesWhenAPullRequestTurnsRedFromRunningOrPassingChecks() {
+        val check = FailingTransitions()
+        check.update(staged(Stage.CHECKS, Stage.GREEN, Stage.WORKING), true)
+        assertEquals(
+            listOf("claude:0", "claude:1"),
+            check.update(staged(Stage.FAILING, Stage.FAILING, Stage.FAILING), true).map { it.id },
+        )
+        // Still failing is not news, and a machine's first lookups turning Working red are not
+        // either.
+        assertEquals(
+            0,
+            check.update(staged(Stage.FAILING, Stage.FAILING, Stage.FAILING), true).size,
+        )
+        check.update(staged(Stage.CHECKS), false)
+        assertEquals(0, check.update(staged(Stage.FAILING), true).size)
+        check.update(staged(Stage.CHECKS, instance = "b"), true)
+        check.reset()
+        assertEquals(0, check.update(staged(Stage.FAILING, instance = "b"), true).size)
+    }
 }
