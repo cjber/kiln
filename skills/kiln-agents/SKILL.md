@@ -9,6 +9,11 @@ description: Message other running Claude, Codex, OpenCode and Pi sessions throu
 the recipient as a new prompt when kiln can do that safely; otherwise the recipient reads it
 with `kiln msg inbox`.
 
+## Resuming after a restart
+
+A message cannot reach a session a restart stopped. `kiln resume` lists them, and
+`kiln resume --all --prompt continue` starts them all again; it exits 1 and says why when one would not start.
+
 ## Starting a subagent
 
 Start work that should run as its own session with `kiln msg spawn`, never with a raw

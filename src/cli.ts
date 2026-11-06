@@ -5,6 +5,8 @@ import { cachedStatus } from "./status-cache";
 
 const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
+       kiln resume <name...|--all> [--prompt TEXT]
+                                  resume sessions a restart stopped, one at a time; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
@@ -155,6 +157,15 @@ export async function runCli(args: string[]): Promise<number | undefined> {
   if (command === "--version" || command === "-V") {
     console.log(`kiln ${packageJson.version}`);
     return 0;
+  }
+  if (command === "resume") {
+    try {
+      const { runResumeCli } = await import("./resume-cli");
+      return await runResumeCli(args.slice(1));
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "resume failed"}`);
+      return 2;
+    }
   }
   if (command === "status") {
     // The counts need no terminal ownership, and every tmux client asks every few seconds.

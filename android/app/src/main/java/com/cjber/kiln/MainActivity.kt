@@ -464,6 +464,16 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
+                resume =
+                    host
+                        ?.takeIf { snapshot?.write == true && row.resumable }
+                        ?.let { current ->
+                            { done ->
+                                connection.resume(current, row.id) { terminal, problem ->
+                                    runOnUiThread { done(if (terminal == null) problem else null) }
+                                }
+                            }
+                        },
                 changeHidden = {
                     val rows = snapshot?.rows.orEmpty()
                     val next =

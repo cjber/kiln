@@ -36,3 +36,40 @@ class Transitions {
         return changed
     }
 }
+
+/**
+ * The pull request counterpart of [Transitions], with the rule `failingAlerts` in `src/push.ts`
+ * uses: [update] returns the sessions whose pull request went from running or passing checks to
+ * failing. A row first seen failing, as every red one is right after a machine starts, is not one.
+ */
+class FailingTransitions {
+    private var instance: String? = null
+    private var previous = emptyMap<String, Stage?>()
+
+    fun reset() {
+        instance = null
+        previous = emptyMap()
+    }
+
+    fun update(snapshot: Snapshot, enabled: Boolean): List<Row> {
+        if (snapshot.instance != instance) {
+            instance = snapshot.instance
+            previous = emptyMap()
+        }
+        val changed = mutableListOf<Row>()
+        val next = HashMap<String, Stage?>()
+        for (row in snapshot.rows) {
+            if (row.where == Place.CLOUD) continue
+            val before = previous[row.id]
+            if (
+                enabled &&
+                    row.stage == Stage.FAILING &&
+                    (before == Stage.CHECKS || before == Stage.GREEN)
+            )
+                changed += row
+            next[row.id] = row.stage
+        }
+        previous = if (enabled) next else emptyMap()
+        return changed
+    }
+}

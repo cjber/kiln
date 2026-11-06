@@ -8,6 +8,9 @@ import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 
+/** The agent's own argv in a tmux call, before the options chained after `new-session`. */
+const agentArgv = (command: string[] = []) => command.slice(0, command.indexOf(";") >>> 0);
+
 test("only kiln-owned sessions can be closed", () => {
   const session: Session = {
     agent: "codex",
@@ -137,7 +140,7 @@ test("a session a restart stopped resumes its conversation, and x only forgets t
     };
     const outcome = await openSession(stopped, settings);
     expect(outcome.kind).toBe("attach");
-    expect(commands.find((command) => command.includes("new-session"))?.slice(-6)).toEqual([
+    expect(agentArgv(commands.find((command) => command.includes("new-session"))).slice(-6)).toEqual([
       "env",
       "CODEX_HOME=/x",
       "codex",
@@ -146,7 +149,7 @@ test("a session a restart stopped resumes its conversation, and x only forgets t
       "--search",
     ]);
     expect(await openSession({ ...stopped, agent: "claude" }, settings)).toMatchObject({ kind: "attach" });
-    expect(commands.findLast((command) => command.includes("new-session"))?.slice(-3)).toEqual([
+    expect(agentArgv(commands.findLast((command) => command.includes("new-session"))).slice(-3)).toEqual([
       "claude",
       "--resume",
       "0199c5a1-7a0e-7c11-9d3f-2f6d1c0e8a11",

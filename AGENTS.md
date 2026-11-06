@@ -44,6 +44,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   `$XDG_STATE_HOME/opencode/service.json`; read only while that service runs. Closing archives through `opencode api`, which starts the service if needed. Kiln passes each session its `--session` id; a terminal with no id in argv is never paired by directory.
 - `src/saved-sessions.ts` - the terminal sessions and Codex daemon threads last seen running, in `$XDG_STATE_HOME/kiln/sessions.sqlite`. One saved in an
   earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
+  `kiln resume` (`src/resume-cli.ts`) and the phone's `/v1/sessions/<id>/resume` resume them through `resumeStopped`, which keeps the pane
+  (`remain-on-exit`) for five seconds to catch an agent that quits at launch, and starts it once more.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/transcript.ts`, `src/workdir.ts` - Claude transcript titles, and the checkout an agent last edited or `cd`'d into, shown in place of
@@ -56,7 +58,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts`, `src/push.ts` - localhost phone API, one-use pairing, provider handoffs and
-  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends. Starting sessions and sending prompts from a
+  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends, and under their own id and channel
+  when a session's pull request goes from running or passing checks to failing. Starting sessions and sending prompts from a
   phone is gated by `[phone] write`, which is off by default.
 - `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet. Phone links are one-use
   `/opencode/<code>` paths on kiln's server that set OpenCode's sign-in cookie and redirect to the session page.
