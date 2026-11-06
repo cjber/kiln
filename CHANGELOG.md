@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Subagents stay under the agent that started them after they finish.** A headless run such as `opencode run`, started from another agent's shell, nested under that agent only while its process ran. Once the run exited, its session, still listed as ready, moved to the top level. Kiln now records the parent while the run is alive, and keeps the record as long as the provider lists the session. Children started with `kiln msg spawn` also kept their recorded parent for only two minutes after their process exited. They now keep it the same way.
+
 ## [0.22.0] - 2026-11-06
 
 - **The dashboard shows what each session is doing, and how the day went.** `kiln dashboard` now draws one card per top-level session, with a lane for the session and each child under it: agent, repository and worktree chips, a five-step bar from working to merged, its pull request, and its uncommitted count. Projects other than the busiest collapse into pills you can open. Under the header a stacked area chart covers working and waiting agents over six hours with a hover readout, a donut splits open pull requests by stage, and each lane has a sparkline of its working time. The page keeps its light and dark palettes, pulses a lane when its stage changes, fades sessions idle for 30 minutes, and fits a phone.

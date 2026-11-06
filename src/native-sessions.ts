@@ -12,7 +12,7 @@ import {
   opencodeWorkdir,
 } from "./opencode";
 import { piStatus } from "./pi-status";
-import { attachParents, restartStopped } from "./saved-sessions";
+import { attachParents, rememberParents, restartStopped } from "./saved-sessions";
 import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -626,7 +626,9 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     return ancestorSessionPid === undefined ? session : { ...session, parentSessionPid: ancestorSessionPid };
   });
   const listed = [...sessions, ...nested];
-  return attachParents([...listed, ...restartStopped(listed)]);
+  const found = attachParents([...listed, ...restartStopped(listed)]);
+  rememberParents(found);
+  return found;
 }
 
 /** Keep one client per confirmed daemon conversation, preferring a terminal kiln can open. */
