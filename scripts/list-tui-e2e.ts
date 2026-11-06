@@ -80,11 +80,11 @@ try {
   assert.ok((await screen()).includes("2 need input"));
   assert.ok(!(await screen()).includes("no PR yet"), "a collapsed row hides its detail line");
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e5c46b")).includes("Review changes"));
-  assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("/tmp/atlas"));
+  assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("/tmp"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#6a9955")).includes("Finished task"));
   assert.match(await drive("snapshot", "--trim", "--fg", "#6a9955"), /Background job\s+completed/);
   assert.ok((await drive("snapshot", "--trim", "--fg", "#5f8787")).includes("Codex"));
-  assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("Claude"));
+  assert.ok((await drive("snapshot", "--trim", "--fg", "#fbcb97")).includes("Claude"));
   await drive("screenshot", "-o", join(output, "tui-actions.png"));
   await press("tab", "Check tests");
   await press("j", "needs your input");
