@@ -1,6 +1,7 @@
 import packageJson from "../package.json";
 import { listSessions, summarise } from "./sessions";
 import { loadSettings } from "./settings";
+import { cachedStatus } from "./status-cache";
 
 const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
@@ -156,8 +157,8 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     return 0;
   }
   if (command === "status") {
-    // The counts need no terminal ownership, and tmux asks every few seconds.
-    console.log(summarise(await listSessions({ kitty: false })));
+    // The counts need no terminal ownership, and every tmux client asks every few seconds.
+    console.log(await cachedStatus(async () => summarise(await listSessions({ kitty: false }))));
     return 0;
   }
   if (command === "--help" || command === "-h") {

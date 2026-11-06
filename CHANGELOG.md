@@ -30,6 +30,8 @@ is idle.
 The phone drops its History tab. Cloud tasks and finished background jobs leave the list once they have
 been quiet for a day.
 
+- **The in-session status bar costs almost nothing.** Every attached tmux client shares one session count, refreshed at most every 15 seconds, so the bar no longer lists every session, and starts `claude agents`, for each client every 3 seconds.
+
 ## [0.20.0] - 2026-11-05
 
 Every agent's pull request in one place. The phone has a progress tab that groups the sessions on your

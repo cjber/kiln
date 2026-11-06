@@ -35,6 +35,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 - `src/sessions.ts` - `discovery()` merges native and cached cloud rows and drops `elsewhere` ones kiln cannot open; each source keeps its last rows while it fails.
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
+- `src/status-cache.ts` - `kiln status`, the tmux status line, prints one cached line shared by every client; only the caller holding the lock refreshes it.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
   `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
   A Claude `shell` session is working, as Claude's agent view shows it, and `discovery()` keeps a parent working while a subagent
