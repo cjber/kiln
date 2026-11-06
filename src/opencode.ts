@@ -59,9 +59,12 @@ const flagsWithValues = new Set(["--session", "-s", "--prompt", "--server", "--l
 /**
  * Decided on argv, so a directory or prompt named after a subcommand is still one argument. A tab
  * opened inside the TUI leaves argv naming the tab it started with, so only that tab is a terminal's
- * own conversation; the service lists the rest on their own.
+ * own conversation; the service lists the rest on their own. `run` is a headless conversation, not a
+ * terminal, and is matched to its process rather than opened.
  */
-export function opencodeInvocation(args: readonly string[]): { id?: string; shared: boolean } | undefined {
+export type OpencodeInvocation = { id?: string; shared: boolean; headless?: boolean };
+
+export function opencodeInvocation(args: readonly string[]): OpencodeInvocation | undefined {
   let id: string | undefined;
   let shared = true;
   let command: string | undefined;
@@ -73,8 +76,10 @@ export function opencodeInvocation(args: readonly string[]): { id?: string; shar
     if (flagsWithValues.has(flag ?? "") && inline === undefined) index++;
     else if (!arg.startsWith("-")) command ??= arg;
   }
-  if (command && headlessCommands.has(command)) return undefined;
-  return { id: id && /^ses_[A-Za-z0-9]+$/.test(id) ? id : undefined, shared };
+  const valid = id && /^ses_[A-Za-z0-9]+$/.test(id) ? id : undefined;
+  if (command && headlessCommands.has(command))
+    return command === "run" ? { id: valid, shared, headless: true } : undefined;
+  return { id: valid, shared };
 }
 
 export function isOpencodeService(args: readonly string[]): boolean {
@@ -84,6 +89,47 @@ export function isOpencodeService(args: readonly string[]): boolean {
 /** `opencode --session` creates the id it is given, which is how a terminal's conversation is known from its argv. */
 export function newOpencodeSessionId(): string {
   return `ses_${crypto.randomUUID().replaceAll("-", "").slice(0, 26)}`;
+}
+
+/** A live `opencode run` process and the arguments that identify the conversation it is running. */
+export type HeadlessProcess = { pid: number; id?: string; cwd: string; startedAt: number };
+
+/** How far apart a run process and the session it created may start and still be the same conversation. */
+const headlessMatchMs = 10 * 60_000;
+
+/**
+ * Match each headless conversation to its `opencode run` process: by the `--session` id in argv, else by
+ * the nearest process start in the same directory. The process is what carries the run's parent agent.
+ */
+export function matchHeadlessProcesses(
+  processes: readonly HeadlessProcess[],
+  sessions: readonly Pick<OpencodeSession, "id" | "cwd" | "createdAt">[],
+): Map<string, number> {
+  const matched = new Map<string, number>();
+  const used = new Set<number>();
+  for (const session of sessions) {
+    const exact = processes.find((process) => !used.has(process.pid) && process.id === session.id);
+    if (!exact) continue;
+    matched.set(session.id, exact.pid);
+    used.add(exact.pid);
+  }
+  for (const session of sessions) {
+    if (matched.has(session.id)) continue;
+    let best: HeadlessProcess | undefined;
+    let closest = Number.POSITIVE_INFINITY;
+    for (const process of processes) {
+      if (used.has(process.pid) || process.cwd !== session.cwd) continue;
+      const gap = Math.abs(process.startedAt - session.createdAt);
+      if (gap <= headlessMatchMs && gap < closest) {
+        best = process;
+        closest = gap;
+      }
+    }
+    if (!best) continue;
+    matched.set(session.id, best.pid);
+    used.add(best.pid);
+  }
+  return matched;
 }
 
 /** The service's own states, grouped; anything newer than this list shows as unknown rather than guessed. */
@@ -179,12 +225,22 @@ export async function opencodeBusy(): Promise<boolean> {
 
 let last: OpencodeSession[] = [];
 
+/** A run kiln did not start is history after this long idle; six hours covers a long subagent task. */
+export const headlessIdleMs = 6 * 60 * 60 * 1_000;
+
 /**
  * A conversation closed in OpenCode is history, but one that is still running is work with a bill:
- * hiding it leaves it spending where nobody can see or stop it, so a running one stays listed.
+ * hiding it leaves it spending where nobody can see or stop it, so a running one stays listed. A
+ * finished one kiln did not start stays listed for six hours after its last update.
  */
-export function opencodeShown(archived: number | undefined, running: boolean): boolean {
-  return archived === undefined || running;
+export function opencodeShown(
+  archived: number | undefined,
+  running: boolean,
+  updatedAt?: number,
+  now = Date.now(),
+): boolean {
+  if (archived !== undefined) return running;
+  return running || updatedAt === undefined || now - updatedAt < headlessIdleMs;
 }
 
 /** Prompts are read for active sessions only: a turn that stops to ask is still a running turn. */
@@ -208,7 +264,7 @@ async function read(): Promise<OpencodeSession[]> {
   );
   return listed.data.flatMap((info) => {
     const running = info.id in active.data;
-    if (!opencodeShown(info.time.archived, running)) return [];
+    if (!opencodeShown(info.time.archived, running, info.time.updated)) return [];
     return [
       {
         id: info.id,

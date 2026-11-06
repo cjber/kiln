@@ -40,6 +40,8 @@ export type Session = {
   parentSessionPid?: number;
   parentSessionId?: string;
   parentSessionAgent?: Agent;
+  /** The kiln id `kiln msg spawn` recorded for the session that started this one; it outranks process ancestry. */
+  spawnParent?: string;
   agent: Agent;
   /** Where the agent started; resuming a conversation needs it. */
   cwd: string;
@@ -247,6 +249,7 @@ export async function listSessions(options: Parameters<ReturnType<typeof discove
 export function sessionParents(sessions: readonly Session[]): Map<Session, Session | undefined> {
   const ids = new Map<string, Session[]>();
   const pids = new Map<number, Session[]>();
+  const identities = new Map<string, Session[]>();
   for (const session of sessions) {
     if (session.id !== undefined) {
       const key = `${session.agent}:${session.id}`;
@@ -259,9 +262,17 @@ export function sessionParents(sessions: readonly Session[]): Map<Session, Sessi
       group.push(session);
       pids.set(session.pid, group);
     }
+    const identity = sessionIdentity(session);
+    const group = identities.get(identity) ?? [];
+    group.push(session);
+    identities.set(identity, group);
   }
   const parents = new Map<Session, Session | undefined>();
   for (const session of sessions) {
+    const recorded =
+      session.spawnParent === undefined
+        ? undefined
+        : identities.get(session.spawnParent)?.find((parent) => parent !== session);
     const provider =
       session.parentSessionId === undefined
         ? undefined
@@ -272,7 +283,8 @@ export function sessionParents(sessions: readonly Session[]): Map<Session, Sessi
       session.parentSessionPid === undefined
         ? undefined
         : pids.get(session.parentSessionPid)?.find((parent) => parent !== session);
-    parents.set(session, provider ?? process);
+    // A recorded parent is authoritative even when it has gone; the child then lists at the top level.
+    parents.set(session, session.spawnParent === undefined ? (provider ?? process) : recorded);
   }
   const valid = new Map<Session, boolean>();
   for (const session of sessions) {

@@ -14,7 +14,9 @@ const usage = `usage: kiln            open the session list
        kiln dashboard [--port 7438] [--open]
                                   serve a live progress page of every session on 127.0.0.1
        kiln skills list|share|sync    manage shared skills
-       kiln msg list|send|inbox|whoami    let running agents message each other
+       kiln msg list|send|inbox|whoami|spawn    let running agents message and start each other
+       kiln msg spawn <agent> [--dir PATH] [--title T] -- <prompt>
+                                   start a headless child under this session, in kiln's tmux
        agents: npx skills add cjber/kiln installs the kiln-config, kiln-skills and kiln-agents skills
        kiln --version`;
 

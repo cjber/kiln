@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type Agent, gitBranch, type Session } from "./sessions";
+import { type Agent, gitBranch, type Session, sessionIdentity } from "./sessions";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -10,6 +10,8 @@ export type Saved = {
   id: string;
   cwd: string;
   title?: string;
+  /** The kiln id of the session that started this one with `kiln msg spawn`. */
+  parent?: string;
   startedAt: number;
   lastActiveAt?: number;
   /** The boot and process it was last seen in; a Codex daemon thread has no process of its own. */
@@ -51,8 +53,10 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, PRIMARY KEY (agent, id));",
     );
+    const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
+    if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
     databases.set(path, db);
   }
   return db;
@@ -67,6 +71,7 @@ function read(db: Database): Saved[] {
     .map((row) => ({
       ...(row as Saved),
       title: row.title ?? undefined,
+      parent: row.parent ?? undefined,
       lastActiveAt: row.lastActiveAt ?? undefined,
       pid: row.pid ?? undefined,
       goneAt: row.goneAt ?? undefined,
@@ -102,12 +107,14 @@ export function reconcile(
   alive: (pid: number) => boolean,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
+  const previous = new Map(saved.map((item) => [key(item), item]));
   for (const session of sessions.filter(resumable)) {
     next.set(key(session), {
       agent: session.agent,
       id: session.id,
       cwd: session.cwd,
       title: session.title,
+      parent: session.spawnParent ?? previous.get(key(session))?.parent,
       startedAt: session.startedAt,
       lastActiveAt: session.lastActiveAt,
       boot,
@@ -157,7 +164,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
         const result = reconcile(before, sessions, boot, Date.now(), (pid) => existsSync(`/proc/${pid}`));
         if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
           db.exec("DELETE FROM sessions");
-          const insert = db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+          const insert = db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
           for (const item of result.saved)
             insert.run(
               item.agent,
@@ -169,6 +176,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
               item.boot,
               item.pid ?? null,
               item.goneAt ?? null,
+              item.parent ?? null,
             );
         }
         return result.stopped;
@@ -178,6 +186,51 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
     // An unwritable or busy state file costs the next restart its rows, not this list.
     return [];
   }
+}
+
+/** Record a child started by `kiln msg spawn`, so its parent survives process ancestry and daemon lookup. */
+export function recordSpawn(
+  item: { agent: Agent; id: string; cwd: string; title?: string; parent: string; startedAt: number; pid?: number },
+  path = statePath(),
+): void {
+  try {
+    open(path)
+      .query(
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent",
+      )
+      .run(
+        item.agent,
+        item.id,
+        item.cwd,
+        item.title ?? null,
+        item.startedAt,
+        bootId() ?? "",
+        item.pid ?? null,
+        item.parent,
+      );
+  } catch {
+    // The child still runs; only its recorded parent is lost.
+  }
+}
+
+/** Mark the sessions whose parent `kiln msg spawn` recorded; that parent outranks process ancestry. */
+export function attachParents(sessions: readonly Session[], path = statePath()): Session[] {
+  const recorded = new Map<string, string>();
+  try {
+    if (existsSync(path))
+      for (const row of open(path)
+        .query<{ agent: Agent; id: string; parent: string | null }, []>(
+          "SELECT agent, id, parent FROM sessions WHERE parent IS NOT NULL",
+        )
+        .all())
+        if (row.parent) recorded.set(`${row.agent}:${row.id}`, row.parent);
+  } catch {
+    // An unreadable state file only costs the recorded nesting.
+  }
+  return sessions.map((session) => {
+    const parent = recorded.get(sessionIdentity(session));
+    return parent ? { ...session, spawnParent: parent } : session;
+  });
 }
 
 export function forget(session: Session, path = statePath()): void {

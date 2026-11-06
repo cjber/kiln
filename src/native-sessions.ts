@@ -5,13 +5,14 @@ import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import {
   isOpencodeService,
+  matchHeadlessProcesses,
   type OpencodeListing,
   opencodeInvocation,
   opencodeSessions,
   opencodeWorkdir,
 } from "./opencode";
 import { piStatus } from "./pi-status";
-import { restartStopped } from "./saved-sessions";
+import { attachParents, restartStopped } from "./saved-sessions";
 import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
 import { panes } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -313,6 +314,16 @@ async function codexProcesses(): Promise<AgentProcess[]> {
   });
 }
 
+/** `codex exec` is headless and names its thread only after it starts, so its process is its identity. */
+async function codexExecProcesses(): Promise<AgentProcess[]> {
+  return (await pidsNamed("codex")).flatMap((pid) => {
+    const cwd = processCwd(pid);
+    const args = processArgs(pid);
+    if (!cwd || !args || args[1] !== "exec" || isDaemon(pid)) return [];
+    return [{ pid, agent: "codex" as const, cwd, startedAt: startedAt(pid) }];
+  });
+}
+
 function hasTerminal(pid: number): boolean {
   try {
     return /^\/dev\/(pts\/|tty)/.test(readlinkSync(`/proc/${pid}/fd/0`));
@@ -343,8 +354,15 @@ async function readOpencode() {
   const processes = found.flatMap(({ pid, args }) => {
     const invocation = opencodeInvocation(args);
     const cwd = processCwd(pid);
-    if (!invocation || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
+    if (!invocation || invocation.headless || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
     return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
+  });
+  // `opencode run` has no terminal. Its process is what carries the parent agent when kiln did not start it.
+  const headless = found.flatMap(({ pid, args }) => {
+    const invocation = opencodeInvocation(args);
+    const cwd = processCwd(pid);
+    if (!invocation?.headless || !cwd || isDaemon(pid)) return [];
+    return [{ pid, id: invocation.id, cwd, startedAt: startedAt(pid) }];
   });
   const running = found.some(({ args }) => isOpencodeService(args));
   const listing = running ? await opencodeSessions() : { sessions: [], live: false };
@@ -359,7 +377,7 @@ async function readOpencode() {
         if (workdir) workdirs.set(session.id, workdir);
       }),
   );
-  return withOpencodeSessions(processes, listing, workdirs);
+  return withOpencodeSessions(processes, listing, workdirs, matchHeadlessProcesses(headless, listing.sessions));
 }
 
 function processArgs(pid: number): string[] | undefined {
@@ -496,6 +514,7 @@ export function withOpencodeSessions(
   processes: (AgentProcess & { shared: boolean })[],
   { sessions, live }: OpencodeListing,
   workdirs: ReadonlyMap<string, string> = new Map(),
+  headlessPids: ReadonlyMap<string, number> = new Map(),
 ): { processes: AgentProcess[]; headless: Session[] } {
   const paired = new Set<string>();
   const located = processes.map(({ shared, ...process }) => {
@@ -514,17 +533,14 @@ export function withOpencodeSessions(
       opencodeService: session !== undefined,
     };
   });
-  // Stopped sessions are history, but one still running after its terminal left, or a helper, can be attached to.
+  // Stopped sessions are history, but one running after its terminal left, or a headless run, can be attached to.
+  // A run carries the PID that connects it to the agent whose shell started it.
   const headless = sessions
-    .filter(
-      (session) =>
-        !paired.has(session.id) &&
-        session.running &&
-        (session.activity === "working" || session.activity === "waiting"),
-    )
+    .filter((session) => !paired.has(session.id))
     .map((session) => ({
       agent: "opencode" as const,
       id: session.id,
+      pid: headlessPids.get(session.id),
       parentSessionId: session.parentId,
       title: session.title,
       cwd: session.cwd,
@@ -553,15 +569,17 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
     return withCodexThreads(processes, threads);
   };
-  const [claude, owned, windows, codex, pi, opencode] = await Promise.all([
+  const [claude, owned, windows, codex, codexExec, pi, opencode] = await Promise.all([
     claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
+    codexExecProcesses(),
     piProcesses(),
     readOpencode(),
   ]);
-  const running = [...claude.processes, ...codex.processes, ...opencode.processes, ...pi];
+  const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi];
+  const headless = [...codex.headless, ...opencode.headless, ...claude.finished];
 
   const places = new Map<number, Place>();
   for (const window of windows) {
@@ -570,7 +588,10 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
   // A kiln pane wins over a kitty window: the window only holds the tmux client, never the agent.
   for (const pane of owned) places.set(pane.pid, { kind: "kiln", name: pane.name });
 
-  const runningPids = new Set(running.map((process) => process.pid));
+  const runningPids = new Set([
+    ...running.map((process) => process.pid),
+    ...headless.flatMap((session) => (session.pid === undefined ? [] : [session.pid])),
+  ]);
   const located = running.map(({ background, ...process }) => {
     const lineage: number[] = [];
     for (let pid: number | undefined = process.pid; pid; pid = parentPid(pid)) lineage.push(pid);
@@ -596,8 +617,16 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
       parentSessionPid: ancestorSessionPid,
     })),
   );
-  const listed = [...sessions, ...codex.headless, ...opencode.headless, ...claude.finished];
-  return [...listed, ...restartStopped(listed)];
+  // A headless process keeps the ancestry of the agent whose Bash call started it, when kiln did not start it.
+  const nested = headless.map((session) => {
+    if (session.pid === undefined) return session;
+    const lineage: number[] = [];
+    for (let pid: number | undefined = session.pid; pid; pid = parentPid(pid)) lineage.push(pid);
+    const { ancestorSessionPid } = sessionLocation(lineage, places, runningPids);
+    return ancestorSessionPid === undefined ? session : { ...session, parentSessionPid: ancestorSessionPid };
+  });
+  const listed = [...sessions, ...nested];
+  return attachParents([...listed, ...restartStopped(listed)]);
 }
 
 /** Keep one client per confirmed daemon conversation, preferring a terminal kiln can open. */

@@ -1,13 +1,16 @@
 import { parseArgs } from "node:util";
 import { post, takeUnread } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
-import { agentName, discovery, type Session, sessionDirectory, sessionIdentity } from "./sessions";
+import { archiveOpencodeSession } from "./opencode";
+import { agentName, discovery, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
+import { spawnAgent, spawnOptions, spawnUsage } from "./spawn";
 import { tilde } from "./tui";
 
 const usage = `usage: kiln msg list [--json]          the sessions you can message
        kiln msg send <name|--all> <text|->  message one session, or every other one; - reads stdin
        kiln msg inbox [--json]         read the messages kiln could not deliver to you
-       kiln msg whoami                 your own name`;
+       kiln msg whoami                 your own name
+       ${spawnUsage.slice("usage: ".length)}`;
 
 async function sessions(): Promise<Session[]> {
   // Kitty windows are only for focusing; a message never goes through one.
@@ -20,6 +23,21 @@ function delivery(session: Session): string {
 }
 
 export async function runMsgCli(args: string[]): Promise<void> {
+  const [first] = args;
+  if (first === "spawn") {
+    const me = callerIdentity();
+    if (!me) throw new Error("this shell does not belong to an agent session");
+    console.log(await spawnAgent(spawnOptions(args.slice(1)), me));
+    return;
+  }
+  // The wrapper around a spawned OpenCode run calls this when the run exits.
+  if (first === "archive") {
+    const child = args[1] ?? "";
+    const separator = child.indexOf(":");
+    if (separator > 0 && child.slice(0, separator) === "opencode")
+      await archiveOpencodeSession(child.slice(separator + 1));
+    return;
+  }
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -35,21 +53,37 @@ export async function runMsgCli(args: string[]): Promise<void> {
       return;
     case "list": {
       if (rest.length || values.all) break;
-      const rows = (await sessions()).map((session) => ({
-        name: sessionIdentity(session),
-        agent: session.agent,
-        title: session.title,
-        directory: sessionDirectory(session),
-        activity: session.activity,
-        delivery: delivery(session),
-        you: sessionIdentity(session) === me,
-      }));
+      const found = await sessions();
+      const parents = sessionParents(found);
+      const depth = (session: Session): number => {
+        let levels = 0;
+        const seen = new Set<Session>([session]);
+        for (let parent = parents.get(session); parent && !seen.has(parent); parent = parents.get(parent)) {
+          seen.add(parent);
+          levels++;
+        }
+        return levels;
+      };
+      const rows = found.map((session) => {
+        const parent = parents.get(session);
+        return {
+          name: sessionIdentity(session),
+          agent: session.agent,
+          title: session.title,
+          directory: sessionDirectory(session),
+          activity: session.activity,
+          delivery: delivery(session),
+          you: sessionIdentity(session) === me,
+          parent: parent ? sessionIdentity(parent) : null,
+          depth: depth(session),
+        };
+      });
       if (values.json) console.log(JSON.stringify(rows, null, 2));
       else
         for (const row of rows)
           console.log(
             [
-              `${row.name}${row.you ? " (you)" : ""}`,
+              `${"  ".repeat(row.depth)}${row.name}${row.you ? " (you)" : ""}`,
               agentName(row.agent),
               row.activity ?? "unknown",
               tilde(row.directory),

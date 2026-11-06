@@ -9,6 +9,23 @@ description: Message other running Claude, Codex, OpenCode and Pi sessions throu
 the recipient as a new prompt when kiln can do that safely; otherwise the recipient reads it
 with `kiln msg inbox`.
 
+## Starting a subagent
+
+Start work that should run as its own session with `kiln msg spawn`, never with a raw
+`opencode run`, `claude -p`, `codex exec` or `pi -p` in Bash:
+
+```sh
+kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "run the API tests and fix what fails"
+```
+
+It starts the agent headless in kiln's tmux server, records you as its parent, and prints the
+child's kiln id. The child nests under you in the list, the dashboard and `kiln msg list`, and you
+can message it by that id. Give it enough context to work alone: the absolute paths, the branch,
+what you already tried and what you want back.
+
+A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
+changed and what it could not finish.
+
 ## Sending
 
 1. `kiln msg list` shows each session's name (`agent:id`), status, directory, title and how a
