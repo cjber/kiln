@@ -145,6 +145,11 @@ export function resolveSelection(visible: readonly Session[], selection: Selecti
   return selectionAt(visible, found >= 0 ? found : selection.index);
 }
 
+/** The lines a row takes: a session's title and its detail line, or one heading line. */
+export function rowHeight(row: ListRow): number {
+  return row.kind === "session" ? 2 : 1;
+}
+
 /**
  * The rows that fit `size` lines with the cursor's row in view. Once a group's heading scrolls off the top, it stays
  * pinned above its rows, so every visible row still shows its directory.
@@ -154,14 +159,37 @@ export function viewport(
   selected: number,
   size: number,
 ): { pinned?: Extract<ListRow, { kind: "header" }>; rows: ListRow[] } {
-  let start = Math.max(0, selected - size + 1);
-  if (start === 0 || size < 2 || rows[start]?.kind === "header")
-    return { pinned: undefined, rows: rows.slice(start, start + size) };
-  // The pinned heading takes the top line.
-  start += 1;
-  const pinned =
-    rows[start]?.kind === "session"
-      ? rows.slice(0, start).findLast((row): row is Extract<ListRow, { kind: "header" }> => row.kind === "header")
-      : undefined;
-  return { pinned, rows: rows.slice(start, start + size - (pinned ? 1 : 0)) };
+  if (size <= 0 || !rows.length) return { pinned: undefined, rows: [] };
+  const cursor = Math.max(0, Math.min(rows.length - 1, selected));
+  let start = cursor;
+  let used = rowHeight(rows[start] as ListRow);
+  while (start > 0) {
+    const previous = rowHeight(rows[start - 1] as ListRow);
+    if (used + previous > size) break;
+    used += previous;
+    start--;
+  }
+  const header = (before: number) =>
+    rows.slice(0, before).findLast((row): row is Extract<ListRow, { kind: "header" }> => row.kind === "header");
+  let pinned: Extract<ListRow, { kind: "header" }> | undefined;
+  if (start > 0 && rows[start]?.kind !== "header") {
+    // A pinned heading takes one line; drop the earliest rows until the cursor's row still fits beside it.
+    while (used + 1 > size && start < cursor) {
+      used -= rowHeight(rows[start] as ListRow);
+      start++;
+    }
+    const candidate = rows[start]?.kind === "header" ? undefined : header(start);
+    if (candidate && used + 1 <= size) pinned = candidate;
+  }
+  const budget = size - (pinned ? 1 : 0);
+  const shown: ListRow[] = [];
+  let shownLines = 0;
+  for (let index = start; index < rows.length; index++) {
+    const row = rows[index] as ListRow;
+    const height = rowHeight(row);
+    if (shown.length && shownLines + height > budget) break;
+    shown.push(row);
+    shownLines += height;
+  }
+  return { pinned, rows: shown };
 }

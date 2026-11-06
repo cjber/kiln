@@ -128,7 +128,7 @@ test("a finished background job uses the same status word in its row and its det
   expect(hint.startsWith(label)).toBe(true);
 });
 
-test("the group heading of the top visible rows stays pinned once it scrolls off", () => {
+test("the viewport counts a session's detail line and keeps its heading pinned", () => {
   const session = (pid: number, cwd: string): Session => ({
     ...parent,
     pid,
@@ -141,10 +141,13 @@ test("the group heading of the top visible rows stays pinned once it scrolls off
     "",
     new Set(),
   );
-  // Rows: /a, 1..5, /b, 6. Cursor on 5 (index 5) with room for three lines.
-  const view = viewport(rows, 5, 3);
+  // Rows: /a, 1..5, /b, 6. Each session takes its title and detail line, so five lines hold two sessions.
+  const view = viewport(rows, 5, 5);
   expect(view.pinned?.kind === "header" && view.pinned.directory).toBe("/a");
   expect(view.rows.map((row) => (row.kind === "session" ? row.session.pid : row.key))).toEqual([4, 5]);
-  expect(viewport(rows, 7, 3).pinned).toBeUndefined();
-  expect(viewport(rows, 1, 3)).toEqual({ pinned: undefined, rows: rows.slice(0, 3) });
+  // The heading of the next group shows with its session instead of staying pinned above it.
+  const next = viewport(rows, 6, 3);
+  expect(next.pinned).toBeUndefined();
+  expect(next.rows.map((row) => (row.kind === "session" ? row.session.pid : row.key))).toEqual(["dir:/b", 6]);
+  expect(viewport(rows, 1, 5)).toEqual({ pinned: undefined, rows: rows.slice(0, 3) });
 });

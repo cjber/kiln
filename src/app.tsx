@@ -4,6 +4,7 @@ import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { flushInBackground } from "./messages";
 import { nativeNotifications } from "./notifications";
+import { sessionDetail } from "./session-detail";
 import {
   resolveSelection,
   type Selection,
@@ -29,8 +30,9 @@ import {
 import { ensureSettingsFile, loadSettings, type Settings } from "./settings";
 import { SkillsView } from "./skills-view";
 import { attach } from "./tmux";
-import { color, displayWidth, openInEditor, padToWidth, tilde, typed, untilde } from "./tui";
+import { color, displayWidth, openInEditor, tilde, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
+import { checkout } from "./workdir";
 import { rankedDirectories } from "./zoxide";
 
 const agentColor: Record<Agent, string> = {
@@ -184,6 +186,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const refreshing = useRef(false);
   const prs = useMemo(() => givenPrs ?? pullRequests(loadSessions ? { gh: false } : {}), [givenPrs, loadSessions]);
   const [pulls, setPulls] = useState<ReadonlyMap<string, PullRequest[]>>(new Map());
+  const [changes, setChanges] = useState<ReadonlyMap<string, number>>(new Map());
+  const changeCache = useRef(new Map<string, { count?: number; checkedAt: number; pending: boolean }>());
   const notifyNative = useMemo(() => nativeNotifications(), []);
   const discover = useMemo(() => {
     if (loadSessions) return keepLast(loadSessions, "Session discovery");
@@ -196,6 +200,51 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     [getSessions, getOrder, getFilter, getExpanded],
   );
 
+  /** Count uncommitted files per checkout off the render path, at most once per list refresh. */
+  const countChanges = useCallback((sessions: readonly Session[]) => {
+    const roots = new Set<string>();
+    for (const session of sessions) {
+      const root = checkout(sessionDirectory(session));
+      if (root) roots.add(root);
+    }
+    for (const [root, entry] of changeCache.current)
+      if (!roots.has(root) && !entry.pending) changeCache.current.delete(root);
+    const publish = () =>
+      setChanges(
+        new Map(
+          [...changeCache.current].flatMap(([root, entry]) =>
+            entry.count === undefined ? [] : [[root, entry.count] as [string, number]],
+          ),
+        ),
+      );
+    for (const root of roots) {
+      const cached = changeCache.current.get(root);
+      if (cached?.pending || (cached && Date.now() - cached.checkedAt < refreshMs)) continue;
+      changeCache.current.set(root, { count: cached?.count, checkedAt: Date.now(), pending: true });
+      const child = Bun.spawn(["git", "-C", root, "status", "--porcelain"], {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      void (async () => {
+        try {
+          const output = await new Response(child.stdout).text();
+          const code = await child.exited;
+          const entry = changeCache.current.get(root);
+          changeCache.current.set(root, {
+            count: code === 0 ? output.split("\n").filter(Boolean).length : entry?.count,
+            checkedAt: Date.now(),
+            pending: false,
+          });
+        } catch {
+          const entry = changeCache.current.get(root);
+          changeCache.current.set(root, { count: entry?.count, checkedAt: Date.now(), pending: false });
+        }
+        publish();
+      })();
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     if (refreshing.current) return;
     refreshing.current = true;
@@ -203,6 +252,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
+      countChanges(found.sessions);
       const foundPrs = new Map<string, PullRequest[]>();
       for (const session of found.sessions) {
         const list = prs.of(session);
@@ -220,7 +270,18 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     } finally {
       refreshing.current = false;
     }
-  }, [discover, view, getSettings, getSelection, setSessions, setSelection, notifyNative, loadSessions, prs]);
+  }, [
+    discover,
+    view,
+    getSettings,
+    getSelection,
+    setSessions,
+    setSelection,
+    notifyNative,
+    loadSessions,
+    prs,
+    countChanges,
+  ]);
 
   useEffect(() => {
     void refresh();
@@ -387,7 +448,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       if (next) setOrder(next);
       return;
     }
-    if ((key.name === "tab" || key.name === "right" || key.name === "left") && current) {
+    if ((key.name === "space" || key.name === "tab" || key.name === "right" || key.name === "left") && current) {
       const identity = sessionIdentity(current);
       const next = new Set(getExpanded());
       if (key.name === "left" || next.has(identity)) next.delete(identity);
@@ -436,6 +497,13 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const currentPr = current && pulls.get(sessionIdentity(current));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
   const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
+  const detailLine = (session: Session, key: string) => {
+    const root = checkout(sessionDirectory(session));
+    return sessionDetail(session, {
+      prs: pulls.get(key),
+      changes: root ? changes.get(root) : undefined,
+    });
+  };
 
   return (
     <box flexDirection="column" backgroundColor={color.bg} paddingLeft={1} paddingRight={1} flexGrow={1}>
@@ -464,17 +532,21 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
             const { session, depth, children } = row;
             const active = session === current;
             const title = `${depth ? "↳ " : ""}${sessionTitle(session)}`;
-            const childrenMark = children ? ` [${expanded.has(row.key) || filter ? "−" : "+"}${children}]` : "";
+            const open = children > 0 && (expanded.has(row.key) || filter !== "");
+            const count = children ? ` ${children}` : "";
+            const titleRoom = Math.max(1, titleWidth - displayWidth(count));
+            const fitted = fit(title, titleRoom, "end");
+            const padding = " ".repeat(Math.max(0, titleWidth - displayWidth(fitted) - displayWidth(count)));
+            const indent = "  ".repeat(depth + 2);
             return (
-              <box key={row.key} backgroundColor={active ? color.bg2 : undefined}>
+              <box key={row.key} flexDirection="column" backgroundColor={active ? color.bg2 : undefined}>
                 <text wrapMode="none">
-                  <span fg={active ? color.peach : color.comment}>{active ? "› " : "  "}</span>
+                  <span fg={active ? color.peach : color.comment}>{active ? (open ? "⌄ " : "› ") : "  "}</span>
                   <span fg={agentColor[session.agent]}>{agentName(session.agent).padEnd(9)}</span>
+                  <span fg={toneColor[sessionStatus(session).tone]}>{fitted}</span>
+                  {count ? <span fg={color.comment}>{count}</span> : null}
                   <span fg={toneColor[sessionStatus(session).tone]}>
-                    {padToWidth(
-                      `${fit(title, Math.max(1, titleWidth - displayWidth(childrenMark)), "end")}${childrenMark}`,
-                      titleWidth,
-                    )}
+                    {padding}
                     {"  "}
                   </span>
                   {showStatus ? (
@@ -484,6 +556,9 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
                   {showUpdated ? (
                     <span fg={ageColor(session.lastActiveAt, now)}>{age(session.lastActiveAt, now).padStart(8)}</span>
                   ) : null}
+                </text>
+                <text wrapMode="none" fg={color.comment}>
+                  {`${indent}${fit(detailLine(session, row.key), Math.max(1, width - 2 - displayWidth(indent)), "end")}`}
                 </text>
               </box>
             );
@@ -555,6 +630,7 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
       const shown = [
         current && "j/k move",
         current && "enter open",
+        current && "space expand",
         filter && "esc clear",
         "n new",
         close,
@@ -563,7 +639,7 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
       ].filter((hint): hint is string => Boolean(hint));
       return fitHints(
         shown,
-        ["q quit", "enter open", "esc clear", "/ filter", "n new", "j/k move", close ?? ""],
+        ["q quit", "enter open", "space expand", "esc clear", "/ filter", "n new", "j/k move", close ?? ""],
         width,
       );
     }

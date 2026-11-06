@@ -92,7 +92,7 @@ The page updates itself over a server-sent event stream: session status every tw
 | `Enter` | Open a session or cloud task |
 | `n` | Choose an agent, then a directory through fzf |
 | `/` | Filter titles, directories, agent names and status |
-| `Tab` | Expand children |
+| `Space` `Tab` `←` `→` | Expand or collapse children |
 | `o` | Cycle list order |
 | `x` | Close a kiln-owned session after confirmation |
 | `s` | Edit settings |
@@ -101,6 +101,8 @@ The page updates itself over a server-sent event stream: session status every tw
 | `q` | Quit the list |
 
 Directory headings are orange. Sessions needing permission are yellow, ready sessions are muted green, and working sessions use subdued text. The header counts input requests even when children are collapsed. Open a yellow session to answer in the provider TUI.
+
+Each session row carries a dim line with its repository, worktree, branch, pull request and count of changed files. An expanded session shows `⌄` in place of `›` and its children under it, each with the same line.
 
 New sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
