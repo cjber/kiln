@@ -1,0 +1,19 @@
+version: 1
+project: { name: kiln }
+prepare: [bun install --frozen-lockfile]
+# The `check` job in .github/workflows/ci.yml, as CI runs it.
+checks:
+  - name: biome
+    run: bunx biome ci .
+  - name: typecheck
+    run: bunx tsc --noEmit -p .
+  - name: test
+    run: bun test
+    tests: true
+  - name: changelog
+    run: bun scripts/changelog.ts --check
+# The Android unit tests run in CI's Gradle job, which needs the Android SDK.
+uncheckedTests: [android/app/src/test/**]
+focus: [src/**, scripts/**, pi-extension/**, skills/**]
+# Screenshots and icons are rendered by scripts, and the lockfile is Bun's.
+ignore: [assets/**, bun.lock, "android/**/build/**"]
