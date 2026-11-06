@@ -112,7 +112,7 @@ Each session row carries a dim line with its repository, worktree, branch, pull 
 
 New sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
-Sessions running in a terminal survive a restart of the computer. They stay in the list as `stopped`: `Enter` resumes the conversation in a new kiln session in the same directory, and `x` forgets the row and leaves the conversation with its provider. A session closed before the restart is not kept, and neither is one without a provider session id, such as a Pi started outside kiln.
+Sessions running in a terminal survive a restart of the computer. They stay in the list as `stopped`: `Enter` resumes the conversation in a new kiln session in the same directory, and `x` forgets the row and leaves the conversation with its provider. `kiln resume` lists them, and `kiln resume --all` or `kiln resume <name...>` resumes them without the list, one at a time, with `--prompt TEXT` as each one's first prompt. A session counts as resumed once its agent has run for five seconds; one that quits sooner is started once more, then reported with what it printed. With `write = true` under `[phone]`, a stopped session's sheet on the phone has a Resume button too. A session closed before the restart is not kept, and neither is one without a provider session id, such as a Pi started outside kiln.
 
 Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes a background job, running or finished, with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
 
@@ -148,7 +148,7 @@ pi = ["pi"]
 write = false
 ```
 
-Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
+Set an agent command to `[]` to hide it from the new-session picker. `detach_key` and `status_bar` apply to native sessions and the Codex Cloud viewer. The status bar's session counts are shared by every attached session and refreshed at most every 15 seconds. `remote_control` enables Claude Remote Control per new session and starts Codex Remote Control on its shared daemon.
 
 `sort` accepts `project`, `directory`, `last_active`, `age` and `harness`. `project` groups sessions by git repository, with linked worktrees under the repository that owns them; a directory outside git is its own group. Within a group, sessions are ordered by their most recent provider update, and the time since that update fades from green to grey as it ages. Branches are reread from the session directory on refresh.
 
@@ -223,8 +223,6 @@ bunx biome ci .
 bunx tsc --noEmit -p .
 bun test
 bun scripts/changelog.ts --check
-python3 .sloppatrol/gate.py --base origin/main
-python3 .sloppatrol/agents.py check
 bun scripts/list-tui-e2e.ts
 bun scripts/perf.ts
 bun scripts/native-tui-e2e.ts

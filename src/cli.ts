@@ -1,9 +1,12 @@
 import packageJson from "../package.json";
 import { listSessions, summarise } from "./sessions";
 import { loadSettings } from "./settings";
+import { cachedStatus } from "./status-cache";
 
 const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
+       kiln resume <name...|--all> [--prompt TEXT]
+                                  resume sessions a restart stopped, one at a time; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
@@ -155,9 +158,18 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     console.log(`kiln ${packageJson.version}`);
     return 0;
   }
+  if (command === "resume") {
+    try {
+      const { runResumeCli } = await import("./resume-cli");
+      return await runResumeCli(args.slice(1));
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "resume failed"}`);
+      return 2;
+    }
+  }
   if (command === "status") {
-    // The counts need no terminal ownership, and tmux asks every few seconds.
-    console.log(summarise(await listSessions({ kitty: false })));
+    // The counts need no terminal ownership, and every tmux client asks every few seconds.
+    console.log(await cachedStatus(async () => summarise(await listSessions({ kitty: false }))));
     return 0;
   }
   if (command === "--help" || command === "-h") {

@@ -23,6 +23,12 @@ class WriteTest {
     }
 
     @Test
+    fun onlyRowsTheMachineMarksResumableOfferResume() {
+        assertFalse(snapshot("").rows.single().resumable)
+        assertTrue(snapshot("", ""","resumable":true""").rows.single().resumable)
+    }
+
+    @Test
     fun startOptionsKeepTheMachineOrderAndDropUnknownAgents() {
         val options =
             parseStartOptions("""{"directories":["/b","/a"],"agents":["codex","gemini","pi"]}""")

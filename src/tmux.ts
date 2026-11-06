@@ -10,7 +10,8 @@ import type { Settings } from "./settings";
 export const kiln = import.meta.dir.startsWith("/$bunfs/")
   ? process.execPath
   : join(import.meta.dir, "..", "bin", "kiln");
-const tmux = ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
+/** Read on each call, so a test can point kiln at a server of its own. */
+const tmux = () => ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
 let config: string | undefined;
 
 /** tmux reads a real file, including when the configuration is embedded in a standalone executable. */
@@ -25,12 +26,12 @@ function configPath(): string {
 }
 
 function run(...args: string[]): boolean {
-  return Bun.spawnSync([...tmux, ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+  return Bun.spawnSync([...tmux(), ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
 }
 
 /** The PID of a session's pane command, when tmux can say. */
 export async function panePid(name: string): Promise<number | undefined> {
-  const shown = Bun.spawnSync([...tmux, "display-message", "-p", "-t", `=${name}:`, "#{pane_pid}"], {
+  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", `=${name}:`, "#{pane_pid}"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -41,7 +42,7 @@ export async function panePid(name: string): Promise<number | undefined> {
 
 export async function panes(): Promise<{ name: string; pid: number }[]> {
   const format = "#{session_name}\t#{pane_pid}";
-  const process = Bun.spawn([...tmux, "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
+  const process = Bun.spawn([...tmux(), "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   clearTimeout(timeout);
@@ -62,7 +63,7 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
 export async function lastSeen(): Promise<Map<string, number>> {
   const read = async (args: string[]) => {
     try {
-      const process = Bun.spawn([...tmux, ...args], { stdout: "pipe", stderr: "ignore" });
+      const process = Bun.spawn([...tmux(), ...args], { stdout: "pipe", stderr: "ignore" });
       const timeout = setTimeout(() => process.kill(), 2_000);
       const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
       clearTimeout(timeout);
@@ -106,7 +107,7 @@ export async function submitText(name: string, text: string): Promise<void> {
 export function screen(name: string): { text: string; width: number } | undefined {
   const shown = Bun.spawnSync(
     [
-      ...tmux,
+      ...tmux(),
       "display-message",
       "-p",
       "-t",
@@ -153,7 +154,7 @@ export function sendKey(name: string, key: string): boolean {
 /** How many terminals have the session open; none when it has closed. */
 export function attachedClients(name: string): number | undefined {
   if (!exists(name)) return undefined;
-  const shown = Bun.spawnSync([...tmux, "display-message", "-p", "-t", `=${name}:`, "#{session_attached}"], {
+  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", `=${name}:`, "#{session_attached}"], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -165,16 +166,76 @@ export function exists(name: string): boolean {
   return run("has-session", "-t", `=${name}`);
 }
 
-export function start(name: string, cwd: string, argv: string[], title: string): boolean {
-  return (
-    run("-f", configPath(), "new-session", "-d", "-s", name, "-c", cwd, ...argv) &&
-    run("set-option", "-t", name, "@kiln_title", title)
+/**
+ * Start a detached session. With `keep`, its pane stays after the command exits, so `survives` can read why an agent
+ * quit at launch; the option is set in the same tmux call that creates the session, before the command can exit.
+ */
+export function start(name: string, cwd: string, argv: string[], title: string, keep = false): boolean {
+  // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
+  const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  return run(
+    "-f",
+    configPath(),
+    "new-session",
+    "-d",
+    "-s",
+    name,
+    "-c",
+    cwd,
+    ...argv,
+    ...kept,
+    ";",
+    "set-option",
+    "@kiln_title",
+    title,
   );
+}
+
+/** Why a session's command quit, read from its kept pane. */
+type EarlyExit = { status: number; output: string };
+
+/**
+ * Watch a session started by `start` with `keep` for `graceMs`. A command still running then is left to close its session as
+ * usual when it exits; one that quit is reported with its last output, and its session is closed.
+ */
+export async function survives(name: string, graceMs: number, pollMs = 250): Promise<true | EarlyExit> {
+  const target = `=${name}:`;
+  const deadline = Date.now() + graceMs;
+  for (;;) {
+    const shown = Bun.spawnSync(
+      [...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    if (shown.exitCode !== 0) return { status: -1, output: "" };
+    const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
+    if (dead === "1") {
+      const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      kill(name);
+      // tmux adds its own "Pane is dead" line below what the command printed.
+      const lines = captured.stdout
+        .toString()
+        .split("\n")
+        .filter((line) => line.trim() && !line.startsWith("Pane is dead"));
+      const output = lines.slice(-20).join("\n");
+      return { status: Number(status) || 0, output };
+    }
+    if (Date.now() >= deadline) {
+      run("set-option", "-w", "-t", target, "remain-on-exit", "off");
+      return true;
+    }
+    await Bun.sleep(pollMs);
+  }
 }
 
 /** The commands that rebind the way back, dropping whichever key held it before so a changed setting leaves no stray binding. */
 function bindDetach(key: string): string[][] {
-  const listed = Bun.spawnSync([...tmux, "list-keys", "-T", "root"], {
+  const listed = Bun.spawnSync([...tmux(), "list-keys", "-T", "root"], {
     stdout: "pipe",
     stderr: "ignore",
   }).stdout.toString();
@@ -211,7 +272,7 @@ export async function attach(name: string, settings: Settings): Promise<void> {
   if (!applySettings(settings)) throw new Error("could not configure kiln's tmux server");
   // Kiln's server is separate from any tmux kiln itself runs in, so the nesting guard does not apply.
   const { TMUX: _outer, ...env } = Bun.env;
-  const client = Bun.spawn([...tmux, "attach-session", "-t", name], {
+  const client = Bun.spawn([...tmux(), "attach-session", "-t", name], {
     stdin: "inherit",
     stdout: "ignore",
     stderr: "pipe",

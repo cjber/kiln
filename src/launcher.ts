@@ -9,7 +9,7 @@ import { forget } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import { type Agent, agentName, type Session } from "./sessions";
 import type { Settings } from "./settings";
-import { exists, kill, start } from "./tmux";
+import { exists, kill, start, survives } from "./tmux";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
 
@@ -139,6 +139,11 @@ export function agentCommand(agent: Agent, settings: Settings, resume?: string, 
   }
 }
 
+/** kiln's tmux name for a session: a resumed conversation always gets the same one. */
+function sessionName(agent: Agent, resume?: string): string {
+  return `${agent}-${resume ? new Bun.CryptoHasher("sha256").update(resume).digest("hex").slice(0, 16) : crypto.randomUUID()}`;
+}
+
 /** Start an agent in a session on kiln's tmux server. A resumed conversation has one session, named after it, that a second open reuses. */
 async function launch(
   agent: Agent,
@@ -147,21 +152,50 @@ async function launch(
   title: string,
   resume?: string,
   prompt?: string,
+  keep = false,
 ): Promise<Outcome> {
-  const name = `${agent}-${resume ? new Bun.CryptoHasher("sha256").update(resume).digest("hex").slice(0, 16) : crypto.randomUUID()}`;
+  const name = sessionName(agent, resume);
   if (resume && exists(name)) return { kind: "attach", name };
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
     const command = settings.agents[agent];
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agentName(agent)} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
-    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt), title))
+    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt), title, keep))
       throw new Error(`could not start ${agentName(agent)}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
   } catch (error) {
     return notice(error instanceof Error ? error.message : "Could not start session");
   }
+}
+
+/** How long a resumed agent must keep running before kiln counts it as started. */
+const resumeGraceMs = 5_000;
+
+/**
+ * Resume a `stopped` session without attaching, as `Enter` would, with an optional first prompt. The agent must still
+ * be running after `graceMs`; one that quits sooner is started once more, since agents started at the same moment
+ * can race over their shared login and config, and then reported with what it printed.
+ */
+export async function resumeStopped(
+  session: Session,
+  settings: Settings,
+  prompt?: string,
+  graceMs = resumeGraceMs,
+): Promise<{ name: string } | { problem: string }> {
+  if (session.place.kind !== "saved" || !session.id) return { problem: "this session is not stopped" };
+  const name = sessionName(session.agent, session.id);
+  if (exists(name)) return { name };
+  let problem = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const outcome = await launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, prompt, true);
+    if (outcome.kind !== "attach") return { problem: outcome.kind === "notice" ? outcome.text : "not started" };
+    const result = await survives(name, graceMs);
+    if (result === true) return { name };
+    problem = `${agentName(session.agent)} exited with status ${result.status}${result.output ? `: ${result.output}` : ""}`;
+  }
+  return { problem };
 }
 
 export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {

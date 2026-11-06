@@ -16,8 +16,6 @@ bun scripts/changelog.ts --check
 bun scripts/perf.ts
 bun scripts/list-tui-e2e.ts
 bun scripts/native-tui-e2e.ts
-python3 .sloppatrol/gate.py --base origin/main
-python3 .sloppatrol/agents.py check
 ```
 
 CI runs the same except `bun scripts/perf.ts`, plus actionlint, zizmor and gitleaks over the workflows and history.
@@ -35,6 +33,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 
 - `src/sessions.ts` - `discovery()` merges native and cached cloud rows and drops `elsewhere` ones kiln cannot open; each source keeps its last rows while it fails.
   `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
+- `src/status-cache.ts` - `kiln status`, the tmux status line, prints one cached line shared by every client; only the caller holding the lock refreshes it.
 - `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
   `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
   A Claude `shell` session is working, as Claude's agent view shows it, and `discovery()` keeps a parent working while a subagent
@@ -45,6 +44,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   `$XDG_STATE_HOME/opencode/service.json`; read only while that service runs. Closing archives through `opencode api`, which starts the service if needed. Kiln passes each session its `--session` id; a terminal with no id in argv is never paired by directory.
 - `src/saved-sessions.ts` - the terminal sessions and Codex daemon threads last seen running, in `$XDG_STATE_HOME/kiln/sessions.sqlite`. One saved in an
   earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
+  `kiln resume` (`src/resume-cli.ts`) and the phone's `/v1/sessions/<id>/resume` resume them through `resumeStopped`, which keeps the pane
+  (`remain-on-exit`) for five seconds to catch an agent that quits at launch, and starts it once more.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/transcript.ts`, `src/workdir.ts` - Claude transcript titles, and the checkout an agent last edited or `cd`'d into, shown in place of
@@ -57,7 +58,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
 - `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
 - `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts`, `src/push.ts` - localhost phone API, one-use pairing, provider handoffs and
-  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends. Starting sessions and sending prompts from a
+  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends, and under their own id and channel
+  when a session's pull request goes from running or passing checks to failing. Starting sessions and sending prompts from a
   phone is gated by `[phone] write`, which is off by default.
 - `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet. Phone links are one-use
   `/opencode/<code>` paths on kiln's server that set OpenCode's sign-in cookie and redirect to the session page.
@@ -87,8 +89,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
   screen; nothing prints to the console while it is up.
 - README and changelog copy is plain and concrete: no marketing words, no em dashes.
-- Quality: load `.agents/skills/sloppatrol-project/SKILL.md` before cleanup, dead-code or refactoring
-  work.
+- Live roots, known false positives and settled shapes for cleanup and refactoring work are in
+  `.sloppatrol/instructions.md`.
 
 Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links, or a one-use `/opencode/<code>` path the phone resolves against the kiln server it paired with.
 

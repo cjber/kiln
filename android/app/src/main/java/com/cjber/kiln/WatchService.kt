@@ -54,6 +54,7 @@ class WatchService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val connection = Connection()
     private val transitions = Transitions()
+    private val failing = FailingTransitions()
     private val notifications
         get() = getSystemService(NotificationManager::class.java)
 
@@ -141,6 +142,7 @@ class WatchService : Service() {
         snapshot = null
         state = ConnectionState.CONNECTING
         transitions.reset()
+        failing.reset()
     }
 
     private fun changed(next: ConnectionState) {
@@ -163,6 +165,22 @@ class WatchService : Service() {
         Alerts.clearRead(this, host.origin, next)
         val notify = notifyEnabled(this, host.origin)
         val changed = transitions.update(next, notify)
+        val red = failing.update(next, notify)
+        if (listener == null)
+            red.forEach {
+                Alerts.showFailing(
+                    this,
+                    host,
+                    FailingAlert(
+                        it.id,
+                        it.agent,
+                        it.title,
+                        it.cwd,
+                        it.pulls.firstOrNull()?.number ?: 0,
+                        next.updated,
+                    ),
+                )
+            }
         if (listener == null)
             changed.forEach {
                 Alerts.show(

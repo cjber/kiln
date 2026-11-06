@@ -146,6 +146,18 @@ class Connection(
             done(terminal, if (body != null && terminal == null) "Invalid response" else problem)
         }
 
+    /** Starts a stopped session again; `done` gets its tmux name, or why it did not start. */
+    fun resume(host: Host, id: String, done: (String?, String) -> Unit) =
+        call(
+            host,
+            "POST",
+            "/v1/sessions/${java.net.URLEncoder.encode(id, "UTF-8")}/resume",
+            JSONObject(),
+        ) { body, problem ->
+            val terminal = body?.let { runCatching { parseStarted(it) }.getOrNull() }
+            done(terminal, if (body != null && terminal == null) "Invalid response" else problem)
+        }
+
     /** `done` gets the line the send box shows. */
     fun send(host: Host, id: String, text: String, done: (String) -> Unit) =
         call(

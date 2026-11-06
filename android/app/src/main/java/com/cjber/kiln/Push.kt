@@ -20,11 +20,31 @@ import org.unifiedpush.android.connector.data.PushMessage
 /** This phone's UnifiedPush endpoint and the Web Push keys a machine encrypts to. */
 data class PushRegistration(val endpoint: String, val p256dh: String, val auth: String)
 
+/** What a push from a machine asks the phone to do. */
+enum class PushKind {
+    /** A turn ended: [PushAlert.alert] says whether it waits for input. */
+    TURN,
+    /** The earlier turn alert for the session was seen on the computer. */
+    READ,
+    /** The session's pull request checks failed. */
+    FAILING,
+    /** The session's pull request left failing, or the session closed. */
+    FAILING_CLEARED,
+}
+
 /**
- * A push from a machine: which session changed, on the paired machine at [origin]. A [read] push
- * says the earlier alert for the session was seen on the computer.
+ * A push from a machine: which session changed, on the paired machine at [origin]. [pr] is the
+ * failing pull request's number on [PushKind.FAILING] and [PushKind.FAILING_CLEARED].
  */
-data class PushAlert(val origin: String, val alert: TurnAlert, val read: Boolean = false)
+data class PushAlert(
+    val origin: String,
+    val alert: TurnAlert,
+    val kind: PushKind = PushKind.TURN,
+    val pr: Int = 0,
+) {
+    val read: Boolean
+        get() = kind == PushKind.READ
+}
 
 /** The alert in a decrypted push body, or null for anything this version does not understand. */
 fun parsePushAlert(source: String): PushAlert? =
@@ -32,7 +52,15 @@ fun parsePushAlert(source: String): PushAlert? =
         val json = JSONObject(source)
         require(json.getInt("v") == 1)
         val transition = json.getString("transition")
-        require(transition == "finished" || transition == "input" || transition == "read")
+        val kind =
+            when (transition) {
+                "finished",
+                "input" -> PushKind.TURN
+                "read" -> PushKind.READ
+                "failing" -> PushKind.FAILING
+                "failing-cleared" -> PushKind.FAILING_CLEARED
+                else -> throw IllegalArgumentException(transition)
+            }
         val session = json.getString("session")
         require(session.isNotEmpty() && session.length <= 512)
         PushAlert(
@@ -45,7 +73,9 @@ fun parsePushAlert(source: String): PushAlert? =
                 transition == "input",
                 json.getLong("at"),
             ),
-            transition == "read",
+            kind,
+            if (kind == PushKind.FAILING || kind == PushKind.FAILING_CLEARED) json.optInt("pr")
+            else 0,
         )
     } catch (_: Exception) {
         null
@@ -142,9 +172,21 @@ object Push {
     internal fun received(context: Context, source: String) {
         val push = parsePushAlert(source) ?: return
         val host = hosts(context).firstOrNull { it.origin == push.origin } ?: return
-        if (push.read) return Alerts.clear(context, host.origin, push.alert.session)
+        when (push.kind) {
+            PushKind.READ -> return Alerts.clear(context, host.origin, push.alert.session)
+            PushKind.FAILING_CLEARED ->
+                return Alerts.clearFailing(
+                    context,
+                    host.origin,
+                    push.alert.session,
+                    push.alert.at,
+                )
+            else -> {}
+        }
         if (!notifyEnabled(context, host.origin) || Alerts.visibleOrigin == host.origin) return
-        Alerts.show(context, host, push.alert)
+        if (push.kind == PushKind.FAILING)
+            Alerts.showFailing(context, host, FailingAlert.of(push.alert, push.pr))
+        else Alerts.show(context, host, push.alert)
     }
 
     private fun send(host: Host, registration: PushRegistration?) {

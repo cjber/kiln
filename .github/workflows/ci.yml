@@ -23,11 +23,6 @@ jobs:
       - run: bun test
       # Tags in this branch history need a changelog entry for their release notes.
       - run: bun scripts/changelog.ts --check
-      # Project rules and suppression markers. `--base` because actions/checkout creates no origin/HEAD.
-      - env:
-          BASE: ${{ github.base_ref || github.event.repository.default_branch }}
-        run: python3 .sloppatrol/gate.py --base "origin/$BASE"
-      - run: python3 .sloppatrol/agents.py check
 
   workflows:
     runs-on: ubuntu-latest

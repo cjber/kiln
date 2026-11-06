@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { createDecipheriv, createECDH, hkdfSync, randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pullRequests } from "./dashboard";
 import { Pairing } from "./pairing";
-import { encryptPush, type PushAlert, pushTarget, sendPush } from "./push";
+import { encryptPush, failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
 import { startServer } from "./server";
 import type { Session } from "./sessions";
 
@@ -316,6 +317,108 @@ test("an alert is cleared once its terminal is attached or typed in after it, an
     while (sent.length < 2) await Bun.sleep(10);
     await Bun.sleep(80);
     expect(sent.map((alert) => alert.transition)).toEqual(["finished", "read"]);
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
+test("a pull request turning red alerts once, and clears once it leaves failing or its session closes", () => {
+  const alerts = failingAlerts();
+  const row = (stage: "working" | "checks" | "green" | "failing", id = "claude:1") => ({
+    id,
+    title: "Fix retry",
+    agent: "claude",
+    cwd: "/w",
+    stage,
+    pr: { number: 212 },
+  });
+  const step = (rows: ReturnType<typeof row>[], at: number, enabled = true) =>
+    alerts(rows, "desk", at, enabled).map((alert) => `${alert.session} ${alert.transition} #${alert.pr} ${alert.at}`);
+  // A server start sees `working` until the first lookup lands, which is not a pull request turning red.
+  expect(step([row("working")], 1)).toEqual([]);
+  expect(step([row("failing")], 2)).toEqual([]);
+  expect(step([row("checks")], 3)).toEqual([]);
+  expect(step([row("failing")], 4)).toEqual(["claude:1 failing #212 4"]);
+  expect(step([row("failing")], 5)).toEqual([]);
+  expect(step([row("green")], 6)).toEqual(["claude:1 failing-cleared #212 6"]);
+  expect(step([row("failing")], 7)).toEqual(["claude:1 failing #212 7"]);
+  // A closed session's alert is cleared too.
+  expect(step([], 8)).toEqual(["claude:1 failing-cleared #212 8"]);
+  // With no push target there is nobody to tell, and the history starts over.
+  expect(step([row("green")], 9)).toEqual([]);
+  expect(step([row("failing")], 10, false)).toEqual([]);
+  expect(step([row("failing")], 11)).toEqual([]);
+});
+
+test("a registered phone alone keeps pull requests looked up and is pushed a failing pull request", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kiln-push-test-"));
+  directories.push(directory);
+  mkdirSync(join(directory, ".git"));
+  writeFileSync(join(directory, ".git", "HEAD"), "ref: refs/heads/cb/x\n");
+  const pairing = new Pairing(join(directory, "devices.sqlite"));
+  let conclusion = "IN_PROGRESS";
+  let lookups = 0;
+  const sent: PushAlert[] = [];
+  const pr = () => ({
+    number: 212,
+    url: "https://github.com/o/r/pull/212",
+    state: "OPEN",
+    isDraft: false,
+    additions: 1,
+    deletions: 0,
+    labels: [],
+    statusCheckRollup: [conclusion === "IN_PROGRESS" ? { status: "IN_PROGRESS" } : { status: "COMPLETED", conclusion }],
+  });
+  const server = startServer({
+    port: 0,
+    pairing,
+    interval: 20,
+    idleInterval: 20,
+    pushInterval: 20,
+    seen: async () => new Map(),
+    discover: async () => ({
+      sessions: [
+        { agent: "claude", id: "s1", cwd: directory, startedAt: 1, place: { kind: "kiln", name: "claude-1" } },
+      ],
+      problem: "",
+      stale: false,
+    }),
+    prs: pullRequests({
+      gh: true,
+      prAge: 0,
+      exec: async (argv) => {
+        lookups++;
+        return JSON.stringify(argv[2] === "graphql" ? { data: { p0: pr() } } : [pr()]);
+      },
+    }),
+    push: async (_, next) => {
+      sent.push(next);
+      return "sent";
+    },
+  });
+  try {
+    await Bun.sleep(80);
+    // No phone watches and none is registered, so `gh` is never run.
+    expect(lookups).toBe(0);
+    const paired = pairing.exchange(pairing.invite(), "Pixel");
+    if (!paired) throw new Error("pairing failed");
+    const keys = phoneKeys();
+    pairing.setPush(paired.device.id, {
+      endpoint: "https://ntfy.sh/upOne",
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      machine: "https://desk.example",
+    });
+    while (!lookups) await Bun.sleep(10);
+    await Bun.sleep(100);
+    conclusion = "FAILURE";
+    while (!sent.some((alert) => alert.transition === "failing")) await Bun.sleep(10);
+    expect(sent.find((alert) => alert.transition === "failing")).toMatchObject({ session: "claude:s1", pr: 212 });
+    conclusion = "SUCCESS";
+    while (!sent.some((alert) => alert.transition === "failing-cleared")) await Bun.sleep(10);
+    // Turn alerts and their reads are a separate stream, so nothing else was pushed.
+    expect(sent.map((alert) => alert.transition)).toEqual(["failing", "failing-cleared"]);
   } finally {
     server.stop();
     pairing.close();
