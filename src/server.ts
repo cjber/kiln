@@ -301,7 +301,8 @@ export function startServer({
     const current = writeSettings();
     const session = listed.find((row) => sessionIdentity(row) === id);
     if (session?.place.kind !== "saved") throw new Refusal(404, "That session is not stopped");
-    const result = await resume(session, current);
+    // As with a session the phone starts, remote control is on, since the phone follows it there.
+    const result = await resume(session, { ...current, remoteControl: true });
     if ("problem" in result) throw new Refusal(500, result.problem);
     void refresh();
     return { terminal: result.name };

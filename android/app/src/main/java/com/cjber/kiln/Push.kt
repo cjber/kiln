@@ -175,7 +175,12 @@ object Push {
         when (push.kind) {
             PushKind.READ -> return Alerts.clear(context, host.origin, push.alert.session)
             PushKind.FAILING_CLEARED ->
-                return Alerts.clearFailing(context, host.origin, push.alert.session)
+                return Alerts.clearFailing(
+                    context,
+                    host.origin,
+                    push.alert.session,
+                    push.alert.at,
+                )
             else -> {}
         }
         if (!notifyEnabled(context, host.origin) || Alerts.visibleOrigin == host.origin) return

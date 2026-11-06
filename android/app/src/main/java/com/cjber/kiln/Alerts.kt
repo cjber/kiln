@@ -147,9 +147,24 @@ object Alerts {
     fun clear(context: Context, origin: String, session: String) =
         cancel(context, origin, notificationId(origin, session))
 
-    /** Removes the session's failing alert, and the summary once nothing is left under it. */
-    fun clearFailing(context: Context, origin: String, session: String) =
-        cancel(context, origin, failingId(origin, session))
+    /**
+     * Removes the session's failing alert, and the summary once nothing is left under it. A clear
+     * sent [before] the shown alert is for an earlier failure, delivered late, and leaves it.
+     */
+    fun clearFailing(
+        context: Context,
+        origin: String,
+        session: String,
+        before: Long = Long.MAX_VALUE,
+    ) {
+        val id = failingId(origin, session)
+        val shown =
+            context.getSystemService(NotificationManager::class.java).activeNotifications.find {
+                it.id == id
+            }
+        if (shown != null && shown.notification.extras.getLong(EXTRA_AT) > before) return
+        cancel(context, origin, id)
+    }
 
     private fun cancel(context: Context, origin: String, id: Int) {
         val notifications = context.getSystemService(NotificationManager::class.java)

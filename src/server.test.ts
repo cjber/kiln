@@ -450,7 +450,8 @@ test("a phone resumes a stopped session only with writes on, and hears why one d
       ],
       "Session host",
     ),
-    resume: async (session) => {
+    resume: async (session, settings) => {
+      expect(settings.remoteControl).toBe(true);
       resumed.push(session.id ?? "");
       return problem ? { problem } : { name: "claude-gone" };
     },
