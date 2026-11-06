@@ -123,8 +123,14 @@ export function reconcile(
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));
+  const listed = new Set(sessions.filter((session) => session.id !== undefined).map(key));
   for (const item of saved) {
     if (next.has(key(item))) continue;
+    // A child outlives its process when its provider still lists it, as an `opencode run` does, and keeps its parent.
+    if (item.parent && listed.has(key(item))) {
+      next.set(key(item), { ...item, boot, goneAt: undefined });
+      continue;
+    }
     if (item.boot !== boot) next.set(key(item), item);
     // A running process under a new id started another conversation; the old one is not what a restart would lose.
     else if (item.pid !== undefined && running.has(item.pid)) continue;
@@ -132,7 +138,6 @@ export function reconcile(
     else if (item.pid !== undefined && alive(item.pid)) next.set(key(item), { ...item, goneAt: undefined });
     else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
   }
-  const listed = new Set(sessions.filter((session) => session.id !== undefined).map(key));
   const kept = [...next.values()].sort((left, right) => (key(left) < key(right) ? -1 : 1));
   return {
     saved: kept,
@@ -210,6 +215,32 @@ export function recordSpawn(
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
+  }
+}
+
+/**
+ * Record the parent process ancestry finds for a child with no other parent, the way `kiln msg spawn` records one.
+ * Ancestry needs the child's process, and a headless run's session stays listed after that process exits.
+ */
+export function rememberParents(sessions: readonly Session[], path = statePath()): void {
+  const byPid = new Map(sessions.flatMap((session) => (session.pid === undefined ? [] : [[session.pid, session]])));
+  for (const session of sessions) {
+    if (session.id === undefined || session.spawnParent !== undefined || session.parentSessionId !== undefined)
+      continue;
+    const parent = session.parentSessionPid === undefined ? undefined : byPid.get(session.parentSessionPid);
+    if (!parent?.id || parent === session) continue;
+    recordSpawn(
+      {
+        agent: session.agent,
+        id: session.id,
+        cwd: session.cwd,
+        title: session.title,
+        parent: sessionIdentity(parent),
+        startedAt: session.startedAt,
+        pid: session.pid,
+      },
+      path,
+    );
   }
 }
 

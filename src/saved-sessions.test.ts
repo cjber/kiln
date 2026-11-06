@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachParents, forget, reconcile, recordSpawn, restartStopped } from "./saved-sessions";
+import { attachParents, forget, reconcile, recordSpawn, rememberParents, restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 
 const running: Session = {
@@ -126,4 +126,57 @@ test("a parent recorded for a spawn survives reconciliation and reaches the sess
   expect(attachParents([child], path)[0]?.spawnParent).toBe("claude:parent");
   expect(restartStopped([child], path)).toEqual([]);
   expect(attachParents([child], path)[0]?.spawnParent).toBe("claude:parent");
+});
+
+test("a headless child keeps the parent ancestry found while its process ran, while its provider lists it", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  const parent: Session = {
+    agent: "claude",
+    id: "lead",
+    pid: 10,
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "kiln", name: "claude-lead" },
+  };
+  const running: Session = {
+    agent: "opencode",
+    id: "ses_child",
+    pid: 40,
+    parentSessionPid: 10,
+    cwd: "/repo",
+    startedAt: 2,
+    place: { kind: "elsewhere" },
+  };
+  rememberParents(attachParents([parent, running], path), path);
+  // The run has exited; the OpenCode service still lists the session, with no process to trace.
+  const { pid: _pid, parentSessionPid: _ancestor, ...finished } = running;
+  restartStopped([parent, finished], path);
+  expect(attachParents([parent, finished], path)[1]?.spawnParent).toBe("claude:lead");
+  // A provider parent outranks ancestry, so nothing is recorded for a child that has one.
+  const provided = { ...running, id: "ses_other", parentSessionId: "lead", parentSessionAgent: "claude" as const };
+  rememberParents([parent, provided], path);
+  expect(attachParents([provided], path)[0]?.spawnParent).toBeUndefined();
+});
+
+test("a child row stays while its session is listed, and is dropped like any closed one after", () => {
+  const child = {
+    agent: "opencode" as const,
+    id: "ses_child",
+    cwd: "/repo",
+    parent: "claude:lead",
+    startedAt: 2,
+    boot: "b",
+  };
+  const listed: Session = {
+    agent: "opencode",
+    id: "ses_child",
+    cwd: "/repo",
+    startedAt: 2,
+    place: { kind: "elsewhere" },
+  };
+  // Long after its process exited, a child its provider still lists keeps its row and its parent.
+  const exited = { ...child, pid: 40, goneAt: 0 };
+  expect(reconcile([exited], [listed], "b", 200_000, () => false).saved).toEqual([{ ...exited, goneAt: undefined }]);
+  const gone = reconcile([child], [], "b", 0, () => false).saved;
+  expect(reconcile(gone, [], "b", 200_000, () => false).saved).toEqual([]);
 });
