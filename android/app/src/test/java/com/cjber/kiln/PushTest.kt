@@ -65,4 +65,45 @@ class PushTest {
         assertTrue(restored.add(RecentAlerts.key("https://c", alert)))
         assertTrue(restored.add(RecentAlerts.key("https://a", alert)))
     }
+
+    @Test
+    fun parsesAFailingPullRequestAndItsClearing() {
+        val failing = body.replace("\"finished\"", "\"failing\",\"pr\":212")
+        val push = parsePushAlert(failing)!!
+        assertEquals(PushKind.FAILING, push.kind)
+        assertEquals(212, push.pr)
+        assertFalse(push.read)
+        assertEquals(
+            FailingAlert("claude:1", Agent.CLAUDE, "Fix retry", "/home/me/atlas", 212, 42),
+            FailingAlert.of(push.alert, push.pr),
+        )
+        assertEquals(
+            PushKind.FAILING_CLEARED,
+            parsePushAlert(failing.replace("\"failing\"", "\"failing-cleared\""))!!.kind,
+        )
+    }
+
+    @Test
+    fun aFailingAlertIsClearedOnceItsPullRequestLeavesFailing() {
+        fun row(stage: String) =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":50,"problem":"","sessions":[
+                    {"id":"claude:1","agent":"claude","title":"t","cwd":"/w","where":"kiln",
+                    "startedAt":1,"activity":"working","stage":"$stage","handoff":{"reason":"r"}}]}"""
+                )
+                .rows
+                .single()
+        assertFalse(isFixed(row("failing")))
+        assertTrue(isFixed(row("checks")))
+        assertTrue(isFixed(row("done")))
+    }
+
+    @Test
+    fun aFailingAlertAndATurnAlertAreShownApart() {
+        val turn = TurnAlert("claude:1", Agent.CLAUDE, "", "/", false, 42)
+        val recent = RecentAlerts("")
+        assertTrue(recent.add(RecentAlerts.key("https://a", turn)))
+        assertTrue(recent.add(RecentAlerts.key("https://a", FailingAlert.of(turn, 7))))
+        assertFalse(recent.add(RecentAlerts.key("https://a", FailingAlert.of(turn, 7))))
+    }
 }
