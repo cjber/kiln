@@ -221,7 +221,10 @@ private fun SendBox(id: String, send: (String, (String) -> Unit) -> Unit) {
     }
 }
 
-/** Starts a stopped session's conversation again on its machine; the list shows it running once it is. */
+/**
+ * Starts a stopped session's conversation again on its machine; the list shows it running once it
+ * is.
+ */
 @Composable
 private fun ResumeButton(id: String, resume: (((String?) -> Unit) -> Unit)) {
     var busy by rememberSaveable(id) { mutableStateOf(false) }
@@ -243,7 +246,11 @@ private fun ResumeButton(id: String, resume: (((String?) -> Unit) -> Unit)) {
             Text(if (busy) "Resuming" else "Resume")
         }
         problem?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
