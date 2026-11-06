@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-06
+
 - **Publishes the 0.22.1 changes.** The 0.22.1 build stopped on an outdated test and published nothing, so this is the first release with them.
 
 ## [0.22.1] - 2026-11-06
