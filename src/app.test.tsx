@@ -152,6 +152,63 @@ test("a narrow terminal keeps the waiting count, the typed query and the way out
   expect(await frameAfter([waitingSession], size, ["x"], "y confirms")).toContain("else cancels");
 });
 
+test("Space expands children, turns the cursor into the open mark and gives both rows a detail line", async () => {
+  const sessions: Session[] = [
+    {
+      agent: "codex",
+      id: "parent",
+      title: "Review changes",
+      cwd: "/tmp/atlas",
+      startedAt: 1,
+      activity: "working",
+      place: { kind: "kiln", name: "parent" },
+    },
+    {
+      agent: "codex",
+      id: "child",
+      parentSessionId: "parent",
+      title: "Check tests",
+      cwd: "/tmp/atlas",
+      startedAt: 2,
+      activity: "working",
+      place: { kind: "kiln", name: "child" },
+    },
+  ];
+  let setup!: Awaited<ReturnType<typeof testRender>>;
+  await act(async () => {
+    setup = await testRender(
+      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={async () => sessions} />,
+      { width: 100, height: 12 },
+    );
+  });
+  try {
+    await setup.waitForFrame((frame) => frame.includes("Review changes"));
+    let frame = setup.captureCharFrame();
+    expect(frame).not.toContain("Check tests");
+    expect(frame.split("\n").find((line) => line.includes("Review changes"))).toMatch(/›.*Review changes 1/);
+    expect(frame).toContain("atlas · /tmp/atlas · no PR yet");
+
+    await act(async () => {
+      await setup.mockInput.pressKeys([" "]);
+    });
+    await setup.waitForFrame((frame) => frame.includes("Check tests"));
+    frame = setup.captureCharFrame();
+    expect(frame.split("\n").find((line) => line.includes("Review changes"))).toContain("⌄");
+    expect(frame).toContain("    atlas · /tmp/atlas · no PR yet");
+    expect(frame).toContain("      atlas · /tmp/atlas · no PR yet");
+
+    await act(async () => {
+      await setup.mockInput.pressKeys([" "]);
+    });
+    await setup.waitForFrame((frame) => !frame.includes("Check tests"));
+    expect(setup.captureCharFrame()).not.toContain("⌄");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
 test("rows on a branch with a pull request show its number and stage, and the details line its checks", async () => {
   const directory = mkdtempSync(join(tmpdir(), "kiln-app-pr-"));
   mkdirSync(join(directory, ".git"));

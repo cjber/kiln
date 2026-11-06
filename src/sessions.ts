@@ -75,6 +75,7 @@ export function sessionDirectory(session: Session): string {
 
 /** Resolved repositories by directory, rechecked after `repositoryTtlMs` so a new repository or worktree is picked up. */
 const repositories = new Map<string, { repository: string; at: number }>();
+const repositoryNames = new Map<string, { name: string; at: number }>();
 const repositoryTtlMs = 30_000;
 
 /**
@@ -89,6 +90,19 @@ export function sessionRepository(session: Session): string {
   const repository = mainCheckout(directory) ?? directory;
   repositories.set(directory, { repository, at: now });
   return repository;
+}
+
+/**
+ * The name a repository's remote gives it, such as `kiln` from `git@github.com:cjber/kiln.git`, or the
+ * directory's own name when it has no remote. Cached like `sessionRepository`.
+ */
+export function repositoryName(directory: string): string {
+  const now = Date.now();
+  const cached = repositoryNames.get(directory);
+  if (cached && now - cached.at < repositoryTtlMs) return cached.name;
+  const name = remoteRepositoryName(directory) ?? (basename(directory) || directory);
+  repositoryNames.set(directory, { name, at: now });
+  return name;
 }
 
 /** The checkout holding `cwd` and its git directory; a linked worktree's `.git` is a file pointing at it. */
@@ -126,6 +140,30 @@ function mainCheckout(cwd: string): string | undefined {
     return basename(common) === ".git" ? dirname(common) : common;
   } catch {
     // An unreadable repository groups by its directory.
+    return undefined;
+  }
+}
+
+/** A repository's name from its `origin` remote, else its first remote, else undefined. */
+function remoteRepositoryName(cwd: string): string | undefined {
+  try {
+    const checkout = gitCheckout(cwd);
+    if (!checkout) return undefined;
+    const common = join(checkout.gitDir, "commondir");
+    const config = readFileSync(
+      join(
+        existsSync(common) ? resolve(checkout.gitDir, readFileSync(common, "utf8").trim()) : checkout.gitDir,
+        "config",
+      ),
+      "utf8",
+    );
+    const remotes = [...config.matchAll(/\[remote "([^"]+)"\]([\s\S]*?)(?=\n\[|$)/g)];
+    const remote = remotes.find(([, name]) => name === "origin") ?? remotes[0];
+    const url = remote?.[2].match(/^\s*url\s*=\s*(.+?)\s*$/m)?.[1];
+    if (!url) return undefined;
+    const cleaned = url.replace(/\/+$/, "").replace(/\.git$/, "");
+    return cleaned.split(/[/:]/).at(-1) || undefined;
+  } catch {
     return undefined;
   }
 }

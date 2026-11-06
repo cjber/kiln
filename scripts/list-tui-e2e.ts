@@ -78,6 +78,7 @@ try {
   );
   await drive("wait", "Review changes");
   assert.ok((await screen()).includes("2 need input"));
+  assert.match(await screen(), /atlas · \/tmp\/atlas · no PR yet/);
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e5c46b")).includes("Review changes"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#e78a53")).includes("/tmp/atlas"));
   assert.ok((await drive("snapshot", "--trim", "--fg", "#6a9955")).includes("Finished task"));
