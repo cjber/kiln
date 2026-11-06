@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DashboardSnapshot,
+  dashboardData,
   parseAuthoredPullRequests,
   parsePullRequest,
   projectName,
@@ -122,6 +123,85 @@ test("a linked worktree counts as its repository's project", () => {
   const { main, worktree } = repository();
   expect(projectName(join(worktree, "src"))).toBe("kiln");
   expect(projectName(main)).toBe("kiln");
+});
+
+const session = (cwd: string, id: string, activity: Session["activity"], extra: Partial<Session> = {}): Session => ({
+  agent: "claude",
+  id,
+  title: id,
+  cwd,
+  startedAt: 1,
+  activity,
+  place: { kind: "kiln", name: id },
+  ...extra,
+});
+
+test("history holds one sample per refresh, no faster than the sampling period", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-history-test-"));
+  directories.push(root);
+  const sessions = [
+    session(join(root, "a"), "working", "working"),
+    session(join(root, "a"), "waiting", "waiting"),
+    session(join(root, "b"), "idle", "idle"),
+  ];
+  const dashboard = dashboardData({
+    discover: async () => ({ sessions, problem: "", stale: false }),
+    exec: async () => "",
+    gh: false,
+    historyAge: 0,
+  });
+  const first = await dashboard();
+  expect(first.history).toHaveLength(1);
+  expect(first.history[0]).toMatchObject({
+    working: 1,
+    waiting: 1,
+    idle: 1,
+    prs: { failing: 0, checks: 0, green: 0, draft: 0 },
+  });
+  expect(first.rows.map((row) => row.workingSamples)).toEqual([[1], [0], [0]]);
+
+  const second = await dashboard();
+  expect(second.history).toHaveLength(2);
+  expect(second.rows.map((row) => row.workingSamples)).toEqual([
+    [1, 1],
+    [0, 0],
+    [0, 0],
+  ]);
+
+  const slow = dashboardData({
+    discover: async () => ({ sessions, problem: "", stale: false }),
+    exec: async () => "",
+    gh: false,
+    historyAge: 60_000,
+  });
+  expect((await slow()).history).toHaveLength(1);
+  expect((await slow()).history).toHaveLength(1);
+});
+
+test("a child session names its parent lane instead of starting a card", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-lanes-test-"));
+  directories.push(root);
+  const parent = session(root, "parent", "idle");
+  const child = session(root, "child", "working", {
+    parentSessionId: parent.id,
+    parentSessionAgent: parent.agent,
+  });
+  const grandchild = session(root, "grandchild", "waiting", {
+    parentSessionId: child.id,
+    parentSessionAgent: child.agent,
+  });
+  const dashboard = dashboardData({
+    discover: async () => ({ sessions: [parent, child, grandchild], problem: "", stale: false }),
+    exec: async () => "",
+    gh: false,
+    historyAge: 0,
+  });
+  const snapshot = await dashboard();
+  expect(snapshot.rows.map((row) => [row.title, row.parent])).toEqual([
+    ["parent", undefined],
+    ["child", "claude:parent"],
+    ["grandchild", "claude:child"],
+  ]);
 });
 
 test("the server streams sessions with their pull requests and answers only to its loopback name", async () => {

@@ -14,6 +14,8 @@ import {
   type Lifecycle,
   type Session,
   sessionDirectory,
+  sessionIdentity,
+  sessionParents,
 } from "./sessions";
 import { checkout } from "./workdir";
 
@@ -47,17 +49,38 @@ export type PullRequest = {
 };
 
 export type DashboardRow = {
+  /** Stable session identity, used to nest a child lane under its parent and to keep its samples. */
+  id: string;
+  /** The identity of the session whose lane holds this one, or undefined for a top-level card. */
+  parent?: string;
   title: string;
   agent: string;
   activity?: Activity;
   lifecycle?: Lifecycle;
   project: string;
+  /** The basename of the directory the session works in, shown beside its repository. */
+  worktree: string;
   branch?: string;
+  /** Last provider or transcript update, for the card's age and for fading idle sessions. */
+  lastActiveAt?: number;
+  startedAt: number;
   /** Uncommitted files in the session's checkout, once counted. */
   changes?: number;
   /** Every pull request the session's branch has or the session opened, most urgent first. */
   prs: PullRequest[];
   stage: Stage;
+  /** One flag per recent sample, oldest first: 1 while the session was working. */
+  workingSamples: number[];
+};
+
+/** The counts drawn as one point on the dashboard's history chart. */
+export type HistorySample = {
+  at: number;
+  working: number;
+  waiting: number;
+  idle: number;
+  /** Open pull requests by stage, drafts kept apart. */
+  prs: Record<"failing" | "checks" | "green" | "draft", number>;
 };
 
 export type DashboardSnapshot = {
@@ -68,6 +91,8 @@ export type DashboardSnapshot = {
   rows: DashboardRow[];
   /** Every open pull request you authored, sessions or not, once GitHub has answered. */
   openPrs: PullRequest[];
+  /** One sample every 30 seconds for the last 6 hours, oldest first. */
+  history: HistorySample[];
 };
 
 type Run = (argv: string[], cwd: string) => Promise<string>;
@@ -477,14 +502,25 @@ export function dashboardData({
   })(),
   exec = run,
   statusAge = 10_000,
+  historyAge = 30_000,
+  historySpan = 6 * 60 * 60_000,
   ...options
 }: {
   discover?: () => Promise<Discovered>;
   statusAge?: number;
+  /** At least this long between history samples; one refresh adds at most one. */
+  historyAge?: number;
+  /** How much history to keep. */
+  historySpan?: number;
 } & PullRequestOptions = {}) {
   const changes = new Map<string, Cached<number>>();
   const used = new Set<string>();
+  const activity = new Map<string, { at: number; samples: number[] }>();
+  const history: HistorySample[] = [];
+  const mostSamples = Math.min(1440, Math.max(2, Math.ceil(historySpan / Math.max(historyAge, 1)) + 1));
+  let sampledAt = 0;
   const prs = pullRequests({ exec, ...options });
+
   // Every open pull request you authored, looked up in the background at most once per `prAge`.
   const authored: Cached<PullRequest[]> = { checkedAt: 0, pending: false };
   const searchAuthored = () => {
@@ -510,37 +546,105 @@ export function dashboardData({
     );
   };
 
-  const row = (session: Session): DashboardRow => {
+  const row = (session: Session, parent: Session | undefined): DashboardRow => {
     const directory = sessionDirectory(session);
     const root = checkout(directory);
     if (root) countChanges(root);
     const found = prs.of(session);
     return {
+      id: sessionIdentity(session),
+      parent: parent ? sessionIdentity(parent) : undefined,
       title: sessionTitle(session),
       agent: agentName(session.agent),
       activity: session.activity,
       lifecycle: session.lifecycle,
       project: projectName(directory),
+      worktree: directory === homedir() ? "~" : basename(directory),
       branch: root ? gitBranch(directory) : undefined,
+      lastActiveAt: session.lastActiveAt,
+      startedAt: session.startedAt,
       changes: root ? changes.get(root)?.value : undefined,
       prs: found,
       stage: stageOf(found[0]),
+      workingSamples: [],
     };
+  };
+
+  /** Open pull requests by stage, drafts kept apart, from sessions and the authored search alike. */
+  const prCounts = (rows: readonly DashboardRow[], authoredPrs: readonly PullRequest[]) => {
+    const counts: HistorySample["prs"] = { failing: 0, checks: 0, green: 0, draft: 0 };
+    const open = new Map<string, PullRequest>();
+    for (const pr of [...authoredPrs, ...rows.flatMap((row) => row.prs)])
+      if (pr.state === "OPEN") open.set(pr.url.toLowerCase(), pr);
+    for (const pr of open.values()) {
+      if (pr.draft) {
+        counts.draft++;
+        continue;
+      }
+      switch (stageOf(pr)) {
+        case "failing":
+          counts.failing++;
+          break;
+        case "checks":
+          counts.checks++;
+          break;
+        case "green":
+          counts.green++;
+          break;
+        case "working":
+        case "done":
+          break;
+      }
+    }
+    return counts;
   };
 
   return async (): Promise<DashboardSnapshot> => {
     const { sessions, problem } = await discover();
-    const rows = sessions.filter((session) => session.place.kind !== "cloud").map(row);
+    const live = sessions.filter((session) => session.place.kind !== "cloud");
+    const parents = sessionParents(live);
+    const rows = live.map((session) => row(session, parents.get(session)));
+    const now = Date.now();
+    // Keep each lane's recent activity, so it can draw when the session was working.
+    const seen = new Set<string>();
+    for (const current of rows) {
+      seen.add(current.id);
+      const entry = activity.get(current.id) ?? { at: 0, samples: [] };
+      if (now - entry.at >= historyAge) {
+        entry.samples.push(current.activity === "working" && !current.lifecycle ? 1 : 0);
+        if (entry.samples.length > mostSamples) entry.samples.splice(0, entry.samples.length - mostSamples);
+        entry.at = now;
+      }
+      activity.set(current.id, entry);
+      current.workingSamples = [...entry.samples];
+    }
+    for (const id of activity.keys()) if (!seen.has(id)) activity.delete(id);
+    const authoredPrs = authored.value ?? [];
+    if (now - sampledAt >= historyAge) {
+      const count = (state: Activity) => rows.filter((row) => !row.lifecycle && row.activity === state).length;
+      history.push({
+        at: now,
+        working: count("working"),
+        waiting: count("waiting"),
+        idle: rows.filter((row) => row.lifecycle || !row.activity || row.activity === "idle").length,
+        prs: prCounts(rows, authoredPrs),
+      });
+      if (history.length > mostSamples) history.splice(0, history.length - mostSamples);
+      const oldest = now - historySpan;
+      while (history[0] && history[0].at < oldest) history.shift();
+      sampledAt = now;
+    }
     searchAuthored();
     // Forget checkouts and branches no session works in any more.
     sweep(changes, used);
     prs.sweep();
     return {
-      updatedAt: Date.now(),
+      updatedAt: now,
       problem: [problem, prs.gh ? "" : "Install the GitHub CLI (gh) to see pull requests"].filter(Boolean).join(" · "),
       checking: prs.pending() + (authored.pending ? 1 : 0),
       rows,
-      openPrs: authored.value ?? [],
+      openPrs: authoredPrs,
+      history: [...history],
     };
   };
 }
@@ -596,6 +700,7 @@ export function startDashboard({
         checking: 0,
         rows: [],
         openPrs: [],
+        history: [],
       });
     } finally {
       refreshing = false;
