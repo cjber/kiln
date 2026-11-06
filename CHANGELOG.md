@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-11-06
+
+- **Publishes the 0.22.1 changes.** The 0.22.1 build stopped on an outdated test and published nothing, so this is the first release with them.
+
 ## [0.22.1] - 2026-11-06
 
 - **A tidier session list.** Each row is one line: the detail line with the repository, worktree, branch, pull requests and changed files now shows only under a row you expand with space. The `pr` column shows the newest pull request's number with a dot coloured by its stage, red failing, yellow running, green passing and grey merged, and the expanded row lists every pull request the same way. Claude's name is now peach, so it no longer shares orange with the directory headings.
