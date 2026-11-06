@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The dashboard shows what each session is doing, and how the day went.** `kiln dashboard` now draws one card per top-level session, with a lane for the session and each child under it: agent, repository and worktree chips, a five-step bar from working to merged, its pull request, and its uncommitted count. Projects other than the busiest collapse into pills you can open. Under the header a stacked area chart covers working and waiting agents over six hours with a hover readout, a donut splits open pull requests by stage, and each lane has a sparkline of its working time. The page keeps its light and dark palettes, pulses a lane when its stage changes, fades sessions idle for 30 minutes, and fits a phone.
+
 ## [0.21.0] - 2026-11-05
 
 Every pull request a session opened, not only the one for its branch. Kiln reads the pull requests a

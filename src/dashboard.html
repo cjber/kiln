@@ -7,157 +7,402 @@
 <style>
 :root {
   color-scheme: light dark;
-  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #e2e5eb;
-  --working: #8a93a6; --failing: #d64545; --checks: #d99a1e; --green: #2f9e5b; --done: #7c5cc4;
+  --bg: #f4f5f8; --panel: #ffffff; --panel2: #eceef3; --text: #1d2330; --strong: #121722;
+  --muted: #687080; --line: #e3e6ec; --seg: #e6e9ef;
+  --working: #b07a10; --waiting: #3f65c4; --idle: #7f8796;
+  --failing: #c04a4a; --checks: #b07a10; --green: #2f9e5b; --done: #6f57b5; --draft: #7f8796;
+  --flash: rgba(176, 122, 16, .13);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12151b; --panel: #1b1f27; --text: #e6e8ee; --muted: #949cb0; --line: #2b313c;
-    --working: #6f7890; --failing: #e05d5d; --checks: #e0a83a; --green: #3fb46d; --done: #9479dc;
+    --bg: #111318; --panel: #181b22; --panel2: #20242d; --text: #cfd3dc; --strong: #e6e8ee;
+    --muted: #7c8290; --line: #20242d; --seg: #262a34;
+    --working: #e5b454; --waiting: #7aa2f7; --idle: #6b7180;
+    --failing: #e06c6c; --checks: #e5b454; --green: #73c991; --done: #9479dc; --draft: #7c8290;
+    --flash: rgba(229, 180, 84, .14);
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h1 { font-size: 20px; margin: 0; }
-h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
-#status { color: var(--muted); font-size: 12px; }
-#status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--checks); }
+body { margin: 0 auto; max-width: 980px; background: var(--bg); color: var(--text); font: 14px/1.4 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; padding: 28px; }
+header { display: flex; gap: 28px; align-items: baseline; flex-wrap: wrap; margin-bottom: 22px; }
+header b { font-size: 22px; color: var(--strong); margin-right: auto; }
+.k { font-size: 24px; color: var(--strong); font-weight: 600; font-variant-numeric: tabular-nums; }
+.k small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; text-transform: uppercase; letter-spacing: .06em; }
+#status { font-size: 11px; color: var(--muted); }
+#status::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--checks); }
 #status.live::before { background: var(--green); }
-#problem { color: var(--failing); font-size: 13px; margin: 8px 0 0; }
+#problem { color: var(--failing); font-size: 13px; margin: 0 0 14px; }
 #problem:empty { display: none; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
-.tile, section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
-.tile { padding: 12px 14px; }
-.tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
-.tile span { color: var(--muted); font-size: 12px; }
-section { padding: 14px; margin-bottom: 12px; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-.grid section { margin: 0; }
-@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-.legend i, .pill i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
-.bars { display: grid; grid-template-columns: minmax(70px, max-content) 1fr auto; gap: 6px 10px; align-items: center; }
-.bars .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
-.bars .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--line); }
-.bar span { display: block; height: 100%; transition: width .3s; }
+.charts { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; margin-bottom: 14px; }
+.chart { background: var(--panel); border-radius: 14px; padding: 14px 16px; min-width: 0; }
+.chart h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; margin: 0 0 8px; }
+.area-wrap { position: relative; }
+#area { display: block; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.legend i, .donut-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
+.readout { position: absolute; top: 0; left: 0; transform: translateX(-50%); display: none; padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); font-size: 11px; white-space: nowrap; pointer-events: none; z-index: 2; }
+.readout.on { display: block; }
+.donut-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.donut-row svg { width: 116px; height: 116px; flex: 0 0 auto; }
+.donut-legend { display: grid; gap: 5px; font-size: 11px; color: var(--muted); }
+.donut-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.card { background: var(--panel); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
+.card.stale { opacity: .58; }
+.top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.top h2 { font-size: 16px; margin: 0; color: var(--strong); font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.dot.working { background: var(--working); }
+.dot.waiting { background: var(--waiting); }
+.dot.idle { background: var(--idle); }
+.pulse { animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--panel2); font-weight: 500; white-space: nowrap; }
+.age { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.lane { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.lane.child { margin-left: calc(var(--depth) * 14px); padding-left: 10px; border-left: 2px solid var(--line); }
+.lane.stale { opacity: .45; }
+.lane.flash { animation: lane-pulse 1.3s ease-out; }
+@keyframes lane-pulse { 0% { background: var(--flash); } 100% { background: transparent; } }
+.lane .t { color: var(--strong); overflow-wrap: anywhere; }
+.chips { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-size: 11px; color: var(--muted); background: var(--panel2); padding: 1px 7px; border-radius: 5px; }
+.chip.agent { color: var(--agent, var(--muted)); }
+.progress { min-width: 0; }
+.spark { display: block; width: 100%; height: 20px; margin-bottom: 5px; overflow: visible; }
+.bar { display: flex; gap: 4px; }
+.bar i { flex: 1; height: 6px; border-radius: 3px; background: var(--seg); }
+.bar i.on { background: var(--working); }
+.bar i.fail { background: var(--failing); }
+.bar i.ok { background: var(--green); }
+.bar.done i.on { background: var(--green); }
+.note { font-size: 11px; color: var(--muted); margin-top: 5px; text-align: right; overflow-wrap: anywhere; }
+.note a { color: var(--waiting); text-decoration: none; }
+.note a:hover { text-decoration: underline; }
+.other { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.pill { display: inline-flex; align-items: baseline; gap: 4px; border: 0; background: var(--panel); color: var(--muted); padding: 6px 12px; border-radius: 9px; font: inherit; font-size: 12px; cursor: pointer; opacity: .68; text-align: left; }
+.pill:hover, .pill[aria-expanded="true"] { opacity: 1; }
+.pill b { color: var(--text); font-weight: 600; }
 .empty { color: var(--muted); font-size: 13px; }
-.table { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 500; font-size: 12px; }
-td.title { white-space: normal; min-width: 140px; overflow-wrap: anywhere; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-tr:last-child td { border-bottom: 0; }
-.pill { display: inline-flex; align-items: center; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); }
-.sub { color: var(--muted); font-size: 12px; }
-a { color: inherit; }
-@media (max-width: 600px) { .wide { display: none; } }
+@media (max-width: 640px) {
+  body { padding: 18px 14px 30px; }
+  header { gap: 16px 22px; }
+  .charts { grid-template-columns: 1fr; }
+  .lane { grid-template-columns: 1fr; gap: 8px; }
+  .lane.child { margin-left: 8px; }
+  .note { text-align: left; }
+  .chart { padding: 12px; }
+}
 </style>
 </head>
 <body>
-<main>
-  <header><h1>kiln dashboard</h1><span id="status">connecting</span></header>
-  <p id="problem"></p>
-  <div class="tiles" id="tiles"></div>
-  <div class="grid">
-    <section><h2>Projects</h2><div class="legend" id="legend"></div><div id="projects"></div></section>
-    <section><h2>Open pull requests</h2><div class="legend" id="check-legend"></div><div id="prs"></div></section>
+<header>
+  <b>kiln</b>
+  <div class="k"><span id="working">0</span><small>agents working</small></div>
+  <div class="k"><span id="waiting">0</span><small>waiting on you</small></div>
+  <div class="k"><span id="ready">0</span><small>PRs ready</small></div>
+  <span id="status">connecting</span>
+</header>
+<p id="problem"></p>
+<section class="charts">
+  <div class="chart">
+    <h2>Working and waiting, last 6 hours</h2>
+    <div class="area-wrap"><svg id="area" viewBox="0 0 720 190" role="img" aria-label="Agents working and waiting over the last six hours"></svg><div class="readout" id="readout"></div></div>
+    <div class="legend"><span><i style="background:var(--working)"></i>working</span><span><i style="background:var(--waiting)"></i>waiting</span></div>
   </div>
-  <section><h2>Sessions</h2><div class="table" id="sessions"></div></section>
-</main>
+  <div class="chart">
+    <h2>Open pull requests</h2>
+    <div class="donut-row"><div id="donut"></div><div class="donut-legend" id="donut-legend"></div></div>
+  </div>
+</section>
+<div id="cards"></div>
+<div class="other" id="other"></div>
 <script>
 "use strict";
-const stages = [
-  ["working", "Working"],
-  ["failing", "PR failing"],
-  ["checks", "PR checks running"],
-  ["green", "PR green"],
-  ["done", "Done"],
-];
-const stageName = Object.fromEntries(stages);
-const checkKinds = [["passed", "Passed", "green"], ["failed", "Failed", "failing"], ["running", "Running", "checks"]];
 const esc = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const swatch = (stage) => `<i style="background:var(--${stage})"></i>`;
-const link = (pr) => /^https:\/\/github\.com\//.test(pr.url) ? `<a href="${esc(pr.url)}" target="_blank" rel="noreferrer">#${pr.number}</a>` : `#${pr.number}`;
-const segments = (parts, total) => parts.filter(([, n]) => n).map(([color, n, tip]) =>
-  `<span style="width:${(n / total) * 100}%;background:var(--${color})" title="${esc(tip)}"></span>`).join("");
+const stageName = { working: "working", failing: "PR failing", checks: "checks running", green: "PR green", done: "merged" };
+const agentColor = { claude: "var(--failing)", codex: "var(--waiting)", opencode: "var(--green)", pi: "var(--done)" };
+const ageMinutes = 30;
+const expanded = new Set();
+const shownStages = new Map();
+let rendered = false;
+let latest;
+let areaState;
 
-document.getElementById("legend").innerHTML = stages.map(([id, name]) => `<span>${swatch(id)}${name}</span>`).join("");
-document.getElementById("check-legend").innerHTML = checkKinds.map(([, name, color]) => `<span>${swatch(color)}${name}</span>`).join("");
+const safeUrl = (url) => /^https:\/\/github\.com\//.test(url) ? url : "";
+const prLink = (pr) => {
+  const url = safeUrl(pr.url);
+  const label = `#${pr.number}`;
+  return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${label}</a>` : label;
+};
+const uniqueOpen = (rows, authoredPrs) => {
+  const open = new Map();
+  for (const pr of [...(authoredPrs ?? []), ...rows.flatMap((row) => row.prs ?? [])])
+    if (pr.state === "OPEN") open.set(pr.url.toLowerCase(), pr);
+  return [...open.values()];
+};
+const greenPr = (pr) => pr.state === "OPEN" && !pr.draft && !pr.checks.failed && !pr.checks.running;
+const ago = (at, now) => {
+  if (!at) return "";
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+};
+const stale = (row, now) =>
+  !row.lifecycle && row.activity === "idle" && now - (row.lastActiveAt ?? row.startedAt) >= ageMinutes * 60_000;
+
+function laneBar(stage) {
+  const segments = ["", "", "", "", ""];
+  segments[0] = "on";
+  if (stage !== "working") segments[1] = "on";
+  if (stage === "failing") segments[2] = "fail";
+  else if (stage === "checks") segments[2] = "on";
+  else if (stage === "green") { segments[2] = "on"; segments[3] = "ok"; }
+  else if (stage === "done") segments.fill("on");
+  return `<div class="bar${stage === "done" ? " done" : ""}">${segments.map((kind) => `<i class="${kind}"></i>`).join("")}</div>`;
+}
+
+function sparkline(row) {
+  const samples = row.workingSamples ?? [];
+  const count = samples.length;
+  const x = (index) => (count <= 1 ? 0 : (index / (count - 1)) * 120);
+  const y = (value) => (value ? 3 : 19);
+  let line = `M0 ${count ? y(samples[0]) : 19}`;
+  for (let index = 1; index < count; index++) line += ` H${x(index)} V${y(samples[index])}`;
+  const area = count ? `${line} V22 H0 Z` : "";
+  const worked = samples.filter(Boolean).length;
+  const tip = count ? `working in ${worked} of ${count} recent samples` : "no activity samples yet";
+  return `<svg class="spark" viewBox="0 0 120 22" preserveAspectRatio="none" role="img" aria-label="${esc(tip)}"><title>${esc(tip)}</title><path d="${area}" fill="var(--working)" opacity=".16"></path><path d="${line}" fill="none" stroke="var(--working)" stroke-width="1.4" stroke-linejoin="round"></path></svg>`;
+}
+
+function laneHtml(lane) {
+  const row = lane.row;
+  const now = latest?.updatedAt ?? Date.now();
+  const pr = (row.prs ?? [])[0];
+  const more = (row.prs ?? []).length > 1 ? ` +${row.prs.length - 1}` : "";
+  const prText = pr ? `${prLink(pr)}${more}${pr.draft ? " draft" : ""}` : "no PR yet";
+  const changed = row.changes === undefined ? "" : ` · ${row.changes} changed`;
+  const third = row.worktree === row.project ? row.branch : row.worktree;
+  const chips = [
+    `<span class="chip agent" style="--agent:${agentColor[row.agent?.toLowerCase()] ?? "var(--muted)"}">${esc(row.agent)}</span>`,
+    `<span class="chip">${esc(row.project)}</span>`,
+    ...(third ? [`<span class="chip">${esc(third)}</span>`] : []),
+  ];
+  const classes = ["lane", lane.depth ? "child" : "", stale(row, now) ? "stale" : ""].filter(Boolean).join(" ");
+  return `<div class="${classes}" data-id="${esc(row.id)}" data-stage="${esc(row.stage)}"${lane.depth ? ` style="--depth:${lane.depth}"` : ""}>
+    <div><div class="t">${esc(row.title)}</div><div class="chips">${chips.join("")}</div></div>
+    <div class="progress">${sparkline(row)}${laneBar(row.stage)}<div class="note">${stageName[row.stage] ?? esc(row.stage)} · ${prText}${changed}</div></div>
+  </div>`;
+}
+
+function cardActivity(row) {
+  if (row.lifecycle) return "idle";
+  return row.activity ?? "idle";
+}
+
+function cardHtml(card) {
+  const activity = cardActivity(card.top);
+  const top = card.top;
+  const now = latest?.updatedAt ?? Date.now();
+  const dim = card.lanes.every((lane) => stale(lane.row, now));
+  return `<article class="card${dim ? " stale" : ""}">
+    <div class="top">
+      <span class="dot ${activity}${activity === "working" ? " pulse" : ""}"></span>
+      <h2>${esc(top.title)}</h2>
+      <span class="badge" style="color:${agentColor[top.agent?.toLowerCase()] ?? "var(--muted)"}">${esc(top.agent)}</span>
+      <span class="age">${esc(ago(top.lastActiveAt ?? top.startedAt, now))}</span>
+    </div>
+    ${card.lanes.map(laneHtml).join("")}
+  </article>`;
+}
+
+function groupRows(rows) {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const children = new Map();
+  const tops = [];
+  for (const row of rows) {
+    const parent = row.parent && byId.has(row.parent) ? row.parent : undefined;
+    if (!parent) {
+      tops.push(row);
+      continue;
+    }
+    const group = children.get(parent) ?? [];
+    group.push(row);
+    children.set(parent, group);
+  }
+  return { tops, children };
+}
+
+function lanesOf(top, children) {
+  const lanes = [];
+  const seen = new Set();
+  const walk = (row, depth) => {
+    if (seen.has(row.id)) return;
+    seen.add(row.id);
+    lanes.push({ row, depth });
+    for (const child of children.get(row.id) ?? []) walk(child, depth + 1);
+  };
+  walk(top, 0);
+  return lanes;
+}
 
 function render(data) {
-  document.getElementById("problem").textContent = data.problem;
-  const rows = data.rows;
-  // Every open pull request a session has or you authored, drawn once even when sessions share it.
-  const open = [...new Map([
-    ...[...(data.openPrs ?? []), ...rows.flatMap((row) => row.prs)]
-      .filter((pr) => pr.state === "OPEN")
-      .map((pr) => [pr.url, { project: pr.repository, pr }]),
-  ]).values()].sort((a, b) => a.project.localeCompare(b.project) || a.pr.number - b.pr.number);
-  const tiles = [
-    // A session whose pull request merged is finished, even while its agent is still open.
-    [rows.filter((row) => !row.lifecycle && row.stage !== "done").length, "sessions running"],
-    [open.length, "open PRs"],
-    [open.filter((row) => !row.pr.checks.failed && !row.pr.checks.running).length, "PRs fully green"],
-    [open.filter((row) => row.pr.checks.failed).length, "PRs with a failed check"],
-    [rows.filter((row) => row.stage === "done").length, "sessions finished"],
-  ];
-  document.getElementById("tiles").innerHTML = tiles.map(([n, label]) => `<div class="tile"><b>${n}</b><span>${label}</span></div>`).join("");
+  latest = data;
+  document.getElementById("problem").textContent = data.problem || "";
+  const rows = data.rows ?? [];
+  const open = uniqueOpen(rows, data.openPrs);
+  const ready = open.filter(greenPr).length;
+  document.getElementById("working").textContent = rows.filter((row) => !row.lifecycle && row.activity === "working").length;
+  document.getElementById("waiting").textContent = rows.filter((row) => !row.lifecycle && row.activity === "waiting").length;
+  document.getElementById("ready").textContent = ready;
 
+  const { tops, children } = groupRows(rows);
+  const cards = tops.map((top) => ({ top, lanes: lanesOf(top, children), project: top.project }));
   const projects = new Map();
-  for (const row of rows) {
-    const counts = projects.get(row.project) ?? Object.fromEntries(stages.map(([id]) => [id, 0]));
-    counts[row.stage]++;
-    projects.set(row.project, counts);
+  for (const card of cards) {
+    const group = projects.get(card.project) ?? [];
+    group.push(card);
+    projects.set(card.project, group);
   }
-  const ranked = [...projects].sort((a, b) => sum(b[1]) - sum(a[1]) || a[0].localeCompare(b[0]));
-  const widest = Math.max(1, ...ranked.map(([, counts]) => sum(counts)));
-  document.getElementById("projects").innerHTML = ranked.length
-    ? `<div class="bars">${ranked.map(([name, counts]) => {
-        const total = sum(counts);
-        const bar = segments(stages.map(([id, label]) => [id, counts[id], `${counts[id]} ${label}`]), widest);
-        return `<span class="label" title="${esc(name)}">${esc(name)}</span><div class="bar">${bar}</div><span class="count">${total}</span>`;
-      }).join("")}</div>`
-    : `<p class="empty">No sessions running.</p>`;
-
-  document.getElementById("prs").innerHTML = open.length
-    ? `<div class="bars">${open.map((row) => {
-        const { checks } = row.pr;
-        const total = checks.passed + checks.failed + checks.running;
-        const tip = `+${row.pr.additions} / -${row.pr.deletions} lines${row.pr.draft ? ", draft" : ""}${row.pr.queued ? ", queued in MergeLoop" : ""}`;
-        const bar = total
-          ? segments(checkKinds.map(([kind, name, color]) => [color, checks[kind], `${checks[kind]} ${name.toLowerCase()}, ${tip}`]), total)
-          : "";
-        return `<span class="label" title="${esc(`${row.project}: ${tip}`)}">${esc(row.project)} ${link(row.pr)}${row.pr.queued ? ` <span class="sub">queued</span>` : ""}</span>` +
-          `<div class="bar" title="${esc(total ? tip : `no checks, ${tip}`)}">${bar}</div><span class="count">${checks.passed}/${total}</span>`;
-      }).join("")}</div>`
-    : `<p class="empty">No open pull requests.</p>`;
-
-  const order = Object.fromEntries(stages.map(([id], index) => [id, index]));
-  const sorted = [...rows].sort((a, b) => order[a.stage] - order[b.stage] || a.project.localeCompare(b.project) || a.title.localeCompare(b.title));
-  document.getElementById("sessions").innerHTML = sorted.length
-    ? `<table><thead><tr><th>Session</th><th class="wide">Agent</th><th class="wide">Project</th><th>Stage</th><th>PR</th><th class="wide">Uncommitted</th></tr></thead><tbody>${sorted.map((row) => `<tr>
-        <td class="title">${esc(row.title)}<div class="sub">${esc(row.lifecycle ?? row.activity ?? "unknown")}${row.branch ? ` · ${esc(row.branch)}` : ""}</div></td>
-        <td class="wide">${esc(row.agent)}</td>
-        <td class="wide">${esc(row.project)}</td>
-        <td><span class="pill">${swatch(row.stage)}${stageName[row.stage]}</span></td>
-        <td>${row.prs.map(link).join(" ")}</td>
-        <td class="num wide">${row.changes ?? ""}</td>
-      </tr>`).join("")}</tbody></table>`
-    : `<p class="empty">No sessions running.</p>`;
+  const rank = (card) => ({ working: 0, waiting: 1, idle: 2 })[cardActivity(card.top)] ?? 2;
+  const work = (cards) => cards.reduce((count, card) => count + card.lanes.length, 0);
+  const ranked = [...projects].sort((a, b) => work(b[1]) - work(a[1]) || a[0].localeCompare(b[0]));
+  const busiest = ranked[0]?.[0];
+  const sortCards = (list) => [...list].sort((a, b) => rank(a) - rank(b) || a.top.title.localeCompare(b.top.title));
+  const changed = new Set();
+  for (const row of rows) {
+    const before = shownStages.get(row.id);
+    if (rendered && before !== undefined && before !== row.stage) changed.add(row.id);
+    shownStages.set(row.id, row.stage);
+  }
+  let html = sortCards(cards.filter((card) => card.project === busiest)).map(cardHtml).join("");
+  for (const [name, list] of ranked.slice(1)) if (expanded.has(name)) html += sortCards(list).map(cardHtml).join("");
+  const cardsElement = document.getElementById("cards");
+  cardsElement.innerHTML = html || `<p class="empty">No sessions running.</p>`;
+  for (const lane of cardsElement.querySelectorAll(".lane"))
+    if (changed.has(lane.dataset.id)) {
+      lane.classList.add("flash");
+      setTimeout(() => lane.classList.remove("flash"), 1400);
+    }
+  const other = document.getElementById("other");
+  other.innerHTML = ranked.slice(1).map(([name, list]) => {
+    const green = new Set(list.flatMap((card) => card.lanes.flatMap((lane) => lane.row.prs ?? [])).filter(greenPr).map((pr) => pr.url.toLowerCase())).size;
+    const sessions = `${list.length} session${list.length === 1 ? "" : "s"}`;
+    return `<button class="pill" data-project="${esc(name)}" aria-expanded="${expanded.has(name)}"><b>${esc(name)}</b> · ${sessions}${green ? ` · ${green} PR${green === 1 ? "" : "s"} green` : ""}</button>`;
+  }).join("");
+  rendered = true;
+  drawArea(data.history ?? [], data.updatedAt ?? Date.now());
+  drawDonut(open);
 }
-function sum(counts) { return Object.values(counts).reduce((a, b) => a + b, 0); }
+
+function drawArea(history, now) {
+  const svg = document.getElementById("area");
+  const readout = document.getElementById("readout");
+  const span = 6 * 60 * 60_000;
+  const start = now - span;
+  const samples = history.filter((sample) => sample.at >= start - 60_000);
+  const plot = { x: 34, y: 12, w: 720 - 34 - 12, h: 190 - 12 - 30 };
+  if (!samples.length) {
+    svg.innerHTML = `<text x="34" y="90" fill="var(--muted)" font-size="11">Collecting samples.</text>`;
+    areaState = undefined;
+    readout.classList.remove("on");
+    return;
+  }
+  const high = Math.max(1, ...samples.map((sample) => sample.working + sample.waiting));
+  const top = Math.max(2, Math.ceil(high / 2) * 2);
+  const sx = (at) => plot.x + Math.max(0, Math.min(1, (at - start) / span)) * plot.w;
+  const sy = (value) => plot.y + plot.h - (value / top) * plot.h;
+  const base = sy(0);
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const workingPath = `M${sx(first.at)} ${base} ${samples.map((sample) => `L${sx(sample.at)} ${sy(sample.working)}`).join(" ")} L${sx(last.at)} ${base} Z`;
+  const waitingPath = `M${sx(first.at)} ${sy(first.working)} ${samples.map((sample) => `L${sx(sample.at)} ${sy(sample.working + sample.waiting)}`).join(" ")} ${[...samples].reverse().map((sample) => `L${sx(sample.at)} ${sy(sample.working)}`).join(" ")} Z`;
+  const grid = [0, top / 2, top].map((value) => {
+    const y = sy(value);
+    return `<line x1="${plot.x}" y1="${y}" x2="${plot.x + plot.w}" y2="${y}" stroke="var(--line)" stroke-width="1"></line><text x="${plot.x - 6}" y="${y + 3}" fill="var(--muted)" font-size="9" text-anchor="end">${value}</text>`;
+  }).join("");
+  const timeLabel = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const ticks = [0, 1 / 3, 2 / 3, 1].map((fraction) => {
+    const x = plot.x + fraction * plot.w;
+    return `<line x1="${x}" y1="${plot.y}" x2="${x}" y2="${plot.y + plot.h}" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4"></line><text x="${x}" y="${plot.y + plot.h + 16}" fill="var(--muted)" font-size="9" text-anchor="${fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"}">${timeLabel(start + fraction * span)}</text>`;
+  }).join("");
+  svg.innerHTML = `${grid}${ticks}<path d="${workingPath}" fill="var(--working)" opacity=".42"></path><path d="${waitingPath}" fill="var(--waiting)" opacity=".42"></path><line id="hover-line" x1="0" y1="${plot.y}" x2="0" y2="${plot.y + plot.h}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3" opacity="0"></line>`;
+  areaState = { samples, start, span, plot, top };
+}
+
+function areaHover(event) {
+  if (!areaState) return;
+  const svg = document.getElementById("area");
+  const readout = document.getElementById("readout");
+  const wrap = svg.parentElement;
+  const bounds = svg.getBoundingClientRect();
+  const viewX = ((event.clientX - bounds.left) / bounds.width) * 720;
+  const { samples, start, span, plot } = areaState;
+  const at = start + Math.max(0, Math.min(1, (viewX - plot.x) / plot.w)) * span;
+  let best = samples[0];
+  for (const sample of samples) if (Math.abs(sample.at - at) < Math.abs(best.at - at)) best = sample;
+  const x = plot.x + Math.max(0, Math.min(1, (best.at - start) / span)) * plot.w;
+  const line = document.getElementById("hover-line");
+  if (line) {
+    line.setAttribute("x1", String(x));
+    line.setAttribute("x2", String(x));
+    line.setAttribute("opacity", "1");
+  }
+  const time = new Date(best.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  readout.textContent = `${time} · working ${best.working} · waiting ${best.waiting}`;
+  readout.classList.add("on");
+  readout.style.left = `${Math.max(10, Math.min(90, (x / 720) * 100))}%`;
+  readout.style.top = `${Math.max(0, (wrap.clientHeight / 2) - 42)}px`;
+}
+
+function drawDonut(open) {
+  const stages = [
+    ["failing", open.filter((pr) => !pr.draft && pr.checks.failed).length, "PR failing"],
+    ["checks", open.filter((pr) => !pr.draft && !pr.checks.failed && pr.checks.running).length, "checks running"],
+    ["green", open.filter((pr) => !pr.draft && !pr.checks.failed && !pr.checks.running).length, "PR green"],
+    ["draft", open.filter((pr) => pr.draft).length, "draft"],
+  ];
+  const total = stages.reduce((sum, [, count]) => sum + count, 0);
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+  const arcs = stages.map(([stage, count, label]) => {
+    if (!count) return "";
+    const length = (count / total) * circumference;
+    const drawn = Math.max(0.5, length - (total > 1 ? 1.5 : 0));
+    const arc = `<circle cx="60" cy="60" r="${radius}" fill="none" stroke="var(--${stage})" stroke-width="14" stroke-dasharray="${drawn} ${circumference - drawn}" stroke-dashoffset="${-offset}" transform="rotate(-90 60 60)"><title>${count} ${esc(label)}</title></circle>`;
+    offset += length;
+    return arc;
+  }).join("");
+  document.getElementById("donut").innerHTML = `<svg viewBox="0 0 120 120" role="img" aria-label="${total} open pull requests by stage"><circle cx="60" cy="60" r="${radius}" fill="none" stroke="var(--seg)" stroke-width="14"></circle>${arcs}<text x="60" y="58" fill="var(--strong)" font-size="18" font-weight="600" text-anchor="middle">${total}</text><text x="60" y="73" fill="var(--muted)" font-size="9" text-anchor="middle">open</text></svg>`;
+  document.getElementById("donut-legend").innerHTML = stages.map(([stage, count, label]) => `<span title="${count} ${esc(label)}"><i style="background:var(--${stage})"></i>${esc(label)} <b>${count}</b></span>`).join("");
+}
+
+document.getElementById("other").addEventListener("click", (event) => {
+  const button = event.target.closest("button.pill");
+  if (!button) return;
+  const name = button.dataset.project;
+  if (expanded.has(name)) expanded.delete(name);
+  else expanded.add(name);
+  if (latest) render(latest);
+});
+document.getElementById("area").addEventListener("mousemove", areaHover);
+document.getElementById("area").addEventListener("mouseleave", () => {
+  document.getElementById("readout").classList.remove("on");
+  const line = document.getElementById("hover-line");
+  if (line) line.setAttribute("opacity", "0");
+});
 
 const status = document.getElementById("status");
 const events = new EventSource("/v1/events");
 let shown = "";
 events.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  // Redrawing an unchanged page would drop text selections and open tooltips every refresh.
-  const content = JSON.stringify([data.problem, data.rows]);
+  latest = data;
+  // Redrawing an unchanged page would drop text selections, tooltips and expanded projects every refresh.
+  const ages = (data.rows ?? []).map((row) => ago(row.lastActiveAt ?? row.startedAt, data.updatedAt)).join("|");
+  const content = JSON.stringify([data.problem, data.rows, data.openPrs, data.history, ages]);
   if (content !== shown) render(data);
   shown = content;
   status.className = "live";
