@@ -219,23 +219,26 @@ export function recordSpawn(
 }
 
 /**
- * Record the parent process ancestry finds for a child with no other parent, the way `kiln msg spawn` records one.
- * Ancestry needs the child's process, and a headless run's session stays listed after that process exits.
+ * Record the parent found for a child that has none recorded: by process ancestry, or by the session variable a
+ * detached run inherited. Both need the child's process, and a headless run's session stays listed after it exits.
  */
 export function rememberParents(sessions: readonly Session[], path = statePath()): void {
+  const recorded = recordedParents(path);
   const byPid = new Map(sessions.flatMap((session) => (session.pid === undefined ? [] : [[session.pid, session]])));
   for (const session of sessions) {
-    if (session.id === undefined || session.spawnParent !== undefined || session.parentSessionId !== undefined)
-      continue;
-    const parent = session.parentSessionPid === undefined ? undefined : byPid.get(session.parentSessionPid);
-    if (!parent?.id || parent === session) continue;
+    if (session.id === undefined || session.parentSessionId !== undefined) continue;
+    if (recorded.has(sessionIdentity(session))) continue;
+    const ancestor = session.parentSessionPid === undefined ? undefined : byPid.get(session.parentSessionPid);
+    const parent =
+      session.spawnParent ?? (ancestor?.id && ancestor !== session ? sessionIdentity(ancestor) : undefined);
+    if (!parent) continue;
     recordSpawn(
       {
         agent: session.agent,
         id: session.id,
         cwd: session.cwd,
         title: session.title,
-        parent: sessionIdentity(parent),
+        parent,
         startedAt: session.startedAt,
         pid: session.pid,
       },
@@ -244,8 +247,8 @@ export function rememberParents(sessions: readonly Session[], path = statePath()
   }
 }
 
-/** Mark the sessions whose parent `kiln msg spawn` recorded; that parent outranks process ancestry. */
-export function attachParents(sessions: readonly Session[], path = statePath()): Session[] {
+/** Each child's recorded parent, by the child's kiln id. */
+function recordedParents(path: string): Map<string, string> {
   const recorded = new Map<string, string>();
   try {
     if (existsSync(path))
@@ -258,6 +261,12 @@ export function attachParents(sessions: readonly Session[], path = statePath()):
   } catch {
     // An unreadable state file only costs the recorded nesting.
   }
+  return recorded;
+}
+
+/** Mark the sessions whose parent `kiln msg spawn` recorded; that parent outranks process ancestry. */
+export function attachParents(sessions: readonly Session[], path = statePath()): Session[] {
+  const recorded = recordedParents(path);
   return sessions.map((session) => {
     const parent = recorded.get(sessionIdentity(session));
     return parent ? { ...session, spawnParent: parent } : session;

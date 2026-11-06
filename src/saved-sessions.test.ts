@@ -180,3 +180,19 @@ test("a child row stays while its session is listed, and is dropped like any clo
   const gone = reconcile([child], [], "b", 0, () => false).saved;
   expect(reconcile(gone, [], "b", 200_000, () => false).saved).toEqual([]);
 });
+
+test("a parent read from a detached run's environment is recorded once, and outlives the run", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  const detached: Session = {
+    agent: "opencode",
+    id: "ses_detached",
+    pid: 50,
+    spawnParent: "claude:lead",
+    cwd: "/repo",
+    startedAt: 3,
+    place: { kind: "elsewhere" },
+  };
+  rememberParents([detached], path);
+  const { pid: _pid, spawnParent: _parent, ...finished } = detached;
+  expect(attachParents([finished], path)[0]?.spawnParent).toBe("claude:lead");
+});

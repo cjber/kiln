@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
+import { callerIdentity } from "./messages";
 import {
   isOpencodeService,
   matchHeadlessProcesses,
@@ -13,7 +14,15 @@ import {
 } from "./opencode";
 import { piStatus } from "./pi-status";
 import { attachParents, rememberParents, restartStopped } from "./saved-sessions";
-import { type Activity, agents, gitBranch, type Lifecycle, type Place, type Session } from "./sessions";
+import {
+  type Activity,
+  agents,
+  gitBranch,
+  type Lifecycle,
+  type Place,
+  type Session,
+  sessionIdentity,
+} from "./sessions";
 import { panes } from "./tmux";
 import { readTranscript } from "./transcript";
 
@@ -623,12 +632,31 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const lineage: number[] = [];
     for (let pid: number | undefined = session.pid; pid; pid = parentPid(pid)) lineage.push(pid);
     const { ancestorSessionPid } = sessionLocation(lineage, places, runningPids);
-    return ancestorSessionPid === undefined ? session : { ...session, parentSessionPid: ancestorSessionPid };
+    if (ancestorSessionPid !== undefined) return { ...session, parentSessionPid: ancestorSessionPid };
+    // A run started with `nohup ... &` outlives the shell that started it, so its ancestry ends at init. It still
+    // carries the session id its agent gives every command it runs.
+    const inherited = environParent(session.pid);
+    return inherited && inherited !== sessionIdentity(session) ? { ...session, spawnParent: inherited } : session;
   });
   const listed = [...sessions, ...nested];
   const found = attachParents([...listed, ...restartStopped(listed)]);
   rememberParents(found);
   return found;
+}
+
+/** The agent session a process was started from, by the session variable it inherited; none when unclear. */
+export function environParent(pid: number, read = (path: string) => readFileSync(path, "utf8")): string | undefined {
+  try {
+    const environment = Object.fromEntries(
+      read(`/proc/${pid}/environ`)
+        .split("\0")
+        .map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]),
+    );
+    // With no nearest agent, only an unambiguous single session variable names the parent.
+    return callerIdentity(environment, null);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Keep one client per confirmed daemon conversation, preferring a terminal kiln can open. */

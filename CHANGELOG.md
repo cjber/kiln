@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Detached subagents nest under the agent that started them.** A run started with `nohup opencode run ... &` outlives the shell that started it, so its process ancestry stops at init and it listed at the top level. Kiln now reads the session id the run inherited from its agent's environment, such as `CLAUDE_CODE_SESSION_ID`, records that agent as its parent, and keeps it nested after the run exits. The `kiln-agents` skill now tells agents to use `kiln msg spawn` only when their own session runs in kiln.
+
 - **Subagents stay under the agent that started them after they finish.** A headless run such as `opencode run`, started from another agent's shell, nested under that agent only while its process ran. Once the run exited, its session, still listed as ready, moved to the top level. Kiln now records the parent while the run is alive, and keeps the record as long as the provider lists the session. Children started with `kiln msg spawn` also kept their recorded parent for only two minutes after their process exited. They now keep it the same way.
 
 ## [0.22.0] - 2026-11-06
