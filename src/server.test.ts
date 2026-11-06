@@ -431,6 +431,58 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
   }
 });
 
+test("a phone resumes a stopped session only with writes on, and hears why one did not start", async () => {
+  const { directory, pairing } = fixture();
+  const project = mkdtempSync(join(directory, "project-"));
+  let current: Settings = { ...defaults, zoxide: false };
+  const resumed: string[] = [];
+  let problem: string | undefined;
+  const server = startServer({
+    port: 0,
+    pairing,
+    seen: async () => new Map(),
+    interval: 20,
+    settings: () => current,
+    discover: keepLast(
+      async () => [
+        { agent: "claude", id: "gone", cwd: project, startedAt: 1, lifecycle: "stopped", place: { kind: "saved" } },
+        { agent: "claude", id: "running", cwd: project, startedAt: 1, place: { kind: "kiln", name: "claude-1" } },
+      ],
+      "Session host",
+    ),
+    resume: async (session) => {
+      resumed.push(session.id ?? "");
+      return problem ? { problem } : { name: "claude-gone" };
+    },
+  });
+  const paired = pairing.exchange(pairing.invite(), "Pixel");
+  if (!paired) throw new Error("pairing failed");
+  const call = (path: string, method = "POST") =>
+    fetch(`http://127.0.0.1:${server.port}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${paired.token}`, "Content-Type": "application/json" },
+      body: method === "POST" ? "{}" : undefined,
+    });
+  try {
+    await Bun.sleep(40);
+    const snapshot = (await (await call("/v1/sessions", "GET")).json()) as { sessions: { resumable: boolean }[] };
+    expect(snapshot.sessions.map((session) => session.resumable)).toEqual([true, false]);
+    expect((await call("/v1/sessions/claude%3Agone/resume")).status).toBe(403);
+    current = { ...current, phoneWrite: true };
+    expect((await call("/v1/sessions/claude%3Arunning/resume")).status).toBe(404);
+    const ok = await call("/v1/sessions/claude%3Agone/resume");
+    expect(await ok.json()).toEqual({ terminal: "claude-gone" });
+    problem = "Claude exited with status 1: not logged in";
+    const failed = await call("/v1/sessions/claude%3Agone/resume");
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: problem });
+    expect(resumed).toEqual(["gone", "gone"]);
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
 test("a phone starts at most twenty sessions in ten minutes", () => {
   const { pairing } = fixture();
   try {

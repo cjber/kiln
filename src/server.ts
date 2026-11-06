@@ -5,7 +5,7 @@ import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
 import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
-import { startFromPhone } from "./launcher";
+import { resumeStopped, startFromPhone } from "./launcher";
 import { post } from "./mailbox";
 import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
 import { nativeNotifications } from "./notifications";
@@ -149,6 +149,8 @@ export function phoneSession(
     where: wireKind(session.place),
     /** Kiln's tmux name, which a phone matches against the session it just started. */
     terminal: session.place.kind === "kiln" ? session.place.name : undefined,
+    /** A restart stopped it, and resuming starts its conversation again in kiln's tmux. */
+    resumable: session.place.kind === "saved" && Boolean(session.id),
     /** When the person last attached to or typed in its terminal here, so a phone clears what they have read. */
     seenAt,
     handoff: phoneHandoff(session, codexHost, opencodeLink),
@@ -179,6 +181,7 @@ export function startServer({
   push = sendPush,
   settings = loadSettings,
   start = startFromPhone,
+  resume = resumeStopped,
   deliver = flush,
   seen = lastSeen,
   offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
@@ -200,6 +203,7 @@ export function startServer({
   /** Read on each write request and refresh, so turning phone writes on or off needs no restart. */
   settings?: () => Settings;
   start?: typeof startFromPhone;
+  resume?: (session: Session, settings: Settings) => ReturnType<typeof resumeStopped>;
   deliver?: (sessions: readonly Session[]) => ReturnType<typeof flush>;
   /** When the person last looked at each kiln terminal, by tmux name. */
   seen?: () => Promise<Map<string, number>>;
@@ -292,6 +296,15 @@ export function startServer({
     const outcome = (await deliver(listed)).find((item) => item.message.id === message.id);
     // Another pass claimed it first, which is a delivery too, as `kiln msg send` reports it.
     return outcome && !outcome.delivered ? { delivered: false, reason: outcome.reason } : { delivered: true };
+  };
+  const resumeSession = async (id: string) => {
+    const current = writeSettings();
+    const session = listed.find((row) => sessionIdentity(row) === id);
+    if (session?.place.kind !== "saved") throw new Refusal(404, "That session is not stopped");
+    const result = await resume(session, current);
+    if ("problem" in result) throw new Refusal(500, result.problem);
+    void refresh();
+    return { terminal: result.name };
   };
   const listedSession = (id: string) => {
     writeSettings();
@@ -447,7 +460,9 @@ export function startServer({
         const messages = path.match(/^\/v1\/sessions\/([^/]+)\/messages$/)?.[1];
         if (request.method === "POST" && messages)
           return response(await sendMessage(device, decodeURIComponent(messages), request));
-        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt|prompt|files)$/);
+        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt|prompt|files|resume)$/);
+        if (action?.[1] && action[2] === "resume" && request.method === "POST")
+          return response(await resumeSession(decodeURIComponent(action[1])));
         if (action?.[1] && action[2] === "view" && request.method === "GET")
           return response(viewSession(decodeURIComponent(action[1]), new URL(request.url).searchParams.get("cursor")));
         if (action?.[1] && action[2] === "interrupt" && request.method === "POST")

@@ -100,6 +100,8 @@ data class Row(
     /** The most urgent of `prs`, which machines before multiple pull requests send alone. */
     val pr: PullInfo? = null,
     val prs: List<PullInfo> = emptyList(),
+    /** A restart stopped it, and the machine can start its conversation again. */
+    val resumable: Boolean = false,
 ) {
     /** Every pull request the session's branch has or it opened, most urgent first. */
     val pulls: List<PullInfo>
@@ -331,6 +333,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                         runCatching { parsePull(list?.optJSONObject(index)) }.getOrNull()
                     }
                 },
+                item.optBoolean("resumable"),
             )
         }
     return Snapshot(

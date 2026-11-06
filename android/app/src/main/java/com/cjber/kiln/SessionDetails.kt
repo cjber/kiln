@@ -32,6 +32,8 @@ fun SessionDetails(
     changeHidden: () -> Unit,
     /** Sends a prompt and reports the line to show; null where the machine takes none. */
     send: ((String, (String) -> Unit) -> Unit)? = null,
+    /** Resumes a session a restart stopped and reports why it failed; null where it cannot. */
+    resume: (((String?) -> Unit) -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = dismiss,
@@ -141,6 +143,7 @@ fun SessionDetails(
                         )
                     }
                 }
+            if (resume != null) ResumeButton(row.id, resume)
             if (send != null) SendBox(row.id, send)
             TextButton(onClick = changeHidden, modifier = Modifier.fillMaxWidth()) {
                 Text(if (hidden) "Restore on this phone" else "Hide on this phone")
@@ -214,6 +217,33 @@ private fun SendBox(id: String, send: (String, (String) -> Unit) -> Unit) {
             ) {
                 Text(if (busy) "Sending…" else "Send")
             }
+        }
+    }
+}
+
+/** Starts a stopped session's conversation again on its machine; the list shows it running once it is. */
+@Composable
+private fun ResumeButton(id: String, resume: (((String?) -> Unit) -> Unit)) {
+    var busy by rememberSaveable(id) { mutableStateOf(false) }
+    var problem by rememberSaveable(id) { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = {
+                busy = true
+                problem = null
+                resume { failed ->
+                    busy = false
+                    problem = failed
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Text(if (busy) "Resuming" else "Resume")
+        }
+        problem?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         }
     }
 }

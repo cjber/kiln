@@ -46,6 +46,8 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
   `$XDG_STATE_HOME/opencode/service.json`; read only while that service runs. Closing archives through `opencode api`, which starts the service if needed. Kiln passes each session its `--session` id; a terminal with no id in argv is never paired by directory.
 - `src/saved-sessions.ts` - the terminal sessions and Codex daemon threads last seen running, in `$XDG_STATE_HOME/kiln/sessions.sqlite`. One saved in an
   earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
+  `kiln resume` (`src/resume-cli.ts`) and the phone's `/v1/sessions/<id>/resume` resume them through `resumeStopped`, which keeps the pane
+  (`remain-on-exit`) for five seconds to catch an agent that quits at launch, and starts it once more.
 - `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
 - `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
 - `src/transcript.ts`, `src/workdir.ts` - Claude transcript titles, and the checkout an agent last edited or `cd`'d into, shown in place of
