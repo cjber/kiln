@@ -16,8 +16,12 @@ A message cannot reach a session a restart stopped. `kiln resume` lists them, an
 
 ## Starting a subagent
 
-Start work that should run as its own session with `kiln msg spawn`, never with a raw
-`opencode run`, `claude -p`, `codex exec` or `pi -p` in Bash:
+Use `kiln msg spawn` only when your own session runs in kiln, that is when `$TMUX` names kiln's
+server (`case "$TMUX" in */kiln,*) echo kiln;; esac` prints `kiln`). Anywhere else, start a subagent
+the way you normally would; kiln still nests it under you while it is listed.
+
+In a kiln session, start work that should run as its own session with `kiln msg spawn`, never with a
+raw `opencode run`, `claude -p`, `codex exec` or `pi -p` in Bash:
 
 ```sh
 kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "run the API tests and fix what fails"

@@ -8,6 +8,7 @@ import {
   claudeListing,
   claudeSessionStatus,
   deduplicateSessions,
+  environParent,
   finishedClaudeJobs,
   inheritedCodexParent,
   isInteractiveCodex,
@@ -348,4 +349,20 @@ describe("OpenCode pairing", () => {
       deduplicateSessions([row(1, { kind: "elsewhere" }), row(2, { kind: "kiln", name: "a" })]).map(({ pid }) => pid),
     ).toEqual([2]);
   });
+});
+
+test("a detached run names its parent by the one session variable it inherited", () => {
+  const environ =
+    (...entries: string[]) =>
+    () =>
+      entries.join("\0");
+  expect(environParent(1, environ("HOME=/h", "CLAUDE_CODE_SESSION_ID=lead", "PATH=/bin"))).toBe("claude:lead");
+  // Two agents' variables leave the parent unclear, and nothing is guessed.
+  expect(environParent(1, environ("CLAUDE_CODE_SESSION_ID=lead", "CODEX_THREAD_ID=t"))).toBeUndefined();
+  expect(environParent(1, environ("HOME=/h"))).toBeUndefined();
+  expect(
+    environParent(1, () => {
+      throw new Error("gone");
+    }),
+  ).toBeUndefined();
 });
