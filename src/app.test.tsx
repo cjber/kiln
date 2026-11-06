@@ -186,7 +186,7 @@ test("Space expands children, turns the cursor into the open mark and gives both
     let frame = setup.captureCharFrame();
     expect(frame).not.toContain("Check tests");
     expect(frame.split("\n").find((line) => line.includes("Review changes"))).toMatch(/›.*Review changes 1/);
-    expect(frame).toContain("atlas · /tmp/atlas · no PR yet");
+    expect(frame).not.toContain("no PR yet");
 
     await act(async () => {
       await setup.mockInput.pressKeys([" "]);
@@ -194,8 +194,9 @@ test("Space expands children, turns the cursor into the open mark and gives both
     await setup.waitForFrame((frame) => frame.includes("Check tests"));
     frame = setup.captureCharFrame();
     expect(frame.split("\n").find((line) => line.includes("Review changes"))).toContain("⌄");
+    // Only the expanded row shows its detail line; its collapsed child does not.
     expect(frame).toContain("    atlas · /tmp/atlas · no PR yet");
-    expect(frame).toContain("      atlas · /tmp/atlas · no PR yet");
+    expect(frame).not.toContain("      atlas · /tmp/atlas · no PR yet");
 
     await act(async () => {
       await setup.mockInput.pressKeys([" "]);
@@ -209,7 +210,7 @@ test("Space expands children, turns the cursor into the open mark and gives both
   }
 });
 
-test("rows on a branch with a pull request show its number and stage, and the details line its checks", async () => {
+test("rows on a branch with a pull request show its number and stage dot, the expanded row lists it, and the details line its checks", async () => {
   const directory = mkdtempSync(join(tmpdir(), "kiln-app-pr-"));
   mkdirSync(join(directory, ".git"));
   writeFileSync(join(directory, ".git", "HEAD"), "ref: refs/heads/cb/retry\n");
@@ -260,8 +261,12 @@ test("rows on a branch with a pull request show its number and stage, and the de
       await setup.mockInput.pressKeys(["r"]);
       await Bun.sleep(100);
     });
-    await setup.waitForFrame((frame) => frame.includes("#212 ✗"));
+    await setup.waitForFrame((frame) => frame.includes("#212 ●"));
     expect(setup.captureCharFrame()).toContain("PR #212 failing (1 passed, 1 failed)");
+    await act(async () => {
+      await setup.mockInput.pressKeys([" "]);
+    });
+    await setup.waitForFrame((frame) => frame.includes("· #212 ●"));
   } finally {
     rmSync(directory, { recursive: true, force: true });
     if (setup)

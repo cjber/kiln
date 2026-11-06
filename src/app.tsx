@@ -4,7 +4,7 @@ import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { flushInBackground } from "./messages";
 import { nativeNotifications } from "./notifications";
-import { sessionDetail } from "./session-detail";
+import { type DetailPart, newestFirst, sessionDetail } from "./session-detail";
 import {
   resolveSelection,
   type Selection,
@@ -36,7 +36,7 @@ import { checkout } from "./workdir";
 import { rankedDirectories } from "./zoxide";
 
 const agentColor: Record<Agent, string> = {
-  claude: color.orange,
+  claude: color.peach,
   codex: color.teal,
   opencode: color.fgBright,
   pi: color.purple,
@@ -72,7 +72,6 @@ const stageColor: Record<Stage, string> = {
   green: color.green,
   done: color.comment,
 };
-const stageMark: Record<Stage, string> = { working: "", failing: "✗", checks: "●", green: "✓", done: "merged" };
 
 /** A pull request in the details line: its number, stage and check counts. */
 function pullRequestLine(pr: PullRequest): string {
@@ -493,7 +492,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const showStatus = width >= 30;
   // The pull request column only appears once something has one, and only where the title keeps its room.
   const showPr = width >= 72 && pulls.size > 0;
-  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 10 : 0));
+  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0));
   const currentPr = current && pulls.get(sessionIdentity(current));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
   const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
@@ -518,7 +517,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(10) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
+            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(8) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -557,9 +556,13 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
                     <span fg={ageColor(session.lastActiveAt, now)}>{age(session.lastActiveAt, now).padStart(8)}</span>
                   ) : null}
                 </text>
-                <text wrapMode="none" fg={color.comment}>
-                  {`${indent}${fit(detailLine(session, row.key), Math.max(1, width - 2 - displayWidth(indent)), "end")}`}
-                </text>
+                {row.open ? (
+                  <DetailText
+                    parts={detailLine(session, row.key)}
+                    indent={indent}
+                    width={Math.max(1, width - 2 - displayWidth(indent))}
+                  />
+                ) : null}
               </box>
             );
           })
@@ -676,13 +679,40 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
   }
 }
 
-/** `#212 ✗`, or `#212+3 ✗` with three more, ten columns wide, coloured by the most urgent pull request. */
+/** The newest pull request's number and a dot coloured by its stage, eight columns wide; expanding lists them all. */
 function PrCell({ prs }: { prs: readonly PullRequest[] | undefined }) {
-  const pr = prs?.[0];
-  if (!pr) return <span>{" ".repeat(10)}</span>;
-  const stage = stageOf(pr);
-  const more = prs.length > 1 ? `+${prs.length - 1}` : "";
+  const pr = prs?.length ? newestFirst(prs)[0] : undefined;
+  if (!pr) return <span>{" ".repeat(8)}</span>;
+  const number = fit(`#${pr.number}`, 5, "end");
   return (
-    <span fg={stageColor[stage]}>{fit(`#${pr.number}${more} ${stageMark[stage]}`.trim(), 9, "end").padEnd(10)}</span>
+    <>
+      <span fg={color.fgDim}>{number} </span>
+      <span fg={stageColor[stageOf(pr)]}>●</span>
+      <span>{" ".repeat(Math.max(0, 6 - displayWidth(number)))}</span>
+    </>
+  );
+}
+
+/** The dim detail line, with each pull request's dot in its stage colour, cut to `width`. */
+function DetailText({ parts, indent, width }: { parts: readonly DetailPart[]; indent: string; width: number }) {
+  let room = width;
+  const spans = parts.flatMap((part, index) => {
+    const text = `${index ? " · " : ""}${part.text}`;
+    if (room <= 0) return [];
+    const shown = fit(text, room, "end");
+    room -= displayWidth(shown);
+    if (!part.stage || !shown.endsWith("●")) return [<span key={part.text}>{shown}</span>];
+    return [
+      <span key={part.text}>{shown.slice(0, -1)}</span>,
+      <span key={`${part.text}-dot`} fg={stageColor[part.stage]}>
+        ●
+      </span>,
+    ];
+  });
+  return (
+    <text wrapMode="none" fg={color.comment}>
+      {indent}
+      {spans}
+    </text>
   );
 }

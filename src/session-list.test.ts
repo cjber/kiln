@@ -135,13 +135,12 @@ test("the viewport counts a session's detail line and keeps its heading pinned",
     cwd,
     place: { kind: "kiln", name: `${pid}` },
   });
-  const rows = sessionRows(
-    [1, 2, 3, 4, 5].map((pid) => session(pid, "/a")).concat([session(6, "/b")]),
-    "directory",
-    "",
-    new Set(),
+  const sessions = [1, 2, 3, 4, 5].map((pid) => session(pid, "/a")).concat([session(6, "/b")]);
+  const keys = sessionRows(sessions, "directory", "", new Set()).flatMap((row) =>
+    row.kind === "session" && (row.session.pid ?? 0) >= 4 ? [row.key] : [],
   );
-  // Rows: /a, 1..5, /b, 6. Each session takes its title and detail line, so five lines hold two sessions.
+  const rows = sessionRows(sessions, "directory", "", new Set(keys));
+  // Rows: /a, 1..5, /b, 6. Sessions 4 to 6 are expanded and add their detail line, so five lines hold two of them.
   const view = viewport(rows, 5, 5);
   expect(view.pinned?.kind === "header" && view.pinned.directory).toBe("/a");
   expect(view.rows.map((row) => (row.kind === "session" ? row.session.pid : row.key))).toEqual([4, 5]);
@@ -149,5 +148,6 @@ test("the viewport counts a session's detail line and keeps its heading pinned",
   const next = viewport(rows, 6, 3);
   expect(next.pinned).toBeUndefined();
   expect(next.rows.map((row) => (row.kind === "session" ? row.session.pid : row.key))).toEqual(["dir:/b", 6]);
-  expect(viewport(rows, 1, 5)).toEqual({ pinned: undefined, rows: rows.slice(0, 3) });
+  // Collapsed sessions take one line each.
+  expect(viewport(rows, 1, 5)).toEqual({ pinned: undefined, rows: rows.slice(0, 4) });
 });

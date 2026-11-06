@@ -44,7 +44,7 @@ export function sessionStatus(session: Session): { label: string; hint: string; 
 
 export type ListRow =
   | { kind: "header"; key: string; name: string; directory?: string }
-  | { kind: "session"; key: string; session: Session; depth: number; children: number };
+  | { kind: "session"; key: string; session: Session; depth: number; children: number; open: boolean };
 
 /** Group sessions and reveal matching or expanded children beneath their parent. */
 export function sessionRows(
@@ -102,7 +102,7 @@ export function sessionRows(
       seen.add(session);
       const descendants = (children.get(session) ?? []).filter((child) => matching.has(child));
       const key = sessionIdentity(session);
-      rows.push({ kind: "session", key, session, depth, children: descendants.length });
+      rows.push({ kind: "session", key, session, depth, children: descendants.length, open: expanded.has(key) });
       if (!expanded.has(key) && !needle) continue;
       for (let index = descendants.length - 1; index >= 0; index--) {
         const child = descendants[index];
@@ -145,9 +145,9 @@ export function resolveSelection(visible: readonly Session[], selection: Selecti
   return selectionAt(visible, found >= 0 ? found : selection.index);
 }
 
-/** The lines a row takes: a session's title and its detail line, or one heading line. */
+/** The lines a row takes: an expanded session adds its detail line under its title. */
 export function rowHeight(row: ListRow): number {
-  return row.kind === "session" ? 2 : 1;
+  return row.kind === "session" && row.open ? 2 : 1;
 }
 
 /**
