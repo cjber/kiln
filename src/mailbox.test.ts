@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claim, pending, post, release, sendLimit, takeUnread } from "./mailbox";
+import { claim, pending, post, posted, release, sendLimit, takeUnread } from "./mailbox";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -65,3 +65,11 @@ test("concurrent processes reading their inboxes while others send never see a l
   );
   expect(results.filter((result) => result.code !== 0).map((result) => result.error)).toEqual([]);
 }, 30_000);
+
+test("a message is found by its id after it is delivered", () => {
+  const path = mailbox();
+  expect(posted("ask:1", path)).toBeUndefined();
+  post("opencode:ses_1", "claude:p1", "Which branch?", path, 1, "ask:1");
+  claim("ask:1", path);
+  expect(posted("ask:1", path)).toMatchObject({ from: "opencode:ses_1", to: "claude:p1" });
+});

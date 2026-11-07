@@ -537,6 +537,7 @@ export function withOpencodeSessions(
       workdir: workdirs.get(process.id),
       // A session with no prompt yet is not stored, and one absent from `session.active` is inactive.
       activity: session ? session.activity : live ? ("idle" as const) : undefined,
+      question: session?.question,
       lastActiveAt: session?.updatedAt,
       parentSessionId: session?.parentId,
       opencodeService: session !== undefined,
@@ -557,6 +558,7 @@ export function withOpencodeSessions(
       startedAt: session.createdAt,
       lastActiveAt: session.updatedAt,
       activity: session.activity,
+      question: session.question,
       opencodeService: true,
       branch: gitBranch(workdirs.get(session.id) ?? session.cwd),
       place: {

@@ -35,6 +35,11 @@ what you already tried and what you want back.
 A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
 changed and what it could not finish.
 
+When an OpenCode child stops to ask a question, kiln sends you the question as a message from the
+child, since nobody else can see it. Your `kiln msg send <child>` reply answers it, so answer it
+rather than leaving the child waiting. Do not wait on a child in the foreground: you cannot take its
+question until your own turn ends.
+
 ## Sending
 
 1. `kiln msg list` shows each session's name (`agent:id`), status, directory, title and how a
