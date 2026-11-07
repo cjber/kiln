@@ -77,6 +77,13 @@ export function sessionRows(
       }
     }
   const roots = ordered.filter((session) => !parents.get(session) && matching.has(session));
+  // A collapsed parent still shows the path to any descendant waiting for input, so the header count is never invisible.
+  const attention = new Set<Session>();
+  for (const session of matching) {
+    if (session.lifecycle || session.activity !== "waiting") continue;
+    for (let node: Session | undefined = session; node && !attention.has(node); node = parents.get(node))
+      attention.add(node);
+  }
   const grouped = order === "project" || order === "directory";
   const groupDirectory = order === "project" ? sessionRepository : sessionDirectory;
   const groups = new Map<string, Session[]>();
@@ -103,9 +110,9 @@ export function sessionRows(
       const descendants = (children.get(session) ?? []).filter((child) => matching.has(child));
       const key = sessionIdentity(session);
       rows.push({ kind: "session", key, session, depth, children: descendants.length, open: expanded.has(key) });
-      if (!expanded.has(key) && !needle) continue;
-      for (let index = descendants.length - 1; index >= 0; index--) {
-        const child = descendants[index];
+      const shown = expanded.has(key) || needle ? descendants : descendants.filter((child) => attention.has(child));
+      for (let index = shown.length - 1; index >= 0; index--) {
+        const child = shown[index];
         if (child) pending.push({ session: child, depth: depth + 1 });
       }
     }

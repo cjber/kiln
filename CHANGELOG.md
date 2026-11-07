@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Subagents that need input show under a collapsed parent.** The header counted every session waiting for input, but a waiting subagent stayed hidden inside its collapsed parent, which only read "working". The list now shows each waiting subagent, and the agents between it and its top-level parent, without expanding the row.
+
 ## [0.22.2] - 2026-11-06
 
 - **Publishes the 0.22.1 changes.** The 0.22.1 build stopped on an outdated test and published nothing, so this is the first release with them.
