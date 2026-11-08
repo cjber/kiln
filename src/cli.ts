@@ -7,6 +7,7 @@ const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
        kiln resume <name...|--all> [--prompt TEXT]
                                   resume sessions a restart stopped, one at a time; no names lists them
+       kiln close [name...]       close, archive or forget sessions as x does in the list; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
@@ -164,6 +165,15 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return await runResumeCli(args.slice(1));
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "resume failed"}`);
+      return 2;
+    }
+  }
+  if (command === "close") {
+    try {
+      const { runCloseCli } = await import("./close-cli");
+      return await runCloseCli(args.slice(1));
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "close failed"}`);
       return 2;
     }
   }

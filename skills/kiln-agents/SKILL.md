@@ -14,6 +14,12 @@ with `kiln msg inbox`.
 A message cannot reach a session a restart stopped. `kiln resume` lists them, and
 `kiln resume --all --prompt continue` starts them all again; it exits 1 and says why when one would not start.
 
+## Closing finished sessions
+
+`kiln close` lists the sessions kiln can close, and `kiln close <name...>` closes them, as `x` does in
+the list: an OpenCode or Codex conversation is archived, not deleted. Close only a session whose work is
+done, such as one whose pull request merged, and never your own.
+
 ## Starting a subagent
 
 Use `kiln msg spawn` only when your own session runs in kiln, that is when `$TMUX` names kiln's

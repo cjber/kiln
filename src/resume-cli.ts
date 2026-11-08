@@ -7,15 +7,15 @@ import { loadSettings } from "./settings";
 const resumeUsage = `usage: kiln resume <name...|--all> [--prompt TEXT]
                                   resume sessions a restart stopped, one at a time; no names lists them`;
 
-/** The stopped sessions a name picks: its whole `agent:id` name, or a unique prefix of it or of the id. */
-export function pickStopped(stopped: readonly Session[], names: readonly string[]): Session[] {
+/** The sessions a name picks: its whole `agent:id` name, or a unique prefix of it or of the id. */
+export function pickSessions(sessions: readonly Session[], names: readonly string[], kind: string): Session[] {
   return names.map((name) => {
-    const found = stopped.filter((session) => {
+    const found = sessions.filter((session) => {
       const identity = sessionIdentity(session);
       return identity === name || identity.startsWith(name) || session.id?.startsWith(name);
     });
     if (found.length === 1 && found[0]) return found[0];
-    throw new Error(found.length ? `"${name}" names more than one stopped session` : `no stopped session "${name}"`);
+    throw new Error(found.length ? `"${name}" names more than one ${kind} session` : `no ${kind} session "${name}"`);
   });
 }
 
@@ -34,7 +34,7 @@ export async function runResumeCli(args: string[]): Promise<number> {
     return 0;
   }
   if (values.all && positionals.length) throw new Error(resumeUsage);
-  const chosen = values.all ? stopped : pickStopped(stopped, positionals);
+  const chosen = values.all ? stopped : pickSessions(stopped, positionals, "stopped");
   let failed = 0;
   // One at a time: each must still be running after its grace period before the next starts.
   for (const session of chosen) {
