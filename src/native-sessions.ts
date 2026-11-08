@@ -5,6 +5,7 @@ import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
 import {
+  archiveOpencodeSession,
   isOpencodeService,
   matchHeadlessProcesses,
   type OpencodeListing,
@@ -643,7 +644,38 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
   const listed = [...sessions, ...nested];
   const found = attachParents([...listed, ...restartStopped(listed)]);
   rememberParents(found);
-  return found;
+  return closeFinishedChildren(found);
+}
+
+/**
+ * An OpenCode sub-session is done once no run process holds it and its last turn ended without needing anyone.
+ * One that failed or asks something reports `waiting` and stays.
+ */
+export function finishedOpencodeChildren(sessions: readonly Session[]): Session[] {
+  return sessions.filter(
+    (session) =>
+      session.agent === "opencode" &&
+      session.place.kind === "thread" &&
+      session.pid === undefined &&
+      session.activity === "idle" &&
+      (session.spawnParent !== undefined || session.parentSessionId !== undefined),
+  );
+}
+
+/** Archive finished sub-sessions so they leave the list; one whose archive fails stays listed. */
+async function closeFinishedChildren(sessions: Session[]): Promise<Session[]> {
+  const done = new Set(finishedOpencodeChildren(sessions));
+  await Promise.all(
+    [...done].map(async (session) => {
+      if (session.place.kind !== "thread") return;
+      try {
+        await archiveOpencodeSession(session.place.id);
+      } catch {
+        done.delete(session);
+      }
+    }),
+  );
+  return sessions.filter((session) => !done.has(session));
 }
 
 /** The agent session a process was started from, by the session variable it inherited; none when unclear. */

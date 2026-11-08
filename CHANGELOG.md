@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Finished OpenCode sub-sessions leave the list.** An OpenCode run another agent started is archived once its process has exited and its last turn ended, whether or not `kiln msg spawn` started it, so a parent no longer collects a pile of ready children for six hours. One that failed or asks a question stays listed.
+
 - **Subagents ask the agent that started them.** An OpenCode subagent that stops to ask a question now sends it to its parent agent as a kiln message, since a headless run's question shows on no screen. The parent's `kiln msg send` reply answers the question in OpenCode directly, rather than waiting behind it as a new prompt.
 
 - **Subagents that need input show under a collapsed parent.** The header counted every session waiting for input, but a waiting subagent stayed hidden inside its collapsed parent, which only read "working". The list now shows each waiting subagent, and the agents between it and its top-level parent, without expanding the row.
