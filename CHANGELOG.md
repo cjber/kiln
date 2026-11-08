@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Finished OpenCode sub-sessions leave the list.** An OpenCode run another agent started is archived once its process has exited and its last turn ended, whether or not `kiln msg spawn` started it, so a parent no longer collects a pile of ready children for six hours. One that failed or asks a question stays listed.
+
 ## [0.23.0] - 2026-11-08
 
 - **Close sessions from the command line.** `kiln close` lists the sessions the list's `x` key can close, and `kiln close <name...>` closes them the same way: a kiln terminal closes, an OpenCode or Codex daemon conversation is archived, a Claude background job is stopped and removed and a stopped row is forgotten. Agents can now tidy up finished sessions, and the `kiln-agents` skill says when to.
