@@ -95,12 +95,17 @@ jobs:
         run: |
           set -euo pipefail
           bun scripts/changelog.ts "$VERSION" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
+          # A rerun after a later step failed replaces the assets with this run's build, which the AUR checksums cover.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/kiln-linux-x64 dist/kiln-linux-arm64 dist/kiln-android.apk --verify-tag --notes-file "$RUNNER_TEMP/notes.md" --title "kiln $GITHUB_REF_NAME"
+          fi
 
       - name: Render AUR package
         run: |
           set -euo pipefail
-          curl -fsSL -o source.tar.gz "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --max-time 120 -o source.tar.gz "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
           bun scripts/render-aur.ts --version "$VERSION" --sha256 "$(sha256sum source.tar.gz | cut -d' ' -f1)" --bin-x64-sha256 "$(sha256sum dist/kiln-linux-x64 | cut -d' ' -f1)" --bin-arm64-sha256 "$(sha256sum dist/kiln-linux-arm64 | cut -d' ' -f1)" --out aur
 
       - name: Push to AUR
