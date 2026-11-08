@@ -380,6 +380,9 @@ function sessionFile(root: string, pattern: string, now = Date.now()): string | 
 
 const dataHome = () => Bun.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
 
+/** The database OpenCode keeps every session's messages in. */
+export const opencodeDatabase = () => join(dataHome(), "opencode", "opencode.db");
+
 /** The JSONL transcript a local Claude, Codex or Pi session writes, or undefined when it has none kiln can find. */
 export function transcriptFile(session: Session): { path: string; agent: "claude" | "codex" | "pi" } | undefined {
   const id = session.id;
@@ -413,7 +416,7 @@ export function transcriptFile(session: Session): { path: string; agent: "claude
 export function conversationReader(session: Session): ((cursor?: string) => Page) | undefined {
   if (session.agent === "opencode") {
     if (!session.id || session.place.kind === "cloud" || !/^[A-Za-z0-9_-]+$/.test(session.id)) return undefined;
-    const path = join(dataHome(), "opencode", "opencode.db");
+    const path = opencodeDatabase();
     const id = session.id;
     return existsSync(path) ? (cursor) => readOpencodeConversation(path, id, cursor) : undefined;
   }
