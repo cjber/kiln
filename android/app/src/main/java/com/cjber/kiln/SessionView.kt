@@ -160,6 +160,46 @@ internal fun parseMenu(json: JSONObject) =
             },
     )
 
+/** One file a prompt changed, as `GET /v1/sessions/<id>/edits` reports it. */
+data class EditFile(
+    val file: String,
+    val added: Int,
+    val removed: Int,
+    val created: Boolean,
+    val deleted: Boolean,
+    /** Written whole, so how many lines it replaced is unknown. */
+    val rewritten: Boolean,
+)
+
+/** What one prompt changed: newest prompt first. */
+data class EditTurn(
+    val prompt: String,
+    val files: List<EditFile>,
+    val added: Int,
+    val removed: Int,
+    val rewritten: Boolean,
+)
+
+internal fun parseEdits(body: String): List<EditTurn> =
+    JSONObject(body).getJSONArray("turns").objects().map { turn ->
+        EditTurn(
+            turn.optString("prompt"),
+            turn.getJSONArray("files").objects().map {
+                EditFile(
+                    it.getString("file"),
+                    it.getInt("added"),
+                    it.getInt("removed"),
+                    it.optBoolean("created"),
+                    it.optBoolean("deleted"),
+                    it.optBoolean("rewritten"),
+                )
+            },
+            turn.getInt("added"),
+            turn.getInt("removed"),
+            turn.optBoolean("rewritten"),
+        )
+    }
+
 /**
  * The message that carries attached files names where the machine stored them, so the agent can
  * open them.
@@ -203,6 +243,8 @@ class SessionClient(
                     else "$base/view?cursor=${URLEncoder.encode(cursor, "UTF-8")}"
                 )
         )
+
+    fun edits(): Pair<Int, String> = call(Request.Builder().url("$base/edits"))
 
     private fun post(path: String, body: JSONObject) =
         call(
@@ -254,6 +296,8 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
     var sending by remember { mutableStateOf(false) }
     var menu by remember(row.id) { mutableStateOf<Menu?>(null) }
     var attachments by remember(row.id) { mutableStateOf(emptyList<Attachment>()) }
+    var showEdits by remember(row.id) { mutableStateOf(false) }
+    var edits by remember(row.id) { mutableStateOf<List<EditTurn>?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
@@ -276,6 +320,18 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 problem = "Cannot reach ${host.name}"
             }
             delay(1_500)
+        }
+    }
+    // The edits are read while they are shown; the machine sends counts and paths, never file text.
+    LaunchedEffect(client, showEdits) {
+        while (showEdits) {
+            try {
+                val (code, body) = withContext(Dispatchers.IO) { client.edits() }
+                if (code == 200) edits = parseEdits(body) else problem = errorText(code, body)
+            } catch (_: Exception) {
+                problem = "Cannot reach ${host.name}"
+            }
+            delay(5_000)
         }
     }
     LaunchedEffect(lines.size) { if (lines.isNotEmpty()) list.animateScrollToItem(lines.size - 1) }
@@ -352,6 +408,9 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 ) {
                     Text("Stop", color = Tui.red)
                 }
+            TextButton(onClick = { showEdits = !showEdits }) {
+                Text(if (showEdits) "Chat" else "Edits", color = Tui.fg)
+            }
             TextButton(onClick = details) { Text("⋮", color = Tui.fg) }
         }
         HorizontalDivider(color = Tui.bg2)
@@ -363,16 +422,18 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 color = Tui.fgDim,
                 modifier = Modifier.padding(16.dp),
             )
-        SelectionContainer(Modifier.weight(1f)) {
-            LazyColumn(
-                state = list,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(lines, key = { it.id }) { line -> ConversationLine(line) }
+        if (showEdits) EditsList(edits, Modifier.weight(1f))
+        else
+            SelectionContainer(Modifier.weight(1f)) {
+                LazyColumn(
+                    state = list,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(lines, key = { it.id }) { line -> ConversationLine(line) }
+                }
             }
-        }
         val stored = attachments.mapNotNull { it.path }
         // A file still sending, or one that failed, holds the message back rather than going
         // missing from it.
@@ -485,6 +546,59 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                     },
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send", Modifier.size(20.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditsList(turns: List<EditTurn>?, modifier: Modifier) {
+    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (turns == null) item { Text("Reading edits", color = Tui.fgDim) }
+        else if (turns.isEmpty()) item { Text("No files edited yet", color = Tui.fgDim) }
+        items(turns.orEmpty()) { turn ->
+            Column {
+                Text(
+                    turn.prompt.ifBlank { "Before the first prompt" },
+                    color = Tui.fgBright,
+                    maxLines = 2,
+                )
+                Text(
+                    "${turn.files.size} files  +${turn.added}" +
+                        if (turn.rewritten) "" else " -${turn.removed}",
+                    color = Tui.fgDim,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                turn.files.forEach { file ->
+                    Row(Modifier.padding(start = 8.dp, top = 2.dp)) {
+                        Text(
+                            file.file.substringAfterLast('/'),
+                            color = Tui.fg,
+                            style = mono,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            when {
+                                file.created -> "new "
+                                file.deleted -> "deleted "
+                                file.rewritten -> "rewritten "
+                                else -> ""
+                            },
+                            color = Tui.fgDim,
+                            style = mono,
+                        )
+                        Text("+${file.added}", color = Tui.green, style = mono)
+                        // A file written whole has no removed count to show.
+                        if (!file.rewritten)
+                            Text(" -${file.removed}", color = Tui.red, style = mono)
+                    }
                 }
             }
         }
