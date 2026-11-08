@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resumeStopped } from "./launcher";
-import { pickStopped } from "./resume-cli";
+import { pickSessions } from "./resume-cli";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 import { exists, start, survives } from "./tmux";
@@ -56,8 +56,8 @@ test("an agent that keeps quitting is reported with what it printed", async () =
 
 test("names pick stopped sessions by whole name or unique prefix", () => {
   const rows = [stopped("abc123"), stopped("abd456"), stopped("abc123", "codex")];
-  expect(pickStopped(rows, ["claude:abc"])).toEqual([rows[0] as Session]);
-  expect(pickStopped(rows, ["abd"])).toEqual([rows[1] as Session]);
-  expect(() => pickStopped(rows, ["abc"])).toThrow("more than one");
-  expect(() => pickStopped(rows, ["zzz"])).toThrow('no stopped session "zzz"');
+  expect(pickSessions(rows, ["claude:abc"], "stopped")).toEqual([rows[0] as Session]);
+  expect(pickSessions(rows, ["abd"], "stopped")).toEqual([rows[1] as Session]);
+  expect(() => pickSessions(rows, ["abc"], "stopped")).toThrow("more than one");
+  expect(() => pickSessions(rows, ["zzz"], "stopped")).toThrow('no stopped session "zzz"');
 });
