@@ -58,11 +58,17 @@ and prints the child's kiln id. The child nests under its parent in the list, th
 once its run has exited and its last turn ended, whether or not kiln started it; one that failed or
 asks a question stays listed. Any other headless OpenCode run is hidden after six hours idle.
 
+A nested session waiting for input is shown under its parent even when the parent is collapsed.
+When a nested OpenCode session stops to ask a question, kiln also sends the question to the parent
+agent as a message from the child, once per question. The parent's reply answers the question: a question with a single text answer,
+or one whose reply names one of its options, takes the reply as its answer; any other is cancelled
+and the reply follows as a prompt.
+
 Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln puts a message in front of its recipient as a new prompt, starting with the sender's name and the command to reply:
 
 | Recipient | Delivery |
 | --- | --- |
-| OpenCode on its background service | queued in OpenCode right away |
+| OpenCode on its background service | the answer to its open question, else queued in OpenCode right away |
 | Pi started by kiln | queued as a follow-up right away |
 | Codex on its shared daemon | a new turn once it is idle |
 | Claude started by kiln | pasted into its terminal once it is idle and nobody has it open |

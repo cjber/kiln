@@ -664,10 +664,13 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
   switch (mode) {
     case "normal": {
       const close = action && "verb" in action ? `x ${action.verb}` : undefined;
+      // The same test the `e` key makes: only a local session with a transcript has edits to read.
+      const edits = current?.id && current.place.kind !== "cloud" ? "e edits" : undefined;
       const shown = [
         current && "j/k move",
         current && "enter open",
         current && "space expand",
+        edits,
         filter && "esc clear",
         "n new",
         close,
@@ -676,7 +679,7 @@ function hints(mode: Mode, current: Session | undefined, width: number, filter: 
       ].filter((hint): hint is string => Boolean(hint));
       return fitHints(
         shown,
-        ["q quit", "enter open", "space expand", "esc clear", "/ filter", "n new", "j/k move", close ?? ""],
+        ["q quit", "enter open", "e edits", "space expand", "esc clear", "/ filter", "n new", "j/k move", close ?? ""],
         width,
       );
     }

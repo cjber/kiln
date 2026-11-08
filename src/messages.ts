@@ -1,10 +1,10 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { startCodexTurn } from "./codex";
-import { claim, type Message, mailboxPath, pending, release } from "./mailbox";
-import { promptOpencodeSession } from "./opencode";
+import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
+import { messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
-import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity } from "./sessions";
+import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
 import { attachedClients, kiln, submitText } from "./tmux";
 import { tilde } from "./tui";
 
@@ -151,12 +151,19 @@ export class NotNow extends Error {}
 
 export type Transports = Record<
   "codex" | "opencode" | "pi" | "tmux",
-  (session: Session, text: string) => Promise<void>
+  (session: Session, text: string, message: Message) => Promise<void>
 >;
+
+/** The mailbox id under which kiln asked a session's parent one of its questions. */
+const askId = (session: Session, question: string) => `ask:${sessionIdentity(session)}:${question}`;
 
 const transports: Transports = {
   codex: (session, text) => startCodexTurn(session.id ?? "", text),
-  opencode: (session, text) => promptOpencodeSession(session.id ?? "", text),
+  // A reply from the agent kiln asked about the open form answers it; anyone else's message waits behind it.
+  opencode: (session, text, message) =>
+    messageOpencodeSession(session.id ?? "", text, (form) =>
+      posted(askId(session, form))?.to === message.from ? message.body : undefined,
+    ),
   pi: async (session, text) => {
     const directory = piInbox(session.pid ?? 0);
     const name = `${Date.now()}-${crypto.randomUUID()}`;
@@ -200,7 +207,7 @@ export async function flush(
     }
     if (!claim(message.id, path)) continue;
     try {
-      await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)));
+      await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)), message);
       outcomes.push({ message, delivered: true });
     } catch (error) {
       const refused = error instanceof NotNow;
@@ -216,15 +223,54 @@ export async function flush(
   return outcomes;
 }
 
+const asked = new Set<string>();
+
+/**
+ * A subagent's question shows on no screen, so the agent that started it hears it instead, as a message from the
+ * subagent that its reply answers. Each question is posted once, under its own id.
+ */
+export function askParents(sessions: readonly Session[], send: typeof post = post, seen = asked): number {
+  const parents = sessionParents(sessions);
+  let posted = 0;
+  for (const session of sessions) {
+    const parent = parents.get(session);
+    if (session.activity !== "waiting" || !session.question || !parent || !reachable(session) || !reachable(parent))
+      continue;
+    const key = askId(session, session.question.id);
+    if (seen.has(key)) continue;
+    try {
+      send(
+        sessionIdentity(session),
+        sessionIdentity(parent),
+        `I stopped to ask this, and nobody else can see it:\n\n${session.question.text}\n\nYour reply answers it.`,
+        undefined,
+        undefined,
+        key,
+      );
+      seen.add(key);
+      posted++;
+    } catch {
+      // A full mailbox or a send limit leaves it for the next refresh.
+    }
+  }
+  return posted;
+}
+
 let flushing = false;
 
-/** For the list and the phone server: deliver in the background, at most one pass at a time, never throwing. */
+/**
+ * For the list and the phone server: pass subagents' questions to their parents, then deliver in the background, at
+ * most one pass at a time, never throwing.
+ */
 export function flushInBackground(sessions: readonly Session[]): void {
   if (flushing) return;
   flushing = true;
   // A locked or broken mailbox must not take the list or the phone server down with it.
   void Promise.resolve()
-    .then(() => (pending().length ? flush(sessions) : undefined))
+    .then(() => {
+      askParents(sessions);
+      return pending().length ? flush(sessions) : undefined;
+    })
     .catch(() => {})
     .finally(() => {
       flushing = false;
