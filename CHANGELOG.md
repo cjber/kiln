@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A restart no longer revives finished subagents.** A one-shot `opencode run` stayed in kiln's saved sessions, so after a restart it showed as stopped and `kiln resume --all` started it again as an interactive session, which went on editing its old worktree. Subagents and headless runs are no longer saved for resuming, and rows already saved for them are dropped.
+
 - **See what each agent edited.** Press `e` on a session to list its prompts with the files each one changed and the lines added and removed, then open a file to read it with each agent's lines marked in its colour. `]` and `[` jump between edits, `v` and `a` send selected lines and a question to the session that wrote them, and `f` follows a session, opening each file as it is edited. `kiln edits` and `kiln blame <file>` print the same from the command line, and `kiln edits --follow` streams new edits as JSON. Edits come from the Claude, Codex, OpenCode and Pi transcripts, and a line something else changed since is credited to nobody.
 
 - **Warnings when two sessions edit the same file.** When a session edits a file another live session changed in its latest prompt, `kiln serve` messages both. Set `edit_messages = false` to turn this off.

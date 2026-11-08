@@ -196,3 +196,38 @@ test("a parent read from a detached run's environment is recorded once, and outl
   const { pid: _pid, spawnParent: _parent, ...finished } = detached;
   expect(attachParents([finished], path)[0]?.spawnParent).toBe("claude:lead");
 });
+
+test("a restart never turns a child into a stopped session", () => {
+  const child = {
+    agent: "opencode" as const,
+    id: "ses_child",
+    cwd: "/repo",
+    parent: "claude:lead",
+    startedAt: 2,
+    boot: "b",
+  };
+  const after = reconcile([child], [], "c", 0, () => false);
+  expect(after.stopped).toEqual([]);
+  expect(after.saved).toEqual([]);
+  // One its provider still lists keeps its row and parent across the restart, as nesting needs.
+  const listed: Session = {
+    agent: "opencode",
+    id: "ses_child",
+    cwd: "/repo",
+    startedAt: 2,
+    place: { kind: "elsewhere" },
+  };
+  expect(reconcile([child], [listed], "c", 0, () => false)).toEqual({ saved: [{ ...child, boot: "c" }], stopped: [] });
+});
+
+test("a headless OpenCode run is never saved, even when its parent is unknown", () => {
+  const run: Session = {
+    agent: "opencode",
+    id: "ses_run",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "thread", id: "ses_run", attach: ["opencode", "--session", "ses_run"] },
+  };
+  const codex: Session = { ...run, agent: "codex", id: "thread", place: { kind: "thread", id: "thread", attach: [] } };
+  expect(reconcile([], [run, codex], "b", 0, () => false).saved.map((item) => item.agent)).toEqual(["codex"]);
+});
