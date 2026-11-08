@@ -10,6 +10,7 @@ import {
   deduplicateSessions,
   environParent,
   finishedClaudeJobs,
+  finishedOpencodeChildren,
   inheritedCodexParent,
   isInteractiveCodex,
   resumedCodexThread,
@@ -365,4 +366,28 @@ test("a detached run names its parent by the one session variable it inherited",
       throw new Error("gone");
     }),
   ).toBeUndefined();
+});
+
+test("an OpenCode child closes once its run has exited and its last turn ended without needing anyone", () => {
+  const child = (fields: Partial<Session>): Session => ({
+    agent: "opencode",
+    id: "ses_a",
+    cwd: "/repo",
+    startedAt: 1,
+    activity: "idle",
+    spawnParent: "claude:parent",
+    place: { kind: "thread", id: "ses_a", attach: [] },
+    ...fields,
+  });
+  const done = child({});
+  const fromOpencode = child({ spawnParent: undefined, parentSessionId: "ses_parent" });
+  const running = child({ pid: 42 });
+  const working = child({ activity: "working" });
+  const failed = child({ activity: "waiting" });
+  const unknown = child({ activity: undefined });
+  const topLevel = child({ spawnParent: undefined });
+  const terminal = child({ place: { kind: "kiln", name: "opencode-a" } });
+  expect(finishedOpencodeChildren([done, fromOpencode, running, working, failed, unknown, topLevel, terminal])).toEqual(
+    [done, fromOpencode],
+  );
 });
