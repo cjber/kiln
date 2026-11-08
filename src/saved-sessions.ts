@@ -90,7 +90,10 @@ function resumable(session: Session): session is Session & { id: string } {
     /^[A-Za-z0-9][\w.-]*$/.test(session.id) &&
     session.parentSessionPid === undefined &&
     session.parentSessionId === undefined &&
-    (kind === "thread" || (session.pid !== undefined && (kind === "kiln" || kind === "kitty" || kind === "elsewhere")))
+    // An OpenCode `thread` is a conversation in its service with no terminal, which is how a finished `opencode run`
+    // is listed; only a Codex thread stands for a terminal.
+    ((kind === "thread" && session.agent === "codex") ||
+      (session.pid !== undefined && (kind === "kiln" || kind === "kitty" || kind === "elsewhere")))
   );
 }
 
@@ -131,7 +134,12 @@ export function reconcile(
       next.set(key(item), { ...item, boot, goneAt: undefined });
       continue;
     }
-    if (item.boot !== boot) next.set(key(item), item);
+    // A restart cut off a top-level session, which comes back stopped. A child belongs to the agent that started it,
+    // which decides whether to run it again; a finished `opencode run` revived as an interactive session would carry on
+    // editing a worktree its parent has since moved on from, so a child from an earlier boot is dropped.
+    if (item.boot !== boot) {
+      if (!item.parent) next.set(key(item), item);
+    }
     // A running process under a new id started another conversation; the old one is not what a restart would lose.
     else if (item.pid !== undefined && running.has(item.pid)) continue;
     // A listing that failed says nothing about a process that is still there.
