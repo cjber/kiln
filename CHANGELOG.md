@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-08
+
 - **A restart no longer revives finished subagents.** A one-shot `opencode run` stayed in kiln's saved sessions, so after a restart it showed as stopped and `kiln resume --all` started it again as an interactive session, which went on editing its old worktree. Subagents and headless runs are no longer saved for resuming, and rows already saved for them are dropped.
 
 - **Finished OpenCode sub-sessions leave the list.** An OpenCode run another agent started is archived once its process has exited and its last turn ended, whether or not `kiln msg spawn` started it, so a parent no longer collects a pile of ready children for six hours. One that failed or asks a question stays listed.
