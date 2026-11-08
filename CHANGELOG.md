@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-08
+
 - **Finished OpenCode sub-sessions leave the list.** An OpenCode run another agent started is archived once its process has exited and its last turn ended, whether or not `kiln msg spawn` started it, so a parent no longer collects a pile of ready children for six hours. One that failed or asks a question stays listed.
 
 ## [0.23.0] - 2026-11-08
