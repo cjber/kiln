@@ -75,4 +75,18 @@ class SessionViewTest {
         assertEquals(3, readAtMost(java.io.ByteArrayInputStream(ByteArray(3)), 3).size)
         assertEquals(4, readAtMost(java.io.ByteArrayInputStream(ByteArray(1_000)), 3).size)
     }
+
+    @Test
+    fun editsListEachPromptWithItsFiles() {
+        val turns =
+            parseEdits(
+                """{"turns":[{"turn":1,"prompt":"fix it","at":5,"added":3,"removed":1,"files":[
+                {"file":"/r/a.ts","added":2,"removed":1,"created":false,"deleted":false,"edits":2},
+                {"file":"/r/b.ts","added":1,"removed":0,"created":true,"deleted":false,"edits":1}]}]}"""
+            )
+        assertEquals(1, turns.size)
+        assertEquals("fix it", turns[0].prompt)
+        assertEquals(listOf("/r/a.ts", "/r/b.ts"), turns[0].files.map { it.file })
+        assertEquals(true, turns[0].files[1].created)
+    }
 }

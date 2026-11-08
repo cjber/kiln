@@ -3,8 +3,10 @@ import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
+import { collisionWatch, warn } from "./collisions";
 import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
+import { ledgers, turnSummaries } from "./edits";
 import { resumeStopped, startFromPhone } from "./launcher";
 import { post } from "./mailbox";
 import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
@@ -187,6 +189,9 @@ export function startServer({
   offer = (sessions, current) => offeredDirectories(sessions, current.zoxide ? rankedDirectories() : []),
   prs = pullRequests(),
   tell = autopilot(),
+  edits = ledgers(),
+  collide = collisionWatch(),
+  warnEdits = warn,
 }: {
   port: number;
   pairing: Pairing;
@@ -213,6 +218,11 @@ export function startServer({
   prs?: ReturnType<typeof pullRequests>;
   /** Posts what changed on each session's pull requests to its agent, when `pr_messages` is on. */
   tell?: ReturnType<typeof autopilot>;
+  /** Each session's edits, read incrementally from its transcript. */
+  edits?: ReturnType<typeof ledgers>;
+  /** Finds running sessions editing the same file, when `edit_messages` is on. */
+  collide?: ReturnType<typeof collisionWatch>;
+  warnEdits?: typeof warn;
 }) {
   const writable = () => {
     try {
@@ -224,6 +234,13 @@ export function startServer({
   const prMessages = () => {
     try {
       return settings().prMessages;
+    } catch {
+      return false;
+    }
+  };
+  const editMessages = () => {
+    try {
+      return settings().editMessages;
     } catch {
       return false;
     }
@@ -318,6 +335,12 @@ export function startServer({
     if (session.place.kind !== "kiln") return undefined;
     const shown = screen(session.place.name);
     return shown && parsePrompt(shown.text, shown.width);
+  };
+  /** What each prompt changed: files and line counts only, never file contents, so phone writes need not be on. */
+  const sessionEdits = (id: string) => {
+    const session = listed.find((row) => sessionIdentity(row) === id);
+    if (!session) throw new Refusal(404, "That session is not listed");
+    return { turns: turnSummaries(edits.of(session)) };
   };
   const viewSession = (id: string, cursor: string | null) => {
     const session = listedSession(id);
@@ -461,7 +484,9 @@ export function startServer({
         const messages = path.match(/^\/v1\/sessions\/([^/]+)\/messages$/)?.[1];
         if (request.method === "POST" && messages)
           return response(await sendMessage(device, decodeURIComponent(messages), request));
-        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt|prompt|files|resume)$/);
+        const action = path.match(/^\/v1\/sessions\/([^/]+)\/(view|interrupt|prompt|files|resume|edits)$/);
+        if (action?.[1] && action[2] === "edits" && request.method === "GET")
+          return response(sessionEdits(decodeURIComponent(action[1])));
         if (action?.[1] && action[2] === "resume" && request.method === "POST")
           return response(await resumeSession(decodeURIComponent(action[1])));
         if (action?.[1] && action[2] === "view" && request.method === "GET")
@@ -598,6 +623,14 @@ export function startServer({
           if (tell(found)) flushInBackground(sessions);
         } catch {
           // A broken mailbox never fails a refresh.
+        }
+      // Running agents editing one file hear about it once per file and pair of prompts.
+      if (!stale)
+        try {
+          if (editMessages() && warnEdits(collide(sessions, edits.of))) flushInBackground(sessions);
+          edits.sweep(sessions);
+        } catch {
+          // A broken mailbox or an unreadable transcript never fails a refresh.
         }
       try {
         transitions(sessions, alerting);

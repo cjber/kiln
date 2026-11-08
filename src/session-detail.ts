@@ -7,6 +7,8 @@ export type DetailOptions = {
   prs?: readonly PullRequest[];
   /** Uncommitted files in its checkout, once counted. */
   changes?: number;
+  /** Files the session's agent has edited, from its transcript. */
+  edited?: number;
   /** A repository name already worked out for the directory. */
   repository?: string;
 };
@@ -22,7 +24,7 @@ export function newestFirst(prs: readonly PullRequest[]): PullRequest[] {
 /** The expanded line under a session: which repository, worktree, branch, every pull request and how much changed. */
 export function sessionDetail(
   session: Session,
-  { prs = [], changes = 0, repository }: DetailOptions = {},
+  { prs = [], changes = 0, edited = 0, repository }: DetailOptions = {},
 ): DetailPart[] {
   const directory = sessionDirectory(session);
   const branch = session.branch;
@@ -38,5 +40,6 @@ export function sessionDetail(
     ...(branch ? [{ text: branch }] : []),
     ...pulls,
     ...(changes ? [{ text: `${changes} changed` }] : []),
+    ...(edited ? [{ text: `${edited} ${edited === 1 ? "file" : "files"} edited · e review` }] : []),
   ].filter((part) => part.text);
 }

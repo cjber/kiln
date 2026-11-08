@@ -99,6 +99,8 @@ The page updates itself over a server-sent event stream: session status every tw
 | `n` | Choose an agent, then a directory through fzf |
 | `/` | Filter titles, directories, agent names and status |
 | `Space` `Tab` `←` `→` | Expand or collapse children |
+| `e` | Review what the session edited |
+| `f` | Follow the session's edits as it makes them |
 | `o` | Cycle list order |
 | `x` | Close a kiln-owned session after confirmation |
 | `s` | Edit settings |
@@ -126,6 +128,26 @@ Desktop notifications identify the session when it needs input or finishes an ob
 
 Cloud tasks retain their provider status and verified HTTPS links. Claude cloud tasks open in a browser. Codex Cloud tasks open a read-only CLI status/diff viewer. Cloud tasks cannot be closed or prompted from kiln.
 
+## Edits
+
+<img src="assets/edits.png" alt="Edits by prompt" /> <img src="assets/edits-file.png" alt="A file with the lines each agent wrote marked" />
+
+Kiln reads every file edit from the agents' own transcripts: Claude, Codex, OpenCode and Pi. Press `e` on a session to list its prompts, newest first, each with the files it changed and the lines added and removed. Open a file to read it with the lines each agent wrote marked in the gutter in that agent's colour, and the lines of the chosen prompt shaded.
+
+In a file, `j` `k`, `Ctrl+D` `Ctrl+U` and `g` `G` move, `]` and `[` jump to the next and previous run of lines one edit wrote, and `n` `N` step through the prompt's files. The footer names the session and prompt that wrote the line under the cursor. `v` selects lines and `a` asks a question about them: kiln sends the lines and your question to the session that wrote them, through the same mailbox as `kiln msg`. `f` follows the session: the view opens each file as the agent edits it and shades the new lines. Moving by hand pauses following.
+
+Lines are credited the way `git blame` credits commits: kiln walks back from the file on disk, undoing each recorded edit where its text still is. A line something else changed since, such as a formatter or a person, belongs to nobody, and nothing older than that change is credited, so a credit is never a guess.
+
+```sh
+kiln edits [name]      # what each prompt changed; your own session, or the sessions in this checkout
+kiln edits --json
+kiln edits --follow    # every new edit by any session, one JSON object per line
+kiln blame <file>      # which session and prompt wrote each line
+kiln blame <file> --json
+```
+
+When one session edits a file that another live session changed in its latest prompt, kiln messages both, once per file and pair of prompts, so neither overwrites the other unaware. `kiln serve` sends these while it runs; set `edit_messages = false` to turn them off. The phone's session view has an Edits tab with the same per-prompt summary, which carries paths and counts and never file contents.
+
 ## Settings
 
 Press `s` to edit `~/.config/kiln/config.toml` (`$XDG_CONFIG_HOME` when set). Unknown keys are errors. Each agent command launches that agent's native TUI.
@@ -139,6 +161,7 @@ cloud = true
 notifications = true
 claude_cloud = false
 remote_control = true
+edit_messages = true
 
 [agents]
 claude = ["claude"]
