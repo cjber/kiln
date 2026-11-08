@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **Android builds retry the Gradle download.** A release no longer fails when services.gradle.org returns an error or stalls for a moment: the wrapper now tries five times, five seconds apart, and waits up to a minute per attempt.
+- **Android builds retry the Gradle download.** A release no longer fails when services.gradle.org returns an error or stalls for a moment: the wrapper now tries five times, five seconds apart, and waits up to a minute per attempt. The release's source tarball and CI's gitleaks download retry the same way, and a release run can be rerun after a later step fails.
 
 ## [0.23.0] - 2026-11-08
 
