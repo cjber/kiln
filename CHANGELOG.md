@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-08
+
 - **Close sessions from the command line.** `kiln close` lists the sessions the list's `x` key can close, and `kiln close <name...>` closes them the same way: a kiln terminal closes, an OpenCode or Codex daemon conversation is archived, a Claude background job is stopped and removed and a stopped row is forgotten. Agents can now tidy up finished sessions, and the `kiln-agents` skill says when to.
 
 ## [0.22.2] - 2026-11-06
