@@ -113,6 +113,7 @@ describe("scanEdits", () => {
 
   test("Pi: edit results carry a patch; a write counts only once it succeeds", () => {
     const path = jsonl("pi.jsonl", [
+      { type: "session", id: "s", cwd: "/repo" },
       { type: "message", id: "1", message: { role: "user", content: [{ type: "text", text: "go" }] } },
       {
         type: "message",
@@ -120,7 +121,7 @@ describe("scanEdits", () => {
         message: {
           role: "assistant",
           content: [
-            { type: "toolCall", id: "w1", name: "write", arguments: { path: "/repo/w.ts", content: "a\n" } },
+            { type: "toolCall", id: "w1", name: "write", arguments: { path: "w.ts", content: "a\n" } },
             { type: "toolCall", id: "w2", name: "write", arguments: { path: "/repo/failed.ts", content: "a\n" } },
           ],
         },
@@ -139,14 +140,14 @@ describe("scanEdits", () => {
           toolCallId: "e1",
           toolName: "edit",
           content: [],
-          details: { patch: "--- /repo/e.ts\n+++ /repo/e.ts\n@@ -1 +1 @@\n-x\n+y\n" },
+          details: { patch: "--- src/e.ts\n+++ src/e.ts\n@@ -1 +1 @@\n-x\n+y\n" },
         },
       },
     ]);
     const { ledger } = scanEdits(path, "pi");
     expect(ledger.edits.map((edit) => [edit.file, edit.change])).toEqual([
       ["/repo/w.ts", "write"],
-      ["/repo/e.ts", "update"],
+      ["/repo/src/e.ts", "update"],
     ]);
   });
 });
@@ -223,5 +224,17 @@ test("turnSummaries counts each turn's files and lines, newest turn first", () =
     ["two", 3, 1],
     ["one", 1, 1],
   ]);
-  expect(summaries[0]?.files).toEqual([{ file: "/y", added: 3, removed: 1, created: true, deleted: false, edits: 2 }]);
+  expect(summaries[0]?.files).toEqual([
+    { file: "/y", added: 3, removed: 1, created: true, deleted: false, rewritten: false, edits: 2 },
+  ]);
+});
+
+test("a transcript ending in an unfinished line longer than a step is read once it ends", () => {
+  const record = JSON.stringify({ type: "user", message: { role: "user", content: "x".repeat(9 * 1024 * 1024) } });
+  const path = join(scratch, "long.jsonl");
+  writeFileSync(path, record.slice(0, -1));
+  const scan = scanEdits(path, "claude");
+  expect(scan.offset).toBe(0);
+  appendFileSync(path, `${record.slice(-1)}\n`);
+  expect(scanEdits(path, "claude", scan).offset).toBe(record.length + 1);
 });

@@ -112,7 +112,12 @@ type Scan = {
   ledger: Ledger;
   /** Pi `write` calls by id, waiting for a result that says they succeeded. */
   writes: Map<string, { path: string; content: string }>;
+  /** The directory a Pi session runs in, from its first record; Pi records the paths it is given, often relative. */
+  cwd?: string;
 };
+
+/** A path a tool was given, made absolute against the session's directory, or undefined when that is unknown. */
+const resolved = (scan: Scan, path: string) => (isAbsolute(path) ? path : scan.cwd ? join(scan.cwd, path) : undefined);
 
 type Collect = { scan: Scan; record: Record<string, unknown> };
 
@@ -184,15 +189,17 @@ function codexRecord({ scan, record }: Collect) {
 
 /** A Pi record: an `edit` result carries a diff, and a `write` call's content counts once its result succeeds. */
 function piRecord({ scan, record }: Collect) {
+  if (record.type === "session" && typeof record.cwd === "string") scan.cwd = record.cwd;
   if (record.type !== "message") return;
   const message = (record.message ?? {}) as Record<string, unknown>;
   const at = timestamp(record.timestamp ?? message.timestamp);
   if (message.role === "assistant" && Array.isArray(message.content))
     for (const part of message.content) {
       const args = part?.arguments as { path?: unknown; content?: unknown } | undefined;
-      if (part?.type === "toolCall" && part.name === "write" && typeof part.id === "string")
-        if (typeof args?.path === "string" && isAbsolute(args.path) && typeof args.content === "string")
-          scan.writes.set(part.id, { path: args.path, content: args.content });
+      if (part?.type === "toolCall" && part.name === "write" && typeof part.id === "string") {
+        const path = typeof args?.path === "string" ? resolved(scan, args.path) : undefined;
+        if (path && typeof args?.content === "string") scan.writes.set(part.id, { path, content: args.content });
+      }
     }
   if (message.role === "toolResult" && typeof message.toolCallId === "string") {
     const id = message.toolCallId;
@@ -210,10 +217,10 @@ function piRecord({ scan, record }: Collect) {
       });
     const details = message.details as { patch?: unknown } | undefined;
     if (message.toolName === "edit" && typeof details?.patch === "string") {
-      const file = details.patch.match(/^\+\+\+ (\S+)/m)?.[1];
+      const given = details.patch.match(/^\+\+\+ (.+)$/m)?.[1];
+      const file = given && resolved(scan, given);
       const hunks = parseUnified(details.patch);
-      if (file && isAbsolute(file) && hunks.length)
-        scan.ledger.edits.push({ id, at, file, change: "update", hunks, turn: turnOf(scan) });
+      if (file && hunks.length) scan.ledger.edits.push({ id, at, file, change: "update", hunks, turn: turnOf(scan) });
     }
     return;
   }
@@ -227,10 +234,17 @@ const relevant = {
   claude: (line: string) =>
     line.includes('"structuredPatch"') || (line.includes('"type":"user"') && !line.includes('"tool_use_id"')),
   codex: (line: string) => line.includes('"FileChange"') || line.includes('"role":"user"'),
-  pi: (line: string) => line.includes('"toolResult"') || line.includes('"toolCall"') || line.includes('"role":"user"'),
+  pi: (line: string) =>
+    line.includes('"type":"session"') ||
+    line.includes('"toolResult"') ||
+    line.includes('"toolCall"') ||
+    line.includes('"role":"user"'),
 };
 
-/** Read a transcript's edits from the scan's offset, at most `stepBytes` at a time, until its end. */
+/**
+ * Read a transcript's edits from the scan's offset to its end, `stepBytes` at a time so memory stays bounded. The first
+ * read of a long transcript parses it all (a 150 MB one takes about half a second); later reads parse what was appended.
+ */
 export function scanEdits(path: string, agent: keyof typeof readers, scan?: Scan): Scan {
   const info = statSync(path);
   // A replaced or truncated transcript is read again from the start.
@@ -253,7 +267,10 @@ export function scanEdits(path: string, agent: keyof typeof readers, scan?: Scan
       if (last === -1) {
         // A line longer than a whole step is read whole on a later call, once it is complete.
         if (end < info.size) {
-          state.offset = scanLongLine(fd, state, info.size, agent);
+          const after = scanLongLine(fd, state, info.size, agent);
+          // The last line is still being written; it is read once it ends.
+          if (after === state.offset) break;
+          state.offset = after;
           continue;
         }
         break;
@@ -436,13 +453,14 @@ export function ledgers() {
   };
 }
 
-/** What one turn changed in one file. `removed` is unknown for a whole-file write. */
+/** What one turn changed in one file. A whole-file write records no removed lines, so `removed` means nothing then. */
 export type FileSummary = {
   file: string;
   added: number;
   removed: number;
   created: boolean;
   deleted: boolean;
+  rewritten: boolean;
   edits: number;
 };
 
@@ -453,7 +471,17 @@ export type TurnSummary = {
   files: FileSummary[];
   added: number;
   removed: number;
+  /** Some file was rewritten whole, so `removed` undercounts. */
+  rewritten: boolean;
 };
+
+/** Lines added and removed, with the removed count left out where a whole-file write makes it unknown. */
+export const lineCounts = (summary: { added: number; removed: number; rewritten: boolean }) =>
+  summary.rewritten ? `+${summary.added}` : `+${summary.added} -${summary.removed}`;
+
+/** What happened to a file besides its line counts: made, deleted or rewritten whole. */
+export const fileChange = (file: FileSummary) =>
+  file.created ? "new " : file.deleted ? "deleted " : file.rewritten ? "rewritten " : "";
 
 /** Each turn that edited something, newest first, with the files it touched in the order it first touched them. */
 export function turnSummaries(ledger: Ledger): TurnSummary[] {
@@ -467,12 +495,14 @@ export function turnSummaries(ledger: Ledger): TurnSummary[] {
       removed: 0,
       created: false,
       deleted: false,
+      rewritten: false,
       edits: 0,
     };
     files.set(edit.file, summary);
     summary.edits++;
     if (edit.change === "create") summary.created = true;
     if (edit.change === "delete") summary.deleted = true;
+    if (edit.change === "write") summary.rewritten = true;
     for (const hunk of edit.hunks)
       for (const line of hunk.lines) {
         if (line[0] === "+") summary.added++;
@@ -491,6 +521,7 @@ export function turnSummaries(ledger: Ledger): TurnSummary[] {
         files: list,
         added: list.reduce((sum, file) => sum + file.added, 0),
         removed: list.reduce((sum, file) => sum + file.removed, 0),
+        rewritten: list.some((file) => file.rewritten),
       };
     });
 }

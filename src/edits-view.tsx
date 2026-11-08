@@ -11,7 +11,16 @@ import {
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { blame, type Owned } from "./blame";
-import { fileHistory, type Ledger, splitLines, type Turn, turnSummaries, type Writer } from "./edits";
+import {
+  fileChange,
+  fileHistory,
+  type Ledger,
+  lineCounts,
+  splitLines,
+  type Turn,
+  turnSummaries,
+  type Writer,
+} from "./edits";
 import { reachable } from "./messages";
 import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity } from "./sessions";
 import { color, displayWidth, tilde, typed } from "./tui";
@@ -381,7 +390,7 @@ export function EditsView({
               const turn = turns.find((entry) => entry.turn === row.turn);
               if (!turn) return null;
               if (row.kind === "turn") {
-                const counts = `${turn.files.length} ${turn.files.length === 1 ? "file" : "files"} +${turn.added} -${turn.removed}`;
+                const counts = `${turn.files.length} ${turn.files.length === 1 ? "file" : "files"} ${lineCounts(turn)}`;
                 const room = Math.max(1, width - 2 - 7 - displayWidth(counts));
                 return (
                   <text key={`t${row.turn}`} wrapMode="none" bg={active ? color.bg2 : undefined}>
@@ -395,9 +404,7 @@ export function EditsView({
                 );
               }
               const entry = turn.files.find((item) => item.file === row.file);
-              const counts = entry
-                ? `${entry.created ? "new " : entry.deleted ? "deleted " : ""}+${entry.added} -${entry.removed}`
-                : "";
+              const counts = entry ? `${fileChange(entry)}${lineCounts(entry)}` : "";
               const room = Math.max(1, width - 2 - 8 - displayWidth(counts) - 1);
               return (
                 <text key={`f${row.turn}:${row.file}`} wrapMode="none" bg={active ? color.bg2 : undefined}>

@@ -167,6 +167,8 @@ data class EditFile(
     val removed: Int,
     val created: Boolean,
     val deleted: Boolean,
+    /** Written whole, so how many lines it replaced is unknown. */
+    val rewritten: Boolean,
 )
 
 /** What one prompt changed: newest prompt first. */
@@ -175,6 +177,7 @@ data class EditTurn(
     val files: List<EditFile>,
     val added: Int,
     val removed: Int,
+    val rewritten: Boolean,
 )
 
 internal fun parseEdits(body: String): List<EditTurn> =
@@ -188,10 +191,12 @@ internal fun parseEdits(body: String): List<EditTurn> =
                     it.getInt("removed"),
                     it.optBoolean("created"),
                     it.optBoolean("deleted"),
+                    it.optBoolean("rewritten"),
                 )
             },
             turn.getInt("added"),
             turn.getInt("removed"),
+            turn.optBoolean("rewritten"),
         )
     }
 
@@ -565,7 +570,8 @@ private fun EditsList(turns: List<EditTurn>?, modifier: Modifier) {
                     maxLines = 2,
                 )
                 Text(
-                    "${turn.files.size} files  +${turn.added} -${turn.removed}",
+                    "${turn.files.size} files  +${turn.added}" +
+                        if (turn.rewritten) "" else " -${turn.removed}",
                     color = Tui.fgDim,
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -582,13 +588,16 @@ private fun EditsList(turns: List<EditTurn>?, modifier: Modifier) {
                             when {
                                 file.created -> "new "
                                 file.deleted -> "deleted "
+                                file.rewritten -> "rewritten "
                                 else -> ""
                             },
                             color = Tui.fgDim,
                             style = mono,
                         )
                         Text("+${file.added}", color = Tui.green, style = mono)
-                        Text(" -${file.removed}", color = Tui.red, style = mono)
+                        // A file written whole has no removed count to show.
+                        if (!file.rewritten)
+                            Text(" -${file.removed}", color = Tui.red, style = mono)
                     }
                 }
             }

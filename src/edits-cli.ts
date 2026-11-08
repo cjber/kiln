@@ -2,7 +2,16 @@ import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { blame } from "./blame";
-import { type FileEdit, fileHistory, type Ledger, ledgers, splitLines, turnSummaries } from "./edits";
+import {
+  type FileEdit,
+  fileChange,
+  fileHistory,
+  type Ledger,
+  ledgers,
+  lineCounts,
+  splitLines,
+  turnSummaries,
+} from "./edits";
 import { callerIdentity } from "./messages";
 import { sessionTitle } from "./session-list";
 import { agentName, discovery, type Session, sessionDirectory, sessionIdentity } from "./sessions";
@@ -155,12 +164,10 @@ export async function runEditsCli(command: "edits" | "blame", args: string[]): P
     if (!turns.length) console.log("  no edits");
     for (const turn of turns) {
       console.log(
-        `  ${ago(turn.at).padStart(3)}  ${firstLine(turn.prompt || "(before the first prompt)", 72)}  ${turn.files.length} files +${turn.added} -${turn.removed}`,
+        `  ${ago(turn.at).padStart(3)}  ${firstLine(turn.prompt || "(before the first prompt)", 72)}  ${turn.files.length} files ${lineCounts(turn)}`,
       );
       for (const file of turn.files)
-        console.log(
-          `         ${tilde(file.file)}  ${file.created ? "new " : file.deleted ? "deleted " : ""}+${file.added} -${file.removed}`,
-        );
+        console.log(`         ${tilde(file.file)}  ${fileChange(file)}${lineCounts(file)}`);
     }
   }
 }
