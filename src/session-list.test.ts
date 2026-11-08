@@ -52,6 +52,23 @@ test("children expand or match with their parent", () => {
   expect(entries(sessionRows(sessions, "project", "Review", new Set()))).toEqual([1, 2]);
 });
 
+test("a collapsed parent still shows the path to a child waiting for input", () => {
+  const middle: Session = { ...child, activity: "working" };
+  const waiting: Session = {
+    ...child,
+    pid: 3,
+    parentSessionPid: 2,
+    activity: "waiting",
+    place: { kind: "kiln", name: "w" },
+  };
+  const quiet: Session = { ...child, pid: 4, activity: "idle", place: { kind: "kiln", name: "q" } };
+  const rows = sessionRows([waiting, quiet, middle, parent], "project", "", new Set());
+  expect(entries(rows)).toEqual([1, 2, 3]);
+  expect(rows.find((row) => row.kind === "session")).toMatchObject({ children: 2 });
+  const stopped: Session = { ...waiting, lifecycle: "stopped" };
+  expect(entries(sessionRows([stopped, middle, parent], "project", "", new Set()))).toEqual([1]);
+});
+
 test("directory groups sort by name and retain latest updates inside each group", () => {
   const recent: Session = { ...parent, pid: 4, lastActiveAt: 30 };
   const blog: Session = { ...parent, pid: 5, cwd: "/a/blog", lastActiveAt: 100 };

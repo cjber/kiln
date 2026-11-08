@@ -15,7 +15,67 @@ export type OpencodeSession = {
   running: boolean;
   title?: string;
   parentId?: string;
+  /** Its first open form, while the session waits on one. */
+  question?: Question;
 };
+
+/** What a waiting session asked, by the id of the form that asks it. */
+export type Question = { id: string; text: string };
+
+type Option = { value: string; label: string; description?: string };
+type Field = {
+  key: string;
+  type: string;
+  title?: string;
+  description?: string;
+  hidden?: boolean;
+  options?: Option[];
+  custom?: boolean;
+};
+type Form = { id: string; title: string; fields: Field[] };
+
+/** A form as plain text, for an agent to read and answer in one reply. */
+export function describeForm(form: Form): Question {
+  return {
+    id: form.id,
+    text: (form.fields ?? [])
+      .filter((field) => !field.hidden)
+      .map((field) =>
+        [
+          [field.title, field.description].filter(Boolean).join(": ") || form.title,
+          ...(field.options ?? []).map(
+            (option) => `- ${option.label}${option.description ? `: ${option.description}` : ""}`,
+          ),
+        ].join("\n"),
+      )
+      .join("\n\n"),
+  };
+}
+
+/** A form kiln cannot read still marks its session waiting; it is just not passed on. */
+function describeOrSkip(form: Form): Question | undefined {
+  try {
+    return describeForm(form);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The answer a form takes from one written reply: its only visible field, when that field takes text. A field that
+ * only takes one of its options takes a reply that names exactly one of them.
+ */
+export function formAnswer(form: Form, text: string): Record<string, string> | undefined {
+  const fields = (form.fields ?? []).filter((field) => !field.hidden);
+  const [field] = fields;
+  if (fields.length !== 1 || !field || field.type !== "string") return undefined;
+  if (field.custom !== false || !field.options?.length) return { [field.key]: text };
+  const names = (name: string) =>
+    name.trim() !== "" &&
+    new RegExp(`(^|[^\\p{L}\\p{N}])${RegExp.escape(name.trim())}($|[^\\p{L}\\p{N}])`, "iu").test(text);
+  const named = field.options.filter((option) => names(option.value) || names(option.label));
+  return named.length === 1 && named[0] ? { [field.key]: named[0].value } : undefined;
+}
 
 /** `live` says the service answered, so a session missing from `sessions` is known to be inactive. */
 export type OpencodeListing = { sessions: OpencodeSession[]; live: boolean };
@@ -249,15 +309,16 @@ async function read(): Promise<OpencodeSession[]> {
     get<{ data: Record<string, Active> }>("session.active"),
     get<{ data: Info[] }>("session.list", { limit: listLimit }),
   ]);
-  const waiting = new Set(
+  const waiting = new Map(
     (
       await Promise.all(
         Object.keys(active.data).map(async (id) => {
           const [permissions, forms] = await Promise.all([
             get<{ data: unknown[] }>("session.permission.list", { sessionID: id }),
-            get<{ data: unknown[] }>("session.form.list", { sessionID: id }),
+            get<{ data: Form[] }>("session.form.list", { sessionID: id }),
           ]);
-          return permissions.data.length || forms.data.length ? [id] : [];
+          const [form] = forms.data;
+          return permissions.data.length || form ? [[id, form && describeOrSkip(form)] as const] : [];
         }),
       )
     ).flat(),
@@ -275,6 +336,7 @@ async function read(): Promise<OpencodeSession[]> {
         running,
         title: info.title,
         parentId: info.parentID,
+        question: waiting.get(info.id),
       },
     ];
   });
@@ -330,16 +392,42 @@ export async function archiveOpencodeSession(id: string): Promise<void> {
   }
 }
 
-/** The service admits a prompt durably and runs it after any turn in progress, so a busy session can take one. */
-export async function promptOpencodeSession(id: string, text: string): Promise<void> {
+async function write(method: "POST" | "DELETE", path: string, body?: unknown): Promise<void> {
   const { url, authorization } = opencodeService();
-  const response = await fetch(`${url}/api/session/${encodeURIComponent(id)}/prompt`, {
-    method: "POST",
+  const response = await fetch(`${url}${path}`, {
+    method,
     headers: { Authorization: authorization, "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: body === undefined ? undefined : JSON.stringify(body),
     redirect: "error",
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok)
     throw new Error((await response.text()).split("\n")[0] || `the OpenCode service answered ${response.status}`);
+}
+
+/**
+ * A message is queued as a prompt; the service admits one durably and runs it after any turn in progress, so a busy
+ * session can take one. When `reply` gives an answer for the session's open form, the message answers that form
+ * instead. A form the answer cannot fill, or that turns it down, is cancelled, so the turn goes on and the message
+ * follows it as a prompt.
+ */
+export async function messageOpencodeSession(
+  id: string,
+  text: string,
+  reply: (form: string) => string | undefined = () => undefined,
+): Promise<void> {
+  const session = `/api/session/${encodeURIComponent(id)}`;
+  const [form] = (await get<{ data: Form[] }>("session.form.list", { sessionID: id })).data;
+  const answer = form && reply(form.id);
+  if (form && answer !== undefined) {
+    try {
+      const filled = formAnswer(form, answer);
+      if (filled)
+        return await write("POST", `${session}/form/${encodeURIComponent(form.id)}/reply`, { answer: filled });
+    } catch {
+      // A form kiln cannot read, or one the service would not fill, still takes the cancel and the prompt.
+    }
+    await write("DELETE", `${session}/form/${encodeURIComponent(form.id)}`);
+  }
+  await write("POST", `${session}/prompt`, { text });
 }

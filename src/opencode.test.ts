@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  describeForm,
+  formAnswer,
   headlessIdleMs,
   isOpencodeService,
   matchHeadlessProcesses,
@@ -52,7 +54,7 @@ test("sessions are read from the service over HTTP, with a pending permission as
             { id: "ses_b", time: { created: 1, updated: 2, archived: 3 }, location: { directory: "/repo" } },
           ],
         },
-        "/api/session/ses_a/permission": { data: [{ id: "per_1" }] },
+        "/api/session/ses_a/permission": { data: [{ id: "per_1", action: "edit" }] },
         "/api/session/ses_a/form": { data: [] },
       };
       return url.pathname in routes ? Response.json(routes[url.pathname]) : new Response("missing", { status: 404 });
@@ -65,9 +67,9 @@ test("sessions are read from the service over HTTP, with a pending permission as
   try {
     const listing = await opencodeSessions();
     expect(listing.live).toBe(true);
-    expect(listing.sessions.map(({ id, activity, running }) => ({ id, activity, running }))).toEqual([
-      { id: "ses_a", activity: "waiting", running: true },
-    ]);
+    expect(
+      listing.sessions.map(({ id, activity, running, question }) => ({ id, activity, running, question })),
+    ).toEqual([{ id: "ses_a", activity: "waiting", running: true, question: undefined }]);
     expect(requests).toContain("GET /api/session?limit=100");
   } finally {
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
@@ -151,4 +153,37 @@ test("a headless run is matched to its process by session id, then by directory 
     ses_b: 10,
     ses_c: 12,
   });
+});
+
+const question = {
+  id: "frm_1",
+  title: "Questions",
+  fields: [
+    {
+      key: "q0",
+      type: "string",
+      title: "Next step",
+      description: "What should I continue with?",
+      options: [{ value: "sync", label: "Sync to main", description: "Fast-forward first" }],
+    },
+  ],
+};
+
+test("a waiting session's form reads as one question", () => {
+  expect(describeForm(question)).toEqual({
+    id: "frm_1",
+    text: "Next step: What should I continue with?\n- Sync to main: Fast-forward first",
+  });
+});
+
+test("one reply fills a form with a single text field, or names one of a closed field's options", () => {
+  expect(formAnswer(question, "do the sync")).toEqual({ q0: "do the sync" });
+  const closed = { ...question, fields: [{ ...question.fields[0], key: "q0", type: "string", custom: false }] };
+  expect(formAnswer(closed, "[kiln message from claude:p1]\n\nPlease sync to MAIN first")).toEqual({ q0: "sync" });
+  expect(formAnswer(closed, "something else")).toBeUndefined();
+  const short = { ...closed, fields: [{ ...closed.fields[0], options: [{ value: "a", label: "No" }] }] };
+  expect(formAnswer(short, "Not now, maybe later")).toBeUndefined();
+  expect(formAnswer(short, "no.")).toEqual({ q0: "a" });
+  const two = { ...question, fields: [...question.fields, { key: "q1", type: "boolean" }] };
+  expect(formAnswer(two, "yes")).toBeUndefined();
 });

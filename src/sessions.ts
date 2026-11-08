@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
+import type { Question } from "./opencode";
 
 export type Agent = "claude" | "codex" | "opencode" | "pi";
 
@@ -52,6 +53,8 @@ export type Session = {
   lastActiveAt?: number;
   /** Agent-reported status; terminal output never establishes activity. */
   activity?: Activity;
+  /** What a waiting session asked, when its agent says; only OpenCode does. */
+  question?: Question;
   /** Working only through a background shell or subagent: the agent's own turn has ended, so it takes a prompt. */
   turnEnded?: boolean;
   lifecycle?: Lifecycle;

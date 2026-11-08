@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Subagents ask the agent that started them.** An OpenCode subagent that stops to ask a question now sends it to its parent agent as a kiln message, since a headless run's question shows on no screen. The parent's `kiln msg send` reply answers the question in OpenCode directly, rather than waiting behind it as a new prompt.
+
+- **Subagents that need input show under a collapsed parent.** The header counted every session waiting for input, but a waiting subagent stayed hidden inside its collapsed parent, which only read "working". The list now shows each waiting subagent, and the agents between it and its top-level parent, without expanding the row.
+
 - **See what each agent edited.** Press `e` on a session to list its prompts with the files each one changed and the lines added and removed, then open a file to read it with each agent's lines marked in its colour. `]` and `[` jump between edits, `v` and `a` send selected lines and a question to the session that wrote them, and `f` follows a session, opening each file as it is edited. `kiln edits` and `kiln blame <file>` print the same from the command line, and `kiln edits --follow` streams new edits as JSON. Edits come from the Claude, Codex, OpenCode and Pi transcripts, and a line something else changed since is credited to nobody.
 
 - **Warnings when two sessions edit the same file.** When a session edits a file another live session changed in its latest prompt, `kiln serve` messages both. Set `edit_messages = false` to turn this off.
