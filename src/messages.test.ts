@@ -3,7 +3,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pending, post } from "./mailbox";
-import { callerIdentity, findRecipient, flush, frame, NotNow, processAgent, route, type Transports } from "./messages";
+import {
+  askParents,
+  callerIdentity,
+  findRecipient,
+  flush,
+  frame,
+  NotNow,
+  processAgent,
+  route,
+  type Transports,
+} from "./messages";
 import type { Session } from "./sessions";
 import { kiln } from "./tmux";
 
@@ -118,4 +128,29 @@ test("a message from a person at a shell offers no reply command", () => {
   expect(frame({ ...message, from: "pi:p" }, undefined, "/opt/my kiln/kiln")).toBe(
     "[kiln message from pi:p]\n\nhi\n\n[Reply with: '/opt/my kiln/kiln' msg send pi:p \"<your reply>\"]",
   );
+});
+
+test("a subagent's question goes once to the agent that started it, as a message its reply answers", () => {
+  const path = mailbox();
+  const parent = session({ id: "p1", pid: 10 });
+  const child = session({
+    agent: "opencode",
+    id: "ses_1",
+    pid: 11,
+    parentSessionPid: 10,
+    activity: "waiting",
+    question: { id: "frm_1", text: "Which branch?" },
+    place: { kind: "thread", id: "ses_1", attach: [] },
+  });
+  const quiet = { ...child, id: "ses_2", pid: 12, question: undefined };
+  const send: typeof post = (from, to, body, _path, now, id) => post(from, to, body, path, now, id);
+  const seen = new Set<string>();
+  expect(askParents([parent, child, quiet], send, seen)).toBe(1);
+  expect(askParents([parent, child, quiet], send, new Set())).toBe(1);
+  expect(askParents([parent, child], send, seen)).toBe(0);
+  const [message] = pending(path);
+  expect(pending(path)).toHaveLength(1);
+  expect(message).toMatchObject({ from: "opencode:ses_1", to: "claude:p1" });
+  expect(message?.body).toContain("Which branch?");
+  expect(askParents([child], send, new Set())).toBe(0);
 });
