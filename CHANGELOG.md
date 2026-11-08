@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Android builds retry the Gradle download.** A release no longer fails when services.gradle.org returns an error or stalls for a moment: the wrapper now tries five times, five seconds apart, and waits up to a minute per attempt.
+
 ## [0.23.0] - 2026-11-08
 
 - **Close sessions from the command line.** `kiln close` lists the sessions the list's `x` key can close, and `kiln close <name...>` closes them the same way: a kiln terminal closes, an OpenCode or Codex daemon conversation is archived, a Claude background job is stopped and removed and a stopped row is forgotten. Agents can now tidy up finished sessions, and the `kiln-agents` skill says when to.
