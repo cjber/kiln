@@ -1,8 +1,11 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
+import { ledgers } from "./edits";
+import { agentColor, EditsView } from "./edits-view";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
-import { flushInBackground } from "./messages";
+import { post } from "./mailbox";
+import { flushInBackground, reachable, terminal } from "./messages";
 import { nativeNotifications } from "./notifications";
 import { type DetailPart, newestFirst, sessionDetail } from "./session-detail";
 import {
@@ -34,13 +37,6 @@ import { color, displayWidth, openInEditor, tilde, typed, untilde } from "./tui"
 import { useLatest } from "./use-latest";
 import { checkout } from "./workdir";
 import { rankedDirectories } from "./zoxide";
-
-const agentColor: Record<Agent, string> = {
-  claude: color.peach,
-  codex: color.teal,
-  opencode: color.fgBright,
-  pi: color.purple,
-};
 
 type Mode = "normal" | "filter" | "agent" | "confirm";
 
@@ -181,6 +177,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const [problem, setProblem] = useState("");
   const [settings, getSettings, setSettings] = useLatest(initialSettings);
   const [skillsProject, getSkillsProject, setSkillsProject] = useLatest<string | undefined>(undefined);
+  const [reviewing, getReviewing, setReviewing] = useLatest<{ session: Session; follow: boolean } | undefined>(
+    undefined,
+  );
+  const edits = useMemo(() => ledgers(), []);
   const offered = agents.filter((agent) => settings.agents[agent].length);
   const refreshing = useRef(false);
   const prs = useMemo(() => givenPrs ?? pullRequests(loadSessions ? { gh: false } : {}), [givenPrs, loadSessions]);
@@ -252,6 +252,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       setSessions(found.sessions);
       setProblem(found.problem);
       countChanges(found.sessions);
+      if (!found.stale) edits.sweep(found.sessions);
       const foundPrs = new Map<string, PullRequest[]>();
       for (const session of found.sessions) {
         const list = prs.of(session);
@@ -280,6 +281,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     loadSessions,
     prs,
     countChanges,
+    edits,
   ]);
 
   useEffect(() => {
@@ -383,7 +385,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   );
 
   useKeyboard((key) => {
-    if (getSkillsProject() !== undefined) return;
+    if (getSkillsProject() !== undefined || getReviewing()) return;
     // Shadow the render values with the latest ones; see useLatest.
     const mode = getMode();
     const agentIndex = getAgentIndex();
@@ -468,6 +470,10 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       return setSkillsProject(root.exitCode === 0 ? root.stdout.toString().trim() : cwd);
     }
     if (key.name === "s") return void editSettings();
+    if ((key.name === "e" || key.name === "f") && current) {
+      if (!current.id || current.place.kind === "cloud") return setNotice("kiln cannot read this session's edits");
+      return setReviewing({ session: current, follow: key.name === "f" });
+    }
     if (key.name === "n") {
       if (!choices.length) return setNotice("every agent is hidden in settings; press s to add one");
       setAgentIndex(0);
@@ -487,6 +493,29 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       />
     );
 
+  if (reviewing) {
+    const live = sessions.find((session) => sessionIdentity(session) === sessionIdentity(reviewing.session));
+    return (
+      <EditsView
+        session={live ?? reviewing.session}
+        sessions={sessions}
+        read={edits.of}
+        follow={reviewing.follow}
+        onBack={() => setReviewing(undefined)}
+        ask={async (to, body) => {
+          if (!reachable(to)) return `${sessionIdentity(to)} is not running; resume it to ask`;
+          try {
+            post(terminal, sessionIdentity(to), body);
+          } catch (error) {
+            return error instanceof Error ? error.message : "could not send";
+          }
+          if (!loadSessions) flushInBackground(getSessions());
+          return `asked ${sessionIdentity(to)}; it arrives when the agent is free`;
+        }}
+      />
+    );
+  }
+
   // Drop the updated and status columns before the title on narrow terminals, so the columns never collide.
   const showUpdated = width >= 48;
   const showStatus = width >= 30;
@@ -501,6 +530,11 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     return sessionDetail(session, {
       prs: pulls.get(key),
       changes: root ? changes.get(root) : undefined,
+      // Only an expanded row reads its transcript, and only what was appended since the last read.
+      edited:
+        session.id && session.place.kind !== "cloud"
+          ? new Set(edits.of(session).edits.map((edit) => edit.file)).size
+          : 0,
     });
   };
 

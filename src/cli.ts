@@ -7,6 +7,7 @@ const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
        kiln resume <name...|--all> [--prompt TEXT]
                                   resume sessions a restart stopped, one at a time; no names lists them
+       kiln close [name...]       close, archive or forget sessions as x does in the list; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
        kiln setup [--port 7437] [--origin https://host]
@@ -16,6 +17,9 @@ const usage = `usage: kiln            open the session list
        kiln revoke <device-id>    revoke a phone
        kiln dashboard [--port 7438] [--open]
                                   serve a live progress page of every session on 127.0.0.1
+       kiln edits [name] [--json|--follow]
+                                  what each prompt changed; --follow streams new edits as JSON lines
+       kiln blame <file> [--json] which session and prompt wrote each line of a file
        kiln skills list|share|sync    manage shared skills
        kiln msg list|send|inbox|whoami|spawn    let running agents message and start each other
        kiln msg spawn <agent> [--dir PATH] [--title T] -- <prompt>
@@ -34,6 +38,16 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return 0;
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "skills command failed"}`);
+      return 2;
+    }
+  }
+  if (command === "edits" || command === "blame") {
+    try {
+      const { runEditsCli } = await import("./edits-cli");
+      await runEditsCli(command, args.slice(1));
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : `${command} failed`}`);
       return 2;
     }
   }
@@ -164,6 +178,15 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return await runResumeCli(args.slice(1));
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "resume failed"}`);
+      return 2;
+    }
+  }
+  if (command === "close") {
+    try {
+      const { runCloseCli } = await import("./close-cli");
+      return await runCloseCli(args.slice(1));
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "close failed"}`);
       return 2;
     }
   }

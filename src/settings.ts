@@ -29,6 +29,8 @@ export type Settings = {
   phoneWrite: boolean;
   /** `kiln serve` messages an agent when its pull request's checks fail, it conflicts, gets a review or merges. */
   prMessages: boolean;
+  /** `kiln serve` warns two running agents when both edit the same file. */
+  editMessages: boolean;
 };
 
 export const defaults: Settings = {
@@ -43,6 +45,7 @@ export const defaults: Settings = {
   agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"] },
   phoneWrite: false,
   prMessages: false,
+  editMessages: true,
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -77,6 +80,9 @@ claude_cloud = false
 # kiln serve messages an agent when its pull request's checks fail, it has merge conflicts,
 # it gets a review or it merges. Needs the GitHub CLI and kiln serve running (kiln setup).
 pr_messages = false
+
+# kiln serve messages two running agents when both edit the same file, once per file and prompt.
+edit_messages = true
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
@@ -150,6 +156,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "notifications":
         if (typeof value !== "boolean") fail(path, "notifications must be true or false");
         settings.notifications = value;
+        break;
+      case "edit_messages":
+        if (typeof value !== "boolean") fail(path, "edit_messages must be true or false");
+        settings.editMessages = value;
         break;
       case "pr_messages":
         if (typeof value !== "boolean") fail(path, "pr_messages must be true or false");

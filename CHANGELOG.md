@@ -13,6 +13,18 @@ verbatim.
 
 - **Subagents that need input show under a collapsed parent.** The header counted every session waiting for input, but a waiting subagent stayed hidden inside its collapsed parent, which only read "working". The list now shows each waiting subagent, and the agents between it and its top-level parent, without expanding the row.
 
+- **See what each agent edited.** Press `e` on a session to list its prompts with the files each one changed and the lines added and removed, then open a file to read it with each agent's lines marked in its colour. `]` and `[` jump between edits, `v` and `a` send selected lines and a question to the session that wrote them, and `f` follows a session, opening each file as it is edited. `kiln edits` and `kiln blame <file>` print the same from the command line, and `kiln edits --follow` streams new edits as JSON. Edits come from the Claude, Codex, OpenCode and Pi transcripts, and a line something else changed since is credited to nobody.
+
+- **Warnings when two sessions edit the same file.** When a session edits a file another live session changed in its latest prompt, `kiln serve` messages both. Set `edit_messages = false` to turn this off.
+
+- **Edits on the phone.** A session's view in the Android app has an Edits tab listing each prompt's changed files and line counts.
+
+- **Android builds retry the Gradle download.** A release no longer fails when services.gradle.org returns an error or stalls for a moment: the wrapper now tries five times, five seconds apart, and waits up to a minute per attempt. The release's source tarball and CI's gitleaks download retry the same way, and a release run can be rerun after a later step fails.
+
+## [0.23.0] - 2026-11-08
+
+- **Close sessions from the command line.** `kiln close` lists the sessions the list's `x` key can close, and `kiln close <name...>` closes them the same way: a kiln terminal closes, an OpenCode or Codex daemon conversation is archived, a Claude background job is stopped and removed and a stopped row is forgotten. Agents can now tidy up finished sessions, and the `kiln-agents` skill says when to.
+
 ## [0.22.2] - 2026-11-06
 
 - **Publishes the 0.22.1 changes.** The 0.22.1 build stopped on an outdated test and published nothing, so this is the first release with them.

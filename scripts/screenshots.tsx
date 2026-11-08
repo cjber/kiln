@@ -16,6 +16,8 @@ import { testRender } from "@opentui/react/test-utils";
 
 import { App } from "../src/app";
 import type { DashboardRow, DashboardSnapshot, PullRequest } from "../src/dashboard";
+import type { Ledger } from "../src/edits";
+import { EditsView } from "../src/edits-view";
 import { nestSessions, type Session } from "../src/sessions";
 import { defaults } from "../src/settings";
 import type { Skill } from "../src/skills";
@@ -141,7 +143,7 @@ const escapeXml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&
 
 function svg(frame: CapturedFrame): string {
   const width = cols * cell.width + pad * 2;
-  const height = rows * cell.height + pad * 2;
+  const height = frame.lines.length * cell.height + pad * 2;
   const shapes: string[] = [];
   frame.lines.forEach((line, row) => {
     let col = 0;
@@ -194,6 +196,149 @@ async function shoot(name: string, keys: string[]): Promise<void> {
   );
   await setup.waitForFrame((frame) => frame.includes(name === "skills" ? "kiln skills" : "atlas"));
   for (const key of keys) await setup.mockInput.pressKey(key);
+  await setup.flush();
+  const path = join(scratch, `${name}.svg`);
+  await Bun.write(path, svg(setup.captureSpans()));
+  setup.renderer.destroy();
+  const png = Bun.spawnSync(["rsvg-convert", "--zoom", "2", "-o", join(out, `${name}.png`), path], {
+    stderr: "inherit",
+  });
+  if (png.exitCode !== 0) throw new Error(`rsvg-convert failed for ${name}`);
+  console.log(`assets/${name}.png`);
+}
+
+/** The edits view over a demo checkout: one prompt by Claude, a later doc comment by Codex. */
+async function shootEdits(name: string, keys: string[]): Promise<void> {
+  const file = join(code("atlas"), "src", "tiles.ts");
+  const text = [
+    'import { fetchTile } from "./net";',
+    "",
+    "const cache = new Map<string, Uint8Array>();",
+    "const limit = 512;",
+    "",
+    "/** A tile from memory, else the network. Old tiles leave first. */",
+    "export async function tile(key: string): Promise<Uint8Array> {",
+    "  const hit = cache.get(key);",
+    "  if (hit) return hit;",
+    "  const bytes = await fetchTile(key);",
+    "  if (cache.size >= limit) cache.delete(cache.keys().next().value as string);",
+    "  cache.set(key, bytes);",
+    "  return bytes;",
+    "}",
+  ].join("\n");
+  const [first, backoff] = demo as [Session, Session];
+  const tiles = { ...first, id: "4f2c9a" };
+  const claude: Ledger = {
+    turns: [
+      { prompt: "Cache map tiles in memory so panning stops refetching", at: minutes(30) },
+      { prompt: "Cap the cache at 512 tiles", at: minutes(6) },
+    ],
+    edits: [
+      {
+        id: "c1",
+        at: minutes(29),
+        file,
+        change: "update",
+        turn: 0,
+        hunks: [
+          {
+            oldStart: 1,
+            oldLines: 4,
+            newStart: 1,
+            newLines: 11,
+            lines: [
+              ' import { fetchTile } from "./net";',
+              " ",
+              "+const cache = new Map<string, Uint8Array>();",
+              "+",
+              " export async function tile(key: string): Promise<Uint8Array> {",
+              "+  const hit = cache.get(key);",
+              "+  if (hit) return hit;",
+              "   const bytes = await fetchTile(key);",
+              "+  cache.set(key, bytes);",
+              "+  return bytes;",
+              "-  return bytes;",
+              " }",
+            ].map((line) => (line.startsWith("   ") ? ` ${line.slice(1)}` : line)),
+          },
+        ],
+      },
+      {
+        id: "c2",
+        at: minutes(5),
+        file,
+        change: "update",
+        turn: 1,
+        hunks: [
+          {
+            oldStart: 3,
+            oldLines: 1,
+            newStart: 3,
+            newLines: 2,
+            lines: [" const cache = new Map<string, Uint8Array>();", "+const limit = 512;"],
+          },
+          {
+            oldStart: 8,
+            oldLines: 2,
+            newStart: 9,
+            newLines: 3,
+            lines: [
+              "   const bytes = await fetchTile(key);",
+              "+  if (cache.size >= limit) cache.delete(cache.keys().next().value as string);",
+              "   cache.set(key, bytes);",
+            ].map((line) => (line.startsWith("   ") ? ` ${line.slice(1)}` : line)),
+          },
+        ],
+      },
+      {
+        id: "c3",
+        at: minutes(5),
+        file: join(code("atlas"), "src", "tiles.test.ts"),
+        change: "create",
+        turn: 1,
+        hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 24, lines: new Array(24).fill("+") }],
+      },
+    ],
+  };
+  const codex: Ledger = {
+    turns: [{ prompt: "Document the public tile functions", at: minutes(3) }],
+    edits: [
+      {
+        id: "x1",
+        at: minutes(2),
+        file,
+        change: "update",
+        turn: 0,
+        hunks: [
+          {
+            oldStart: 5,
+            oldLines: 1,
+            newStart: 5,
+            newLines: 2,
+            lines: [
+              " ",
+              "+/** A tile from memory, else the network. Old tiles leave first. */",
+              " export async function tile(key: string): Promise<Uint8Array> {",
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const setup = await testRender(
+    <EditsView
+      session={tiles}
+      sessions={[tiles, { ...backoff, id: "019a7c", cwd: code("atlas") }]}
+      read={(session) => (session === tiles ? claude : codex)}
+      readText={() => text}
+      ask={async () => ""}
+      onBack={() => {}}
+    />,
+    { width: cols, height: rows + 4 },
+  );
+  await setup.waitForFrame((frame) => frame.includes("kiln edits"));
+  for (const key of keys) await setup.mockInput.pressKey(key);
+  await Bun.sleep(300);
   await setup.flush();
   const path = join(scratch, `${name}.svg`);
   await Bun.write(path, svg(setup.captureSpans()));
@@ -514,6 +659,8 @@ await shoot("unavailable", []);
 await shoot("archive", ["j", "j", "j", "j", "j", "j", "x"]);
 await shoot("new", ["n", "l"]);
 await shoot("skills", ["p"]);
+await shootEdits("edits", []);
+await shootEdits("edits-file", ["\r"]);
 await shootDashboard();
 rmSync(scratch, { recursive: true, force: true });
 process.exit(0);
