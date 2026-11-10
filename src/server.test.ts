@@ -542,6 +542,15 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     { agent: "claude", id: "elsewhere-1", cwd: "/project", startedAt: 1, pid: 43, place: { kind: "elsewhere" } },
     {
       agent: "claude",
+      id: "kitty-1",
+      cwd: "/project",
+      startedAt: 1,
+      pid: 45,
+      activity: "idle",
+      place: { kind: "kitty", socket: "@kitty", windowId: 1 },
+    },
+    {
+      agent: "claude",
       cwd: "/project",
       startedAt: 1,
       pid: 44,
@@ -572,12 +581,14 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     expect((await fetch(`${base}/interrupt`, { method: "POST", headers })).status).toBe(403);
     write = true;
     const view = (await (await fetch(`${base}/view`, { headers })).json()) as {
-      abilities: { read: boolean; reply?: string; stop: boolean };
+      abilities: { read: boolean; reply?: string; inbox?: string; stop: boolean };
       items: { text: string }[];
+      queued: { id: string; from: string; text: string; at: number }[];
       cursor: string;
     };
     expect(view.abilities).toEqual({ read: true, reply: undefined, stop: true });
     expect(view.items.map((item) => item.text)).toEqual(["hello"]);
+    expect(view.queued).toEqual([]);
     const again = (await (await fetch(`${base}/view?cursor=${view.cursor}`, { headers })).json()) as {
       items: unknown[];
       reset: boolean;
@@ -595,6 +606,19 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     expect(pending(join(directory, "state", "kiln", "mailbox.sqlite"))).toMatchObject([
       { id: `phone-${paired.device.id}-message-0001`, from: "phone:test", to: `claude:${id}`, body: "next" },
     ]);
+    await fetch(`${base}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ id: "message-0002", text: "and this" }),
+    });
+    const queued = (await (await fetch(`${base}/view?cursor=${view.cursor}`, { headers })).json()) as {
+      queued: { id: string; from: string; text: string; at: number }[];
+    };
+    expect(queued.queued).toMatchObject([
+      { id: `phone-${paired.device.id}-message-0001`, from: "phone:test", text: "next" },
+      { id: `phone-${paired.device.id}-message-0002`, from: "phone:test", text: "and this" },
+    ]);
+    expect(typeof queued.queued[0]?.at).toBe("number");
     const bad = await fetch(`${base}/messages`, {
       method: "POST",
       headers,
@@ -617,6 +641,15 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     expect((await upload("empty.txt", "")).status).toBe(400);
     const other = `${origin}/v1/sessions/${encodeURIComponent("claude:elsewhere-1")}`;
     expect((await fetch(`${other}/interrupt`, { method: "POST", headers })).status).toBe(409);
+    const kitty = `${origin}/v1/sessions/${encodeURIComponent("claude:kitty-1")}`;
+    const kittyView = (await (await fetch(`${kitty}/view`, { headers })).json()) as {
+      abilities: unknown;
+    };
+    expect(kittyView.abilities).toEqual({
+      read: true,
+      inbox: "kiln can only type into Claude sessions it started",
+      stop: false,
+    });
     expect((await fetch(`${origin}/v1/sessions/nope/view`, { headers })).status).toBe(404);
     // Without a provider id the mailbox could never deliver it, and an idle session has no turn to stop.
     const unnamed = `${origin}/v1/sessions/${encodeURIComponent("claude:44:1")}`;

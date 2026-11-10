@@ -64,9 +64,14 @@ data class Line(
     val result: String? = null,
     val error: Boolean = false,
     val at: Long = 0,
+    val queued: Boolean = false,
 )
 
-data class Abilities(val read: Boolean, val reply: String?, val stop: Boolean)
+/**
+ * What the session view can do: `reply` refuses an unreachable session, while `inbox` explains a
+ * mailbox wait.
+ */
+data class Abilities(val read: Boolean, val reply: String?, val inbox: String?, val stop: Boolean)
 
 /**
  * One answer to a question the agent is waiting on; a typed one sends the reply box's text with it.
@@ -101,13 +106,14 @@ private const val maxLines = 1_000
 
 /**
  * Parse one view response. Results attach to the tool call they answer, here or in `held` from an
- * earlier page, so the screen draws each call once with its outcome.
+ * earlier page, so the screen draws each call once with its outcome. Queued messages are replaced
+ * on every page because the server returns the current mailbox, not a cursor delta.
  */
 fun parseView(text: String, held: List<Line> = emptyList()): ViewPage {
     val json = JSONObject(text)
     val abilities = json.getJSONObject("abilities")
     val reset = json.getBoolean("reset")
-    val lines = if (reset) mutableListOf() else held.toMutableList()
+    val lines = if (reset) mutableListOf() else held.filterNot { it.queued }.toMutableList()
     val items = json.getJSONArray("items")
     for (index in 0 until items.length()) {
         val item = items.getJSONObject(index)
@@ -126,10 +132,24 @@ fun parseView(text: String, held: List<Line> = emptyList()): ViewPage {
             }
         }
     }
+    json.optJSONArray("queued")?.let { queued ->
+        for (index in 0 until queued.length()) {
+            val item = queued.getJSONObject(index)
+            lines +=
+                Line(
+                    id = item.getString("id"),
+                    kind = ItemKind.YOU,
+                    text = item.getString("text"),
+                    at = item.optLong("at"),
+                    queued = true,
+                )
+        }
+    }
     return ViewPage(
         Abilities(
             read = abilities.optBoolean("read"),
             reply = abilities.optString("reply").ifBlank { null },
+            inbox = abilities.optString("inbox").ifBlank { null },
             stop = abilities.optBoolean("stop"),
         ),
         json.optJSONObject("prompt")?.let(::parseMenu),
@@ -471,6 +491,13 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                 color = Tui.fgDim,
                 modifier = Modifier.padding(12.dp),
             )
+        abilities?.inbox?.let { reason ->
+            Text(
+                "Mailbox: ${reason.replaceFirstChar { it.uppercase() }}",
+                color = Tui.fgDim,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+        }
         // A session kiln cannot message can still take a typed answer to its menu, which needs the
         // box.
         if (refused == null || menu?.options?.any { it.typed } == true) {
@@ -536,11 +563,9 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             if (code == 200) {
                                 draft = ""
                                 attachments = emptyList()
-                                val json = JSONObject(body)
-                                status =
-                                    if (!json.optBoolean("delivered", true))
-                                        "Queued: ${json.optString("reason")}"
-                                    else ""
+                                // The queued bubble in the conversation is the status for a
+                                // deferred send.
+                                status = ""
                             } else status = errorText(code, body)
                         }
                     },
@@ -612,10 +637,13 @@ private fun ConversationLine(line: Line) {
         ItemKind.YOU ->
             Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
+                    val time =
                         if (line.at > 0)
-                            "you · ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(line.at))}"
-                        else "you",
+                            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(line.at))
+                        else null
+                    Text(
+                        listOfNotNull("you", "queued".takeIf { line.queued }, time)
+                            .joinToString(" · "),
                         color = Tui.orange,
                         style =
                             MaterialTheme.typography.labelSmall.copy(

@@ -8,7 +8,7 @@ import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
 import { ledgers, turnSummaries } from "./edits";
 import { resumeStopped, startFromPhone } from "./launcher";
-import { post } from "./mailbox";
+import { pending, post } from "./mailbox";
 import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
 import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
@@ -96,16 +96,20 @@ export function offeredDirectories(
 }
 
 /** What the phone can do in a session's view, and why not when it cannot. */
-export function sessionAbilities(session: Session): { read: boolean; reply?: string; stop: boolean } {
+export function sessionAbilities(session: Session): {
+  read: boolean;
+  /** Present only when this session can never accept a message. */
+  reply?: string;
+  /** Present when a message can be posted but must wait in the mailbox. */
+  inbox?: string;
+  stop: boolean;
+} {
   const way = route(session);
   return {
     read: conversationReader(session) !== undefined,
-    // A reply the agent cannot take now waits in kiln's mailbox; only a session kiln can never type into refuses it.
-    reply: !reachable(session)
-      ? "kiln can only write to a running session that reports its id"
-      : "inbox" in way
-        ? way.inbox
-        : undefined,
+    // A reply the agent can never take is refused; a reachable session may still wait in the mailbox.
+    reply: !reachable(session) ? "kiln can only write to a running session that reports its id" : undefined,
+    inbox: "inbox" in way ? way.inbox : undefined,
     // Only a turn kiln knows is running is stopped: Escape on a prompt or an unknown state could clear someone's typing.
     // OpenCode's TUI wants Escape twice, so a single key could not stop it reliably.
     stop: session.agent !== "opencode" && session.place.kind === "kiln" && session.activity === "working",
@@ -346,13 +350,17 @@ export function startServer({
     const session = listedSession(id);
     const abilities = sessionAbilities(session);
     const prompt = waitingOn(session) ?? null;
+    // Mailbox messages are separate from the provider transcript until delivery, so the phone can show them now.
+    const queued = pending()
+      .filter((message) => message.to === sessionIdentity(session))
+      .map(({ id: messageId, from, body, createdAt }) => ({ id: messageId, from, text: body, at: createdAt }));
     const read = conversationReader(session);
     try {
-      if (read) return { abilities, prompt, ...read(cursor ?? undefined) };
+      if (read) return { abilities, prompt, queued, ...read(cursor ?? undefined) };
     } catch {
       // A transcript not written yet, or unreadable, shows as an empty conversation.
     }
-    return { abilities, prompt, items: [], cursor: "", reset: true };
+    return { abilities, prompt, queued, items: [], cursor: "", reset: true };
   };
   const answerPrompt = async (id: string, request: Request) => {
     const session = listedSession(id);

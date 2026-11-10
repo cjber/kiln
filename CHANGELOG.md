@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Queued phone messages stay visible.** The session view shows messages waiting in the mailbox after the conversation as queued user messages, and keeps the reply field available when kiln can accept the message later.
+
 ## [0.24.0] - 2026-11-08
 
 - **A restart no longer revives finished subagents.** A one-shot `opencode run` stayed in kiln's saved sessions, so after a restart it showed as stopped and `kiln resume --all` started it again as an interactive session, which went on editing its old worktree. Subagents and headless runs are no longer saved for resuming, and rows already saved for them are dropped.
