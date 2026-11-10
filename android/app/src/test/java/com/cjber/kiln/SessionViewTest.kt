@@ -17,6 +17,7 @@ class SessionViewTest {
             )
         assertEquals(listOf(ItemKind.YOU, ItemKind.TOOL), first.lines.map { it.kind })
         assertNull(first.abilities.reply)
+        assertNull(first.abilities.inbox)
         val next =
             parseView(
                 """{$abilities,"reset":false,"cursor":"1:20","items":[
@@ -41,6 +42,38 @@ class SessionViewTest {
             )
         assertEquals(listOf("hi"), page.lines.map { it.text })
         assertEquals("kiln can only type into Claude sessions it started", page.abilities.reply)
+    }
+
+    @Test
+    fun queuedMessagesFollowTheConversationAndLeaveWhenDelivered() {
+        val first =
+            parseView(
+                """{$abilities,"reset":true,"cursor":"1:10","items":[],"queued":[
+                {"id":"m1","from":"phone:test","text":"wait for me","at":1234}]}"""
+            )
+        assertEquals(listOf("wait for me"), first.lines.map { it.text })
+        assertEquals(true, first.lines.single().queued)
+        assertEquals(1234, first.lines.single().at)
+
+        val delivered =
+            parseView(
+                """{$abilities,"reset":false,"cursor":"1:20","items":[
+                {"id":"u1","kind":"you","text":"wait for me","at":2000}],"queued":[]}""",
+                first.lines,
+            )
+        assertEquals(listOf("wait for me"), delivered.lines.map { it.text })
+        assertEquals(false, delivered.lines.single().queued)
+    }
+
+    @Test
+    fun inboxReasonDoesNotRefuseTheReplyBox() {
+        val page =
+            parseView(
+                """{"abilities":{"read":false,"inbox":"it waits in the mailbox","stop":false},
+                "reset":true,"cursor":"","items":[],"queued":[]}"""
+            )
+        assertNull(page.abilities.reply)
+        assertEquals("it waits in the mailbox", page.abilities.inbox)
     }
 
     @Test
