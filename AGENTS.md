@@ -99,3 +99,7 @@ and release variants; private signing material stays outside the repository.
 
 Prepare release metadata on a PR branch; the release helper updates desktop and Android together.
 Its separate tag action requires the merged origin/main commit. Never push main directly.
+
+## Standards
+
+- `repo-standards`: the RS-* requirements every cjber repo meets (repo, Actions and security settings, rulesets, CI hardening, community files), a skill in cjber/skills whose `audit.py` checks this repo
