@@ -67,7 +67,10 @@ data class Line(
     val queued: Boolean = false,
 )
 
-/** What the session view can do: `reply` refuses an unreachable session, while `inbox` explains a mailbox wait. */
+/**
+ * What the session view can do: `reply` refuses an unreachable session, while `inbox` explains a
+ * mailbox wait.
+ */
 data class Abilities(val read: Boolean, val reply: String?, val inbox: String?, val stop: Boolean)
 
 /**
@@ -560,7 +563,8 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                             if (code == 200) {
                                 draft = ""
                                 attachments = emptyList()
-                                // The queued bubble in the conversation is the status for a deferred send.
+                                // The queued bubble in the conversation is the status for a
+                                // deferred send.
                                 status = ""
                             } else status = errorText(code, body)
                         }
@@ -638,7 +642,8 @@ private fun ConversationLine(line: Line) {
                             DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(line.at))
                         else null
                     Text(
-                        listOfNotNull("you", "queued".takeIf { line.queued }, time).joinToString(" · "),
+                        listOfNotNull("you", "queued".takeIf { line.queued }, time)
+                            .joinToString(" · "),
                         color = Tui.orange,
                         style =
                             MaterialTheme.typography.labelSmall.copy(
