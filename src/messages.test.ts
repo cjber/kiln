@@ -130,6 +130,13 @@ test("a message from a person at a shell offers no reply command", () => {
   );
 });
 
+test("a peer outside kiln gets a reply command that names its mailbox", () => {
+  const message = { id: "1", from: "@nebula", to: "opencode:ses_1", body: "hi", createdAt: 0 };
+  expect(frame(message, undefined, "kiln")).toBe(
+    '[kiln message from @nebula]\n\nhi\n\n[Reply with: kiln msg send @nebula "<your reply>"]',
+  );
+});
+
 test("a subagent's question goes once to the agent that started it, as a message its reply answers", () => {
   const path = mailbox();
   const parent = session({ id: "p1", pid: 10 });

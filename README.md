@@ -48,9 +48,16 @@ kiln msg list                       # names, status, directory and how a message
 kiln msg send codex:019a "Run the API tests on cb/login and tell me what fails"
 kiln msg send --all -               # every other session, text from stdin
 kiln msg inbox                      # messages kiln could not type into this session
+kiln msg send @nebula "..." --as @nebula-cli   # a peer with its own mailbox, not a session
+kiln msg inbox --as @nebula-cli     # ...or the ones addressed to a peer
 kiln msg whoami
 kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "Run the API tests and fix what fails"
 ```
+
+A name starting with `@` is a **peer**: an identity with a mailbox but no session, so kiln never
+types into it. That is how a program outside kiln (the `nebula-ai` CLI, a Nebula agent) is
+messaged and how it answers; `--as` refuses a name without the `@`, so an override can never
+impersonate a session. `kiln msg send --json` prints one `{to, delivered, reason}` per recipient.
 
 `kiln msg spawn` starts an agent headless in kiln's tmux server, records the caller as its parent
 and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
