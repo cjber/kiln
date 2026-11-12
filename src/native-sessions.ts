@@ -6,6 +6,7 @@ import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
 import {
   archiveOpencodeSession,
+  type HeadlessProcess,
   isOpencodeService,
   matchHeadlessProcesses,
   type OpencodeListing,
@@ -375,9 +376,16 @@ async function readOpencode() {
     return [{ pid, id: invocation.id, cwd, startedAt: startedAt(pid) }];
   });
   const running = found.some(({ args }) => isOpencodeService(args));
-  const listing = running ? await opencodeSessions() : { sessions: [], live: false };
-  // Only the sessions the list shows: a terminal's own, and ones the service is running.
-  const shown = new Set(processes.flatMap((process) => (process.shared && process.id ? [process.id] : [])));
+  // Every conversation a live process names in argv, even when the capped list leaves it out.
+  const held = [
+    ...new Set([
+      ...processes.flatMap((process) => (process.shared && process.id ? [process.id] : [])),
+      ...headless.flatMap((run) => (run.id ? [run.id] : [])),
+    ]),
+  ];
+  const listing = running ? await opencodeSessions(held) : { sessions: [], live: false };
+  // Only the sessions the list shows: a terminal's own, ones a run names, and ones the service is running.
+  const shown = new Set(held);
   const workdirs = new Map<string, string>();
   await Promise.all(
     listing.sessions
@@ -387,7 +395,13 @@ async function readOpencode() {
         if (workdir) workdirs.set(session.id, workdir);
       }),
   );
-  return withOpencodeSessions(processes, listing, workdirs, matchHeadlessProcesses(headless, listing.sessions));
+  return withOpencodeSessions(
+    processes,
+    listing,
+    workdirs,
+    matchHeadlessProcesses(headless, listing.sessions),
+    headless,
+  );
 }
 
 function processArgs(pid: number): string[] | undefined {
@@ -522,9 +536,10 @@ export function withCodexThreads(
 /** A terminal pairs by the id in its argv only; a private server's sessions are not the shared service's. */
 export function withOpencodeSessions(
   processes: (AgentProcess & { shared: boolean })[],
-  { sessions, live }: OpencodeListing,
+  { sessions }: OpencodeListing,
   workdirs: ReadonlyMap<string, string> = new Map(),
   headlessPids: ReadonlyMap<string, number> = new Map(),
+  runs: readonly HeadlessProcess[] = [],
 ): { processes: AgentProcess[]; headless: Session[] } {
   const paired = new Set<string>();
   const located = processes.map(({ shared, ...process }) => {
@@ -536,8 +551,8 @@ export function withOpencodeSessions(
       title: session?.title,
       cwd: session?.cwd ?? process.cwd,
       workdir: workdirs.get(process.id),
-      // A session with no prompt yet is not stored, and one absent from `session.active` is inactive.
-      activity: session ? session.activity : live ? ("idle" as const) : undefined,
+      // A session with no prompt yet is not stored, so what it is doing is unknown rather than idle.
+      activity: session?.activity,
       question: session?.question,
       lastActiveAt: session?.updatedAt,
       parentSessionId: session?.parentId,
@@ -568,7 +583,40 @@ export function withOpencodeSessions(
         attach: ["opencode", "--session", session.id],
       },
     }));
-  return { processes: located, headless };
+  // A run names its conversation in argv even when the service's page leaves it out or no service is running.
+  // Its process, directory and start are exact; what it is doing is not known, so the row carries no activity.
+  const known = new Set([
+    ...processes.flatMap((process) => (process.id ? [process.id] : [])),
+    ...sessions.map((session) => session.id),
+  ]);
+  const orphaned = new Map<string, HeadlessProcess>();
+  for (const run of runs) {
+    if (!run.id || known.has(run.id)) continue;
+    known.add(run.id);
+    orphaned.set(run.id, run);
+  }
+  return {
+    processes: located,
+    headless: [
+      ...headless,
+      ...[...orphaned.values()].map((run) => {
+        const id = run.id as string;
+        return {
+          agent: "opencode" as const,
+          id,
+          pid: run.pid,
+          cwd: run.cwd,
+          startedAt: run.startedAt,
+          branch: gitBranch(run.cwd),
+          place: {
+            kind: "thread" as const,
+            id,
+            attach: ["opencode", "--session", id],
+          },
+        };
+      }),
+    ],
+  };
 }
 
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */

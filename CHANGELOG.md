@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Running OpenCode agents stay visible.** Kiln reads active conversations beyond the service's first page and keeps runs whose process names their conversation visible while the service is unavailable. Their status stays unknown until it can be read, and spawned runs keep their recorded title and parent.
+
 - **Queued phone messages stay visible.** The session view shows messages waiting in the mailbox after the conversation as queued user messages, and keeps the reply field available when kiln can accept the message later.
 
 ## [0.24.0] - 2026-11-08
