@@ -35,7 +35,7 @@ import { SkillsView } from "./skills-view";
 import { attach } from "./tmux";
 import { color, displayWidth, openInEditor, tilde, typed, untilde } from "./tui";
 import { useLatest } from "./use-latest";
-import { checkout } from "./workdir";
+import { changedFiles, checkout } from "./workdir";
 import { rankedDirectories } from "./zoxide";
 
 type Mode = "normal" | "filter" | "agent" | "confirm";
@@ -220,7 +220,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
       const cached = changeCache.current.get(root);
       if (cached?.pending || (cached && Date.now() - cached.checkedAt < refreshMs)) continue;
       changeCache.current.set(root, { count: cached?.count, checkedAt: Date.now(), pending: true });
-      const child = Bun.spawn(["git", "-C", root, "status", "--porcelain"], {
+      const child = Bun.spawn([...changedFiles], {
+        cwd: root,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "ignore",

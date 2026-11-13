@@ -70,7 +70,24 @@ export type Session = {
  * outlives the process; a session without one is known by its process and start time.
  */
 export function sessionIdentity(session: Session): string {
-  return `${session.agent}:${session.place.kind === "cloud" ? session.place.id : (session.id ?? `${session.pid}:${session.startedAt}`)}`;
+  return session.place.kind === "cloud"
+    ? `${session.agent}:${session.place.id}`
+    : session.id !== undefined
+      ? `${session.agent}:${session.id}`
+      : processIdentity(session);
+}
+
+/**
+ * A session named by its process. It is the only name a session has before its provider gives it an id, and the
+ * one `kiln msg spawn` returns for a Codex run, so it keeps naming that run once the id is known.
+ */
+export function processIdentity(session: Pick<Session, "agent" | "pid" | "startedAt">): string {
+  return `${session.agent}:${session.pid}:${session.startedAt}`;
+}
+
+/** Whether `name` names this session: its identity, or the process name it went by before its id was known. */
+export function answersTo(session: Session, name: string): boolean {
+  return sessionIdentity(session) === name || (session.pid !== undefined && processIdentity(session) === name);
 }
 
 /** Where the agent works, for display and grouping; opening and resuming use `cwd`. */

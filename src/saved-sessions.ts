@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type Agent, gitBranch, type Session, sessionIdentity } from "./sessions";
+import { type Agent, gitBranch, processIdentity, type Session, sessionIdentity } from "./sessions";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -112,12 +112,14 @@ export function reconcile(
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
   for (const session of sessions.filter(resumable)) {
+    // A spawned Codex run is recorded by its process until its thread id is known; its row moves to that id here.
+    const recorded = previous.get(key(session)) ?? previous.get(processIdentity(session));
     next.set(key(session), {
       agent: session.agent,
       id: session.id,
       cwd: session.cwd,
-      title: session.title,
-      parent: session.spawnParent ?? previous.get(key(session))?.parent,
+      title: session.title ?? recorded?.title,
+      parent: session.spawnParent ?? recorded?.parent,
       startedAt: session.startedAt,
       lastActiveAt: session.lastActiveAt,
       boot,
@@ -279,7 +281,8 @@ function recordedSpawns(path: string): Map<string, { parent?: string; title?: st
 export function attachParents(sessions: readonly Session[], path = statePath()): Session[] {
   const recorded = recordedSpawns(path);
   return sessions.map((session) => {
-    const spawn = recorded.get(sessionIdentity(session));
+    // A spawned Codex run is recorded by its process, before it has the thread id it is listed under.
+    const spawn = recorded.get(sessionIdentity(session)) ?? recorded.get(processIdentity(session));
     if (!spawn) return session;
     return {
       ...session,

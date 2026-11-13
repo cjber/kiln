@@ -65,6 +65,15 @@ test("a recipient is found by full name or a unique prefix, never among stopped 
   expect(() => findRecipient(sessions, "claude:cloud")).toThrow("no running session");
 });
 
+test("a spawned Codex run answers to the process name its spawn returned and to its thread id", () => {
+  const run = session({ agent: "codex", id: "0193-thread", pid: 40, startedAt: 7.5, activity: undefined });
+  expect(findRecipient([run], "codex:40:7.5")).toBe(run);
+  expect(findRecipient([run], "codex:0193-thread")).toBe(run);
+  // Codex exec has no queue to push into, so the message waits in the mailbox the run reads with `kiln msg inbox`.
+  expect(route(run)).toEqual({ inbox: "it is not on Codex's shared daemon" });
+  expect(() => findRecipient([{ ...run, id: undefined }], "codex:40:7.5")).toThrow("no running session");
+});
+
 test("typing waits for an idle session; an agent's own queue takes a message at once", () => {
   expect(route(session({}))).toEqual({ push: "tmux" });
   expect(route(session({ activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });

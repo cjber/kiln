@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Commits no longer fail in watched checkouts.** Kiln counts a checkout's changed files with `git --no-optional-locks status`, so its poll never holds `index.lock` while an agent commits there.
+
+- **Spawned Codex runs can be listed and messaged.** A `codex exec` run appears in `kiln msg list` under its thread id, the name it knows itself by, and still answers to the id `kiln msg spawn` printed. A message to it waits in its mailbox until it runs `kiln msg inbox`, and it keeps its recorded parent and title.
+
 ## [0.26.1] - 2026-11-13
 
 - **Spawned Claude sessions keep their title.** `kiln msg spawn claude --title T` names the session T, instead of the list showing the title Claude generated from the prompt.
