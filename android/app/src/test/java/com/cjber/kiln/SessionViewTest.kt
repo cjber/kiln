@@ -49,11 +49,13 @@ class SessionViewTest {
         val first =
             parseView(
                 """{$abilities,"reset":true,"cursor":"1:10","items":[],"queued":[
-                {"id":"m1","from":"phone:test","text":"wait for me","at":1234}]}"""
+                {"id":"m1","from":"phone:test","text":"wait for me","at":1234}],
+                "waiting":"Claude is working"}"""
             )
         assertEquals(listOf("wait for me"), first.lines.map { it.text })
         assertEquals(true, first.lines.single().queued)
         assertEquals(1234, first.lines.single().at)
+        assertEquals("Claude is working", first.waiting)
 
         val delivered =
             parseView(
@@ -63,6 +65,7 @@ class SessionViewTest {
             )
         assertEquals(listOf("wait for me"), delivered.lines.map { it.text })
         assertEquals(false, delivered.lines.single().queued)
+        assertNull(delivered.waiting)
     }
 
     @Test

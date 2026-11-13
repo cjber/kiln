@@ -151,6 +151,29 @@ export function sendKey(name: string, key: string): boolean {
   return run("send-keys", "-t", `=${name}:`, key);
 }
 
+/** The rows a session's pane shows, unjoined so they line up with the cursor, and the cursor's row. */
+export function rowsAndCursor(name: string): { rows: string[]; cursorY: number } | undefined {
+  const shown = Bun.spawnSync(
+    [
+      ...tmux(),
+      "display-message",
+      "-p",
+      "-t",
+      `=${name}:`,
+      "#{cursor_y}",
+      ";",
+      "capture-pane",
+      "-p",
+      "-t",
+      `=${name}:`,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (shown.exitCode !== 0) return undefined;
+  const [cursorY = "", ...rows] = shown.stdout.toString().split("\n");
+  return { rows, cursorY: Number(cursorY) };
+}
+
 /** How many terminals have the session open; none when it has closed. */
 export function attachedClients(name: string): number | undefined {
   if (!exists(name)) return undefined;

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { moves, parsePrompt } from "./prompt";
+import { emptyInput, moves, parsePrompt } from "./prompt";
 
 const screen = (name: string) => Bun.file(join(import.meta.dir, "fixtures", "prompts", `${name}.txt`)).text();
 const read = async (name: string) => parsePrompt(await screen(name), 100);
@@ -47,4 +47,13 @@ test("the key changes with the question, and moves walk from the cursor", async 
   expect(moves(ask, 3)).toEqual(["Down", "Down"]);
   expect(moves({ ...ask, cursor: 3 }, 1)).toEqual(["Up", "Up"]);
   expect(moves(ask, 1)).toEqual([]);
+});
+
+test("an input box is empty only when the cursor's row is the bare marker", () => {
+  const rows = ["● Done.", "────────", "❯\u00a0", "────────", "  ⏵⏵ bypass permissions on"];
+  expect(emptyInput(rows, 2)).toBe(true);
+  expect(emptyInput(["────────", "❯ half a prompt", "────────"], 1)).toBe(false);
+  // The second line of a draft, or a cursor outside the box, is not an empty prompt.
+  expect(emptyInput(["❯ first line", "  ", "────────"], 1)).toBe(false);
+  expect(emptyInput(rows, 0)).toBe(false);
 });

@@ -31,6 +31,8 @@ export type Settings = {
   prMessages: boolean;
   /** `kiln serve` warns two running agents when both edit the same file. */
   editMessages: boolean;
+  /** `kiln serve` stops the computer suspending while an agent works; the screens still blank and lock. */
+  keepAwake: boolean;
 };
 
 export const defaults: Settings = {
@@ -46,6 +48,7 @@ export const defaults: Settings = {
   phoneWrite: false,
   prMessages: false,
   editMessages: true,
+  keepAwake: true,
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -83,6 +86,10 @@ pr_messages = false
 
 # kiln serve messages two running agents when both edit the same file, once per file and prompt.
 edit_messages = true
+
+# kiln serve stops the computer suspending while an agent is working. Screens still turn off
+# and lock as usual. Needs systemd-inhibit.
+keep_awake = true
 
 # The command each agent starts with. Set one to [] to hide it from \`n\`.
 [agents]
@@ -160,6 +167,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       case "edit_messages":
         if (typeof value !== "boolean") fail(path, "edit_messages must be true or false");
         settings.editMessages = value;
+        break;
+      case "keep_awake":
+        if (typeof value !== "boolean") fail(path, "keep_awake must be true or false");
+        settings.keepAwake = value;
         break;
       case "pr_messages":
         if (typeof value !== "boolean") fail(path, "pr_messages must be true or false");

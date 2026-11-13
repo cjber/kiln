@@ -100,6 +100,8 @@ data class ViewPage(
     val lines: List<Line>,
     val cursor: String,
     val reset: Boolean,
+    /** Why queued messages have not gone yet; they send by themselves once it changes. */
+    val waiting: String? = null,
 )
 
 private const val maxLines = 1_000
@@ -156,6 +158,7 @@ fun parseView(text: String, held: List<Line> = emptyList()): ViewPage {
         lines.takeLast(maxLines),
         json.getString("cursor"),
         reset,
+        if (json.isNull("waiting") || lines.none { it.queued }) null else json.getString("waiting"),
     )
 }
 
@@ -315,6 +318,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
     var draft by rememberSaveable(row.id) { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var menu by remember(row.id) { mutableStateOf<Menu?>(null) }
+    var waiting by remember(row.id) { mutableStateOf<String?>(null) }
     var attachments by remember(row.id) { mutableStateOf(emptyList<Attachment>()) }
     var showEdits by remember(row.id) { mutableStateOf(false) }
     var edits by remember(row.id) { mutableStateOf<List<EditTurn>?>(null) }
@@ -332,6 +336,7 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                     cursor = page.cursor
                     abilities = page.abilities
                     menu = page.menu
+                    waiting = page.waiting
                     if (page.reset || page.lines.size != lines.size || page.lines != lines)
                         lines = page.lines
                     problem = ""
@@ -476,6 +481,14 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                     } else status = errorText(code, body)
                 }
             }
+        }
+        waiting?.let { reason ->
+            Text(
+                "Queued, sends by itself: ${reason.replaceFirstChar { it.uppercase() }}",
+                color = Tui.yellow,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
         }
         if (status.isNotEmpty())
             Text(

@@ -584,11 +584,13 @@ test("a session view reads its transcript, posts a retried reply once and refuse
       abilities: { read: boolean; reply?: string; inbox?: string; stop: boolean };
       items: { text: string }[];
       queued: { id: string; from: string; text: string; at: number }[];
+      waiting: string | null;
       cursor: string;
     };
     expect(view.abilities).toEqual({ read: true, reply: undefined, stop: true });
     expect(view.items.map((item) => item.text)).toEqual(["hello"]);
     expect(view.queued).toEqual([]);
+    expect(view.waiting).toBeNull();
     const again = (await (await fetch(`${base}/view?cursor=${view.cursor}`, { headers })).json()) as {
       items: unknown[];
       reset: boolean;
@@ -613,7 +615,10 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     });
     const queued = (await (await fetch(`${base}/view?cursor=${view.cursor}`, { headers })).json()) as {
       queued: { id: string; from: string; text: string; at: number }[];
+      waiting: string | null;
     };
+    // The phone says why they wait, so it is clear they send by themselves.
+    expect(queued.waiting).toBe("Claude is working");
     expect(queued.queued).toMatchObject([
       { id: `phone-${paired.device.id}-message-0001`, from: "phone:test", text: "next" },
       { id: `phone-${paired.device.id}-message-0002`, from: "phone:test", text: "and this" },

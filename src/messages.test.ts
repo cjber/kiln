@@ -94,7 +94,7 @@ test("flush types each deliverable message once, framed with its sender, and kee
   const send = {
     tmux: async (target: Session, text: string) => {
       if (target.id === "broken") throw new Error("pane closed");
-      if (target.id === "open") throw new NotNow("someone has it open");
+      if (target.id === "open") throw new NotNow("someone is typing in its terminal");
       typed.push(`${target.id}: ${text}`);
     },
   } as unknown as Transports;
@@ -113,7 +113,7 @@ test("flush types each deliverable message once, framed with its sender, and kee
     "Claude is working",
     "pane closed; it may have arrived, so it is left for kiln msg inbox",
     "it is not running; it can read it later",
-    "someone has it open",
+    "someone is typing in its terminal",
   ]);
   expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:missing", "claude:open"]);
   expect(await flush(sessions, { path, send })).toHaveLength(3);

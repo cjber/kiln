@@ -9,7 +9,7 @@ import { type PullRequest, pullRequests, stageOf } from "./dashboard";
 import { ledgers, turnSummaries } from "./edits";
 import { resumeStopped, startFromPhone } from "./launcher";
 import { pending, post } from "./mailbox";
-import { flush, flushInBackground, phoneSender, reachable, route } from "./messages";
+import { flush, flushInBackground, heldBecause, phoneSender, reachable, route } from "./messages";
 import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
@@ -196,6 +196,7 @@ export function startServer({
   edits = ledgers(),
   collide = collisionWatch(),
   warnEdits = warn,
+  awake = () => {},
 }: {
   port: number;
   pairing: Pairing;
@@ -227,6 +228,8 @@ export function startServer({
   /** Finds running sessions editing the same file, when `edit_messages` is on. */
   collide?: ReturnType<typeof collisionWatch>;
   warnEdits?: typeof warn;
+  /** Holds off suspend while `working` is true; `kiln serve` passes `keepAwake()`, see `keep_awake`. */
+  awake?: (working: boolean) => void;
 }) {
   const writable = () => {
     try {
@@ -238,6 +241,13 @@ export function startServer({
   const prMessages = () => {
     try {
       return settings().prMessages;
+    } catch {
+      return false;
+    }
+  };
+  const keepingAwake = () => {
+    try {
+      return settings().keepAwake;
     } catch {
       return false;
     }
@@ -354,13 +364,15 @@ export function startServer({
     const queued = pending()
       .filter((message) => message.to === sessionIdentity(session))
       .map(({ id: messageId, from, body, createdAt }) => ({ id: messageId, from, text: body, at: createdAt }));
+    // Why they wait, so the phone can say they send by themselves; read only while something waits.
+    const waiting = queued.length ? (heldBecause(session) ?? null) : null;
     const read = conversationReader(session);
     try {
-      if (read) return { abilities, prompt, queued, ...read(cursor ?? undefined) };
+      if (read) return { abilities, prompt, queued, waiting, ...read(cursor ?? undefined) };
     } catch {
       // A transcript not written yet, or unreadable, shows as an empty conversation.
     }
-    return { abilities, prompt, queued, items: [], cursor: "", reset: true };
+    return { abilities, prompt, queued, waiting, items: [], cursor: "", reset: true };
   };
   const answerPrompt = async (id: string, request: Request) => {
     const session = listedSession(id);
@@ -588,7 +600,11 @@ export function startServer({
     try {
       const { sessions, problem, stale } = await discover();
       listed = sessions;
-      if (!stale) flushInBackground(sessions);
+      if (!stale) {
+        flushInBackground(sessions);
+        // A list that failed to load keeps the last decision rather than letting the computer sleep mid-turn.
+        awake(keepingAwake() && sessions.some((session) => session.activity === "working"));
+      }
       const codexHost = sessions.some((row) => row.agent === "codex" && row.place.kind !== "cloud")
         ? await codexRemoteHost()
         : {};
@@ -678,6 +694,7 @@ export function startServer({
     port: server.port,
     stop() {
       clearInterval(timer);
+      awake(false);
       for (const socket of sockets) socket.close(1001, "Server stopped");
       server.stop(true);
     },
