@@ -20,6 +20,7 @@ import { sessionTitle } from "./session-list";
 import {
   type Agent,
   agents,
+  answersTo,
   type Discovered,
   discovery,
   type Place,
@@ -315,12 +316,13 @@ export function startServer({
     // A phone that retries after a dropped response sends the same id, and the message is posted once.
     if (body.id !== undefined && (typeof body.id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(body.id)))
       throw new Refusal(400, "Invalid message id");
-    if (!listed.some((session) => reachable(session) && sessionIdentity(session) === id))
-      throw new Refusal(404, "That session is not running");
+    const recipient = listed.find((session) => reachable(session) && answersTo(session, id));
+    if (!recipient) throw new Refusal(404, "That session is not running");
     let message: ReturnType<typeof post>;
     try {
       const key = body.id === undefined ? undefined : `phone-${device.id}-${body.id}`;
-      message = post(phoneSender(device.name), id, text, undefined, undefined, key);
+      // The mailbox is read under the session's identity, whichever of its names the phone still holds.
+      message = post(phoneSender(device.name), sessionIdentity(recipient), text, undefined, undefined, key);
     } catch (error) {
       throw new Refusal(429, error instanceof Error ? error.message : "Too many messages");
     }
@@ -330,7 +332,7 @@ export function startServer({
   };
   const resumeSession = async (id: string) => {
     const current = writeSettings();
-    const session = listed.find((row) => sessionIdentity(row) === id);
+    const session = listed.find((row) => answersTo(row, id));
     if (session?.place.kind !== "saved") throw new Refusal(404, "That session is not stopped");
     // As with a session the phone starts, remote control is on, since the phone follows it there.
     const result = await resume(session, { ...current, remoteControl: true });
@@ -340,7 +342,7 @@ export function startServer({
   };
   const listedSession = (id: string) => {
     writeSettings();
-    const session = listed.find((row) => sessionIdentity(row) === id);
+    const session = listed.find((row) => answersTo(row, id));
     if (!session) throw new Refusal(404, "That session is not listed");
     return session;
   };
@@ -352,7 +354,7 @@ export function startServer({
   };
   /** What each prompt changed: files and line counts only, never file contents, so phone writes need not be on. */
   const sessionEdits = (id: string) => {
-    const session = listed.find((row) => sessionIdentity(row) === id);
+    const session = listed.find((row) => answersTo(row, id));
     if (!session) throw new Refusal(404, "That session is not listed");
     return { turns: turnSummaries(edits.of(session)) };
   };

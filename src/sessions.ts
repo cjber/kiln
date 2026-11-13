@@ -85,6 +85,11 @@ export function processIdentity(session: Pick<Session, "agent" | "pid" | "starte
   return `${session.agent}:${session.pid}:${session.startedAt}`;
 }
 
+/** Whether `name` names this session: its identity, or the process name it went by before its id was known. */
+export function answersTo(session: Session, name: string): boolean {
+  return sessionIdentity(session) === name || (session.pid !== undefined && processIdentity(session) === name);
+}
+
 /** Where the agent works, for display and grouping; opening and resuming use `cwd`. */
 export function sessionDirectory(session: Session): string {
   return session.workdir ?? session.cwd;

@@ -8,7 +8,7 @@ import { emptyInput } from "./prompt";
 import {
   type Agent,
   agentName,
-  processIdentity,
+  answersTo,
   type Session,
   sessionDirectory,
   sessionIdentity,
@@ -82,7 +82,7 @@ export function reachable(session: Session): boolean {
 /** A full name, or a prefix of one or of the bare id that matches a single session. */
 export function findRecipient(sessions: readonly Session[], name: string): Session {
   const candidates = sessions.filter(reachable);
-  const exact = candidates.find((session) => sessionIdentity(session) === name || processIdentity(session) === name);
+  const exact = candidates.find((session) => answersTo(session, name));
   if (exact) return exact;
   const matches = candidates.filter(
     (session) => sessionIdentity(session).startsWith(name) || session.id?.startsWith(name),

@@ -666,6 +666,15 @@ test("a session view reads its transcript, posts a retried reply once and refuse
       stop: false,
     });
     expect((await fetch(`${unnamed}/interrupt`, { method: "POST", headers })).status).toBe(409);
+    // A phone still holding the name a session had before its id was known reaches the same session.
+    const byProcess = `${origin}/v1/sessions/${encodeURIComponent("claude:42:1")}`;
+    expect((await fetch(`${byProcess}/view`, { headers })).status).toBe(200);
+    await fetch(`${byProcess}/messages`, { method: "POST", headers, body: JSON.stringify({ text: "by process" }) });
+    expect(
+      pending(join(directory, "state", "kiln", "mailbox.sqlite"))
+        .filter((message) => message.body === "by process")
+        .map((message) => message.to),
+    ).toContain(`claude:${id}`);
   } finally {
     server.stop();
     pairing.close();
