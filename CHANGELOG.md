@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-13
+
 - **Spawned Claude sessions keep their title.** `kiln msg spawn claude --title T` names the session T, instead of the list showing the title Claude generated from the prompt.
 
 ## [0.26.0] - 2026-11-13
