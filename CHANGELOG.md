@@ -9,11 +9,15 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-13
+
 - **Running OpenCode agents stay visible.** Kiln reads active conversations beyond the service's first page and keeps runs whose process names their conversation visible while the service is unavailable. Their status stays unknown until it can be read, and spawned runs keep their recorded title and parent.
 
 - **Queued phone messages stay visible.** The session view shows messages waiting in the mailbox after the conversation as queued user messages, and keeps the reply field available when kiln can accept the message later.
 
 - **Phone messages reach a session open on the computer.** kiln used to hold every message for a Claude session while any terminal had it attached, so a phone reply waited until you left the session on the computer. It now waits only while that session's prompt box holds a draft, and the phone says why a queued message is waiting and that it sends by itself.
+
+- **Message programs that are not sessions.** A name starting with `@` is a mailbox with no session, such as another tool's CLI: `kiln msg send @name` posts to it, and `kiln msg send --as @name` and `kiln msg inbox --as @name` let that program send and read. A session's reply command names the peer, so its answer waits in that mailbox. `kiln msg send --json` prints each recipient's outcome.
 
 - **The computer stays awake while agents work.** `kiln serve` holds a systemd sleep lock while any session is working, so an idle timer's suspend is refused until the work finishes. Screens still turn off and lock as usual. Set `keep_awake = false` to turn it off.
 
