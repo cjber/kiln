@@ -38,6 +38,9 @@ child's kiln id. The child nests under you in the list, the dashboard and `kiln 
 can message it by that id. Give it enough context to work alone: the absolute paths, the branch,
 what you already tried and what you want back.
 
+Run from a shell that belongs to no agent session (a timer, a cron job, a person's terminal), it
+starts a top-level session with no parent, listed in kiln like any other.
+
 A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
 changed and what it could not finish.
 

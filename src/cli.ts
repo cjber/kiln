@@ -23,7 +23,7 @@ const usage = `usage: kiln            open the session list
        kiln skills list|share|sync    manage shared skills
        kiln msg list|send|inbox|whoami|spawn    let running agents message and start each other
        kiln msg spawn <agent> [--dir PATH] [--title T] -- <prompt>
-                                   start a headless child under this session, in kiln's tmux
+                                   start a headless agent in kiln's tmux, as a child of the calling session if any
        agents: npx skills add cjber/kiln installs the kiln-config, kiln-skills and kiln-agents skills
        kiln --version`;
 

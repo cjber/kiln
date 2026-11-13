@@ -203,7 +203,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
 
 /** Record a child started by `kiln msg spawn`, so its parent survives process ancestry and daemon lookup. */
 export function recordSpawn(
-  item: { agent: Agent; id: string; cwd: string; title?: string; parent: string; startedAt: number; pid?: number },
+  item: { agent: Agent; id: string; cwd: string; title?: string; parent?: string; startedAt: number; pid?: number },
   path = statePath(),
 ): void {
   try {
@@ -219,7 +219,7 @@ export function recordSpawn(
         item.startedAt,
         bootId() ?? "",
         item.pid ?? null,
-        item.parent,
+        item.parent ?? null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
