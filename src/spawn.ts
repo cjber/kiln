@@ -67,8 +67,8 @@ function processStartedAt(pid: number): number {
   }
 }
 
-/** Start a headless agent in kiln's tmux server and record the caller as its parent. Returns its kiln id. */
-export async function spawnAgent(options: SpawnOptions, parent: string): Promise<string> {
+/** Start a headless agent in kiln's tmux server and record the calling agent, if any, as its parent. Returns its kiln id. */
+export async function spawnAgent(options: SpawnOptions, parent?: string): Promise<string> {
   const command = loadSettings().agents[options.agent];
   if (!command[0] || !Bun.which(command[0]))
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);

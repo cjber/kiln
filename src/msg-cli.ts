@@ -50,9 +50,8 @@ function delivery(session: Session): string {
 export async function runMsgCli(args: string[]): Promise<void> {
   const [first] = args;
   if (first === "spawn") {
-    const me = callerIdentity();
-    if (!me) throw new Error("this shell does not belong to an agent session");
-    console.log(await spawnAgent(spawnOptions(args.slice(1)), me));
+    // Outside an agent session (a timer, a person's shell) the child starts with no parent.
+    console.log(await spawnAgent(spawnOptions(args.slice(1)), callerIdentity()));
     return;
   }
   // The wrapper around a spawned OpenCode run calls this when the run exits.
