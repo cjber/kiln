@@ -51,7 +51,7 @@ export function headlessCommand(
     case "opencode":
       return [...command, "run", "--session", id, ...(title ? ["--title", title] : []), prompt];
     case "claude":
-      return [...command, "-p", "--session-id", id, prompt];
+      return [...command, "-p", "--session-id", id, ...(title ? ["--name", title] : []), prompt];
     case "codex":
       return [...command, "exec", prompt];
     case "pi":
@@ -87,7 +87,14 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   }
 
   const id = options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID();
-  const argv = headlessCommand(command, options.agent, id, options.prompt, title);
+  // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
+  const argv = headlessCommand(
+    command,
+    options.agent,
+    id,
+    options.prompt,
+    options.agent === "claude" ? options.title : title,
+  );
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   const started = options.agent === "opencode";
   // A spawned OpenCode run is archived when it exits, so its row does not outlive the work it did.
