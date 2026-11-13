@@ -32,3 +32,9 @@ export function checkout(path: string): string | undefined {
   for (let dir = path; dir !== dirname(dir); dir = dirname(dir)) if (existsSync(join(dir, ".git"))) return dir;
   return undefined;
 }
+
+/**
+ * Counts a checkout's changed files, one porcelain line each. `--no-optional-locks` keeps the poll from rewriting
+ * the index, whose `index.lock` would fail a commit an agent runs in that checkout at the same moment.
+ */
+export const changedFiles = ["git", "--no-optional-locks", "status", "--porcelain"] as const;

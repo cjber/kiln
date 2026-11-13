@@ -17,7 +17,7 @@ import {
   sessionIdentity,
   sessionParents,
 } from "./sessions";
-import { checkout } from "./workdir";
+import { changedFiles, checkout } from "./workdir";
 
 /** How far a session's work has got, least finished first; the page sorts and colours by it. */
 export type Stage = "working" | "failing" | "checks" | "green" | "done";
@@ -540,7 +540,7 @@ export function dashboardData({
     used.add(root);
     if (fresh(changes, root, statusAge)) return;
     changes.set(root, { ...(changes.get(root) ?? { checkedAt: 0 }), pending: true });
-    exec(["git", "status", "--porcelain"], root).then(
+    exec([...changedFiles], root).then(
       (output) => store(changes, root, output.split("\n").filter(Boolean).length, true),
       () => store(changes, root, undefined, false),
     );
