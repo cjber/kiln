@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-13
+
 - **Timers can start agents.** `kiln msg spawn` run outside an agent session, from a timer or your own shell, starts a top-level headless session in kiln instead of refusing.
 
 ## [0.25.0] - 2026-11-13
