@@ -231,3 +231,21 @@ test("a headless OpenCode run is never saved, even when its parent is unknown", 
   const codex: Session = { ...run, agent: "codex", id: "thread", place: { kind: "thread", id: "thread", attach: [] } };
   expect(reconcile([], [run, codex], "b", 0, () => false).saved.map((item) => item.agent)).toEqual(["codex"]);
 });
+
+test("a spawned Codex run keeps its recorded parent and title once its thread id is known", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  recordSpawn(
+    { agent: "codex", id: "40:7", cwd: "/repo", title: "audit", parent: "claude:lead", startedAt: 7, pid: 40 },
+    path,
+  );
+  const unnamed: Session = { agent: "codex", pid: 40, cwd: "/repo", startedAt: 7, place: { kind: "kiln", name: "c" } };
+  expect(attachParents([unnamed], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
+
+  const named = { ...unnamed, id: "0193-thread" };
+  expect(attachParents([named], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
+  // Saving the run under its thread id replaces the row recorded for its process.
+  restartStopped([named], path);
+  expect(attachParents([named], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
+  expect(restartStopped([named], path)).toEqual([]);
+  expect(attachParents([named], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
+});

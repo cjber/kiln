@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
@@ -331,8 +331,85 @@ async function codexExecProcesses(): Promise<AgentProcess[]> {
     const cwd = processCwd(pid);
     const args = processArgs(pid);
     if (!cwd || !args || args[1] !== "exec" || isDaemon(pid)) return [];
-    return [{ pid, agent: "codex" as const, cwd, startedAt: startedAt(pid) }];
+    return [{ pid, agent: "codex" as const, id: codexExecThread(openFiles(pid)), cwd, startedAt: startedAt(pid) }];
   });
+}
+
+function openFiles(pid: number): string[] {
+  try {
+    return readdirSync(`/proc/${pid}/fd`).flatMap((fd) => {
+      try {
+        return [readlinkSync(`/proc/${pid}/fd/${fd}`)];
+      } catch {
+        // File descriptors can close during discovery.
+        return [];
+      }
+    });
+  } catch {
+    // The process may have exited.
+    return [];
+  }
+}
+
+/** The first line of a file, read in pieces: a rollout grows to megabytes and only its opening record is wanted. */
+function firstLine(path: string): string | undefined {
+  try {
+    const file = openSync(path, "r");
+    try {
+      const chunk = Buffer.alloc(65_536);
+      const pieces: Buffer[] = [];
+      for (;;) {
+        const read = readSync(file, chunk, 0, chunk.length, null);
+        if (!read) return undefined;
+        const end = chunk.subarray(0, read).indexOf(10);
+        pieces.push(Buffer.from(chunk.subarray(0, end === -1 ? read : end)));
+        if (end !== -1) return Buffer.concat(pieces).toString("utf8");
+      }
+    } finally {
+      closeSync(file);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/** A rollout's opening record never changes, so each file is read once. */
+const rolloutThreads = new Map<string, { id: string; parent?: string } | undefined>();
+
+function rolloutThread(path: string): { id: string; parent?: string } | undefined {
+  if (rolloutThreads.has(path)) return rolloutThreads.get(path);
+  const line = firstLine(path);
+  // The record is written after the file is opened, so an empty rollout is read again on the next pass.
+  if (line === undefined) return undefined;
+  let thread: { id: string; parent?: string } | undefined;
+  try {
+    const record = JSON.parse(line) as { type?: unknown; payload?: { id?: unknown; parent_thread_id?: unknown } };
+    if (record.type === "session_meta" && typeof record.payload?.id === "string")
+      thread = {
+        id: record.payload.id,
+        parent: typeof record.payload.parent_thread_id === "string" ? record.payload.parent_thread_id : undefined,
+      };
+  } catch {
+    // Not a rollout this version of kiln can read.
+  }
+  rolloutThreads.set(path, thread);
+  return thread;
+}
+
+/**
+ * The thread a `codex exec` run answers as, which is the id its commands see in `CODEX_THREAD_ID`. The process
+ * holds a rollout for it and one for each sub-agent it starts; every sub-agent's rollout names the thread that
+ * started it, so the run's own thread is the one with no parent.
+ */
+export function codexExecThread(
+  files: readonly string[],
+  read: (path: string) => { id: string; parent?: string } | undefined = rolloutThread,
+): string | undefined {
+  const threads = files
+    .filter((path) => /\/sessions\/.*\/rollout-[^/]+\.jsonl$/.test(path))
+    .flatMap((path) => read(path) ?? []);
+  const roots = threads.filter((thread) => thread.parent === undefined);
+  return roots.length === 1 ? roots[0]?.id : undefined;
 }
 
 function hasTerminal(pid: number): boolean {

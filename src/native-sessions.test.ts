@@ -7,6 +7,7 @@ import {
   claudeActivity,
   claudeListing,
   claudeSessionStatus,
+  codexExecThread,
   deduplicateSessions,
   environParent,
   finishedClaudeJobs,
@@ -469,4 +470,19 @@ test("an OpenCode child closes once its run has exited and its last turn ended w
   );
   // A process row is never archived by discovery, whether its activity is idle or unknown.
   expect(finishedOpencodeChildren([child({ activity: undefined, pid: 42 })])).toEqual([]);
+});
+
+test("a codex exec run is named by its own thread, never by a sub-agent thread it also holds", () => {
+  const rollout = (id: string) => `/home/u/.codex/sessions/2026/11/13/rollout-2026-11-13T14-57-57-${id}.jsonl`;
+  const threads = new Map([
+    [rollout("sub-1"), { id: "sub-1", parent: "root" }],
+    [rollout("root"), { id: "root" }],
+    [rollout("sub-2"), { id: "sub-2", parent: "root" }],
+  ]);
+  const read = (path: string) => threads.get(path);
+  const files = ["/dev/null", "/home/u/.codex/state_5.sqlite", ...threads.keys(), "/repo/rollout-notes.jsonl"];
+  expect(codexExecThread(files, read)).toBe("root");
+  // Before Codex opens its rollout the run has no thread yet.
+  expect(codexExecThread(["/dev/null"], read)).toBeUndefined();
+  expect(codexExecThread([rollout("sub-1")], read)).toBeUndefined();
 });
