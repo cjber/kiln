@@ -54,4 +54,13 @@ test("headless commands keep the id kiln chose for the child", () => {
     "session-id",
     "do the work",
   ]);
+  expect(headlessCommand(["claude"], "claude", "session-id", "do the work", "sweep oss")).toEqual([
+    "claude",
+    "-p",
+    "--session-id",
+    "session-id",
+    "--name",
+    "sweep oss",
+    "do the work",
+  ]);
 });
