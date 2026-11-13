@@ -7,10 +7,35 @@ import { spawnAgent, spawnOptions, spawnUsage } from "./spawn";
 import { tilde } from "./tui";
 
 const usage = `usage: kiln msg list [--json]          the sessions you can message
-       kiln msg send <name|--all> <text|->  message one session, or every other one; - reads stdin
-       kiln msg inbox [--json]         read the messages kiln could not deliver to you
+       kiln msg send <name|@peer|--all> <text|-> [--as <@peer>] [--json]
+                                   message one session or peer, or every other session; - reads stdin
+       kiln msg inbox [--as <@peer>] [--json]
+                                   read the messages kiln could not deliver to you
        kiln msg whoami                 your own name
        ${spawnUsage.slice("usage: ".length)}`;
+
+/** A peer is a mailbox identity that is not a running session, named with a leading `@`. */
+const PEER = /^@[A-Za-z0-9._:-]{1,63}$/;
+
+/**
+ * A sender or recipient that is not one of kiln's sessions.
+ *
+ * `--as` exists so a program outside kiln (a Nebula agent, the CLI) can hold a
+ * mailbox of its own: it sends as `@name`, a session answers it with
+ * `kiln msg send @name`, and reads the answer with `kiln msg inbox --as @name`.
+ * The leading `@` is what keeps an override from impersonating a session, whose
+ * names have no `@`.
+ */
+export function peerName(raw: string): string {
+  if (!PEER.test(raw))
+    throw new Error(`a peer is @ followed by letters, digits, ".", "_", ":" or "-" (at most 64); got ${raw}`);
+  return raw;
+}
+
+/** Whether a name addresses a mailbox peer rather than a running session. */
+export function isPeer(name: string): boolean {
+  return name.startsWith("@");
+}
 
 async function sessions(): Promise<Session[]> {
   // Kitty windows are only for focusing; a message never goes through one.
@@ -41,18 +66,19 @@ export async function runMsgCli(args: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { json: { type: "boolean" }, all: { type: "boolean" } },
+    options: { json: { type: "boolean" }, all: { type: "boolean" }, as: { type: "string" } },
   });
   const [command, ...rest] = positionals;
-  const me = callerIdentity();
+  const as = values.as === undefined ? undefined : peerName(values.as);
+  const me = as ?? callerIdentity();
   switch (command) {
     case "whoami":
-      if (rest.length || values.json || values.all) break;
+      if (rest.length || values.json || values.all || as) break;
       if (!me) throw new Error("this shell does not belong to an agent session");
       console.log(me);
       return;
     case "list": {
-      if (rest.length || values.all) break;
+      if (rest.length || values.all || as) break;
       const found = await sessions();
       const parents = sessionParents(found);
       const depth = (session: Session): number => {
@@ -95,29 +121,50 @@ export async function runMsgCli(args: string[]): Promise<void> {
     }
     case "send": {
       const [name, text] = values.all ? [undefined, rest[0]] : rest;
-      if (values.json || rest.length !== (values.all ? 1 : 2) || text === undefined) break;
+      if (rest.length !== (values.all ? 1 : 2) || text === undefined) break;
       const body = (text === "-" ? await Bun.stdin.text() : text).trim();
       if (!body) throw new Error("the message is empty");
       const found = await sessions();
-      const recipients = (name === undefined ? found : [findRecipient(found, name)])
-        .map(sessionIdentity)
-        .filter((recipient) => recipient !== me);
+      // A peer is not in the roster, so it is never typed into: the message waits in its mailbox.
+      const peer = name !== undefined && isPeer(name) ? peerName(name) : undefined;
+      if (peer !== undefined && peer === me) throw new Error("you cannot message yourself");
+      const recipients =
+        peer !== undefined
+          ? [peer]
+          : (name === undefined ? found : [findRecipient(found, name)])
+              .map(sessionIdentity)
+              .filter((recipient) => recipient !== me);
       if (!recipients.length) throw new Error("there is no other session to message");
       const sent = recipients.map((recipient) => post(me ?? terminal, recipient, body));
       const outcomes = await flush(found);
-      for (const message of sent) {
+      const results = sent.map((message) => {
         const outcome = outcomes.find((item) => item.message.id === message.id);
-        console.log(
-          outcome && !outcome.delivered
-            ? `${message.to}: queued; ${outcome.reason}. It is delivered when that changes, or read with kiln msg inbox.`
-            : `${message.to}: delivered`,
-        );
-      }
+        if (isPeer(message.to))
+          return {
+            to: message.to,
+            delivered: false,
+            reason: "it is not a running session; it reads the message with kiln msg inbox",
+          };
+        return outcome && !outcome.delivered
+          ? { to: message.to, delivered: false, reason: outcome.reason }
+          : { to: message.to, delivered: true, reason: undefined };
+      });
+      if (values.json) console.log(JSON.stringify(results, null, 2));
+      else
+        for (const result of results)
+          console.log(
+            result.delivered
+              ? `${result.to}: delivered`
+              : isPeer(result.to)
+                ? `${result.to}: queued; read with kiln msg inbox --as ${result.to}`
+                : `${result.to}: queued; ${result.reason}. It is delivered when that changes, or read with kiln msg inbox.`,
+          );
       return;
     }
     case "inbox": {
       if (rest.length || values.all) break;
-      if (!me) throw new Error("this shell does not belong to an agent session, so it has no inbox");
+      if (!me)
+        throw new Error("this shell does not belong to an agent session, so it has no inbox; name a peer with --as");
       const messages = takeUnread(me);
       const found = messages.length ? await sessions() : [];
       const sender = (from: string) => found.find((session) => sessionIdentity(session) === from);

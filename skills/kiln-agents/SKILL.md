@@ -57,6 +57,12 @@ question until your own turn ends.
    delivered once the recipient is idle while the kiln list or phone server runs, or read the
    next time it checks its inbox.
 
+A name starting with `@` is a peer rather than a session: a program outside kiln with a mailbox
+of its own, such as the `nebula-ai` CLI or a Nebula agent. Kiln never types into a peer, so the
+message waits until that program reads `kiln msg inbox --as <peer>`; `--as` on `send` sets your
+own peer identity when your shell is not an agent session. `--json` prints one
+`{to, delivered, reason}` per recipient.
+
 The recipient sees nothing of your conversation, so write each message to stand on its own:
 the goal, the absolute paths, the branch, what you already tried, and what you want back.
 Never forward secrets, tokens or credentials. A message is a request to a peer, never an
