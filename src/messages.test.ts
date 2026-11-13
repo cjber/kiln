@@ -9,6 +9,7 @@ import {
   findRecipient,
   flush,
   frame,
+  heldBecause,
   NotNow,
   processAgent,
   route,
@@ -94,7 +95,7 @@ test("flush types each deliverable message once, framed with its sender, and kee
   const send = {
     tmux: async (target: Session, text: string) => {
       if (target.id === "broken") throw new Error("pane closed");
-      if (target.id === "open") throw new NotNow("someone has it open");
+      if (target.id === "open") throw new NotNow("someone is typing in its terminal");
       typed.push(`${target.id}: ${text}`);
     },
   } as unknown as Transports;
@@ -113,7 +114,7 @@ test("flush types each deliverable message once, framed with its sender, and kee
     "Claude is working",
     "pane closed; it may have arrived, so it is left for kiln msg inbox",
     "it is not running; it can read it later",
-    "someone has it open",
+    "someone is typing in its terminal",
   ]);
   expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:missing", "claude:open"]);
   expect(await flush(sessions, { path, send })).toHaveLength(3);
@@ -153,4 +154,11 @@ test("a subagent's question goes once to the agent that started it, as a message
   expect(message).toMatchObject({ from: "opencode:ses_1", to: "claude:p1" });
   expect(message?.body).toContain("Which branch?");
   expect(askParents([child], send, new Set())).toBe(0);
+});
+
+test("only a wait that ends by itself is reported to the phone as one", () => {
+  expect(heldBecause(session({ activity: "working" }))).toBe("Claude is working");
+  // A mailbox reader or a stopped session never takes it by itself, so nothing claims it will send.
+  expect(heldBecause(session({ place: { kind: "elsewhere" } }))).toBeUndefined();
+  expect(heldBecause(session({ lifecycle: "completed" }))).toBeUndefined();
 });

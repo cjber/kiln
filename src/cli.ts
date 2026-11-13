@@ -91,10 +91,11 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         const options = serveOptions(args.slice(1));
         loadSettings();
         const { startServer } = await import("./server");
+        const { keepAwake } = await import("./awake");
         const pairing = new Pairing();
         let server: ReturnType<typeof startServer> | undefined;
         try {
-          server = startServer({ port: options.port, pairing });
+          server = startServer({ port: options.port, pairing, awake: keepAwake() });
           console.log(`kiln: listening on http://127.0.0.1:${server.port}`);
           if (!options.local) {
             const origin = options.origin ?? (await setupTailscale(server.port ?? options.port));

@@ -4,8 +4,9 @@ import { startCodexTurn } from "./codex";
 import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
+import { emptyInput } from "./prompt";
 import { type Agent, agentName, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
-import { attachedClients, kiln, submitText } from "./tmux";
+import { attachedClients, kiln, rowsAndCursor, submitText } from "./tmux";
 import { tilde } from "./tui";
 
 /** The name a message from a person at a shell, rather than an agent, carries. */
@@ -173,13 +174,39 @@ const transports: Transports = {
   },
   tmux: async (session, text) => {
     if (session.place.kind !== "kiln") throw new NotNow("not a kiln session");
-    const clients = attachedClients(session.place.name);
-    if (clients === undefined) throw new NotNow("its terminal has closed");
-    // Someone there may be writing a prompt, which the paste would join and Enter would send.
-    if (clients) throw new NotNow("someone has it open; it is delivered once they leave");
+    const typing = typingHold(session.place.name);
+    if (typing) throw new NotNow(typing);
     await submitText(session.place.name, text);
   },
 };
+
+/**
+ * Why a kiln Claude session's terminal cannot be typed into now. Someone at it may be writing a prompt, which a paste
+ * would join and Enter would send, so it waits only while its prompt box holds a draft; an open terminal alone is fine.
+ */
+function typingHold(name: string): string | undefined {
+  const clients = attachedClients(name);
+  if (clients === undefined) return "its terminal has closed";
+  if (!clients) return undefined;
+  const shown = rowsAndCursor(name);
+  if (!shown) return "its terminal has closed";
+  return emptyInput(shown.rows, shown.cursorY)
+    ? undefined
+    : "someone is typing in its terminal; it is delivered once that prompt is sent or cleared";
+}
+
+/**
+ * Why a message for this session waits right now, in the words flush reports, when the wait ends by itself and flush
+ * then delivers it. Nothing when it can go now, or when it never goes by itself: it is not running, or it reads its
+ * mailbox, which `sessionAbilities` reports as `inbox`.
+ */
+export function heldBecause(session: Session, inboxExists?: (pid: number) => boolean): string | undefined {
+  if (!reachable(session)) return undefined;
+  const way = route(session, inboxExists);
+  if ("wait" in way) return way.wait;
+  if ("inbox" in way) return undefined;
+  return way.push === "tmux" && session.place.kind === "kiln" ? typingHold(session.place.name) : undefined;
+}
 
 export type Outcome = { message: Message; delivered: true } | { message: Message; delivered: false; reason: string };
 

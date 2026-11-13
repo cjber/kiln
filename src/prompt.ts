@@ -94,3 +94,11 @@ export function moves(prompt: Prompt, number: number): string[] {
   const steps = number - prompt.cursor;
   return Array.from({ length: Math.abs(steps) }, () => (steps > 0 ? "Down" : "Up"));
 }
+
+/**
+ * Whether the prompt box the cursor is in holds no draft: the cursor's row is the bare input marker. Claude puts the
+ * terminal cursor where the next key lands, so a draft of any length, or a cursor moved into one, shows on that row.
+ */
+export function emptyInput(rows: readonly string[], cursorY: number): boolean {
+  return /^[❯›>]\s*$/.test(rows[cursorY] ?? "");
+}

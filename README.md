@@ -71,7 +71,7 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 | OpenCode on its background service | the answer to its open question, else queued in OpenCode right away |
 | Pi started by kiln | queued as a follow-up right away |
 | Codex on its shared daemon | a new turn once it is idle |
-| Claude started by kiln | pasted into its terminal once it is idle and nobody has it open |
+| Claude started by kiln | pasted into its terminal once it is idle and its prompt box holds no draft |
 
 Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. Waiting messages are delivered by the next `kiln msg send`, and on each refresh of the list or the phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
 
@@ -155,6 +155,8 @@ kiln blame <file> --json
 
 When one session edits a file that another live session changed in its latest prompt, kiln messages both, once per file and pair of prompts, so neither overwrites the other unaware. `kiln serve` sends these while it runs; set `edit_messages = false` to turn them off. The phone's session view has an Edits tab with the same per-prompt summary, which carries paths and counts and never file contents.
 
+While any session is working, `kiln serve` holds a systemd sleep lock (`systemd-inhibit --what=sleep`), so an idle timer's suspend is refused until the work finishes. Only suspend is held off: screens still blank and lock on their usual timers. Set `keep_awake = false` to turn it off.
+
 ## Settings
 
 Press `s` to edit `~/.config/kiln/config.toml` (`$XDG_CONFIG_HOME` when set). Unknown keys are errors. Each agent command launches that agent's native TUI.
@@ -169,6 +171,7 @@ notifications = true
 claude_cloud = false
 remote_control = true
 edit_messages = true
+keep_awake = true
 
 [agents]
 claude = ["claude"]
