@@ -1,0 +1,36 @@
+warnDays: 30
+staleDays: 365
+idleDays: 90
+secretPatterns: []
+ignore: []
+credentialNames: []
+ignorePaths: []
+sources: []
+keys:
+  - id: android-release-keystore
+    service: android
+    group: release
+    owner: cjber
+    locations:
+      - github: ANDROID_RELEASE_KEYSTORE
+    expires: unknown
+    limit: none
+    note: the signing certificate inside has its own validity; read it with keytool before relying on a date
+  - id: android-release-password
+    service: android
+    group: release
+    owner: cjber
+    locations:
+      - github: ANDROID_RELEASE_PASSWORD
+    expires: none
+    expiresNote: the password of the release keystore; it changes only with the keystore
+    limit: none
+  - id: aur-ssh-private-key
+    service: aur
+    group: release
+    owner: cjber
+    locations:
+      - github: AUR_SSH_PRIVATE_KEY
+    expires: none
+    expiresNote: an SSH key pair carries no expiry
+    limit: none
