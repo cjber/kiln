@@ -77,7 +77,7 @@ export function formAnswer(form: Form, text: string): Record<string, string> | u
   return named.length === 1 && named[0] ? { [field.key]: named[0].value } : undefined;
 }
 
-/** `live` says the service answered, so a session missing from `sessions` is known to be inactive. */
+/** `live` says the service answered; the list is one capped page, so a session absent from `sessions` may still exist. */
 export type OpencodeListing = { sessions: OpencodeSession[]; live: boolean };
 
 type Info = {
@@ -154,12 +154,9 @@ export function newOpencodeSessionId(): string {
 /** A live `opencode run` process and the arguments that identify the conversation it is running. */
 export type HeadlessProcess = { pid: number; id?: string; cwd: string; startedAt: number };
 
-/** How far apart a run process and the session it created may start and still be the same conversation. */
-const headlessMatchMs = 10 * 60_000;
-
 /**
- * Match each headless conversation to its `opencode run` process: by the `--session` id in argv, else by
- * the nearest process start in the same directory. The process is what carries the run's parent agent.
+ * Match each headless conversation to its `opencode run` process by the `--session` id in argv. A process that
+ * names no id is not guessed at from its directory or start time, so it can never borrow another conversation.
  */
 export function matchHeadlessProcesses(
   processes: readonly HeadlessProcess[],
@@ -172,22 +169,6 @@ export function matchHeadlessProcesses(
     if (!exact) continue;
     matched.set(session.id, exact.pid);
     used.add(exact.pid);
-  }
-  for (const session of sessions) {
-    if (matched.has(session.id)) continue;
-    let best: HeadlessProcess | undefined;
-    let closest = Number.POSITIVE_INFINITY;
-    for (const process of processes) {
-      if (used.has(process.pid) || process.cwd !== session.cwd) continue;
-      const gap = Math.abs(process.startedAt - session.createdAt);
-      if (gap <= headlessMatchMs && gap < closest) {
-        best = process;
-        closest = gap;
-      }
-    }
-    if (!best) continue;
-    matched.set(session.id, best.pid);
-    used.add(best.pid);
   }
   return matched;
 }
@@ -219,6 +200,7 @@ export function opencodeActivity(active: Active | undefined, pending: boolean, o
 /** The read routes kiln polls, from the service's OpenAPI document. */
 const routes = {
   "session.active": "/api/session/active",
+  "session.get": "/api/session/{sessionID}",
   "session.list": "/api/session",
   "session.permission.list": "/api/session/{sessionID}/permission",
   "session.form.list": "/api/session/{sessionID}/form",
@@ -241,6 +223,17 @@ export function opencodeService(
   return { url: origin.origin, authorization: `Basic ${btoa(`opencode:${password}`)}` };
 }
 
+/** A failed service read; `status` is the HTTP status when the service answered. */
+class ServiceError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ServiceError";
+  }
+}
+
 /**
  * One status read from the service. Starting `opencode api` for each cost about 0.15 s of CPU, and a refresh
  * makes two calls plus two per working session.
@@ -257,7 +250,11 @@ async function get<T>(operation: keyof typeof routes, params: Record<string, str
     signal: AbortSignal.timeout(timeoutMs),
   });
   const source = await response.text();
-  if (!response.ok) throw new Error(source.split("\n")[0] || `the OpenCode service answered ${response.status}`);
+  if (!response.ok)
+    throw new ServiceError(
+      source.split("\n")[0] || `the OpenCode service answered ${response.status}`,
+      response.status,
+    );
   return JSON.parse(source) as T;
 }
 
@@ -303,12 +300,30 @@ export function opencodeShown(
   return running || updatedAt === undefined || now - updatedAt < headlessIdleMs;
 }
 
-/** Prompts are read for active sessions only: a turn that stops to ask is still a running turn. */
-async function read(): Promise<OpencodeSession[]> {
+/** A session by id, or nothing when the service has not stored it yet. Any other failure fails the read. */
+async function infoById(id: string): Promise<Info | undefined> {
+  try {
+    return (await get<{ data: Info }>("session.get", { sessionID: id })).data;
+  } catch (error) {
+    if (error instanceof ServiceError && error.status === 404) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Prompts are read for active sessions only: a turn that stops to ask is still a running turn. `held` names the
+ * conversations a live process holds, so one the page or the archive filter leaves out is still read.
+ */
+async function read(held: readonly string[]): Promise<OpencodeSession[]> {
   const [active, listed] = await Promise.all([
     get<{ data: Record<string, Active> }>("session.active"),
     get<{ data: Info[] }>("session.list", { limit: listLimit }),
   ]);
+  // The list is one capped page, so a session it leaves out can still be running or held by a process. Ask by id.
+  const onPage = new Set(listed.data.map((info) => info.id));
+  const offPage = [...new Set([...Object.keys(active.data), ...held])].filter((id) => !onPage.has(id));
+  const fetched = await Promise.all(offPage.map(infoById));
+  const heldIds = new Set(held);
   const waiting = new Map(
     (
       await Promise.all(
@@ -323,9 +338,9 @@ async function read(): Promise<OpencodeSession[]> {
       )
     ).flat(),
   );
-  return listed.data.flatMap((info) => {
+  return [...listed.data, ...fetched.filter((info): info is Info => info !== undefined)].flatMap((info) => {
     const running = info.id in active.data;
-    if (!opencodeShown(info.time.archived, running, info.time.updated)) return [];
+    if (!opencodeShown(info.time.archived, running, info.time.updated) && !heldIds.has(info.id)) return [];
     return [
       {
         id: info.id,
@@ -342,10 +357,13 @@ async function read(): Promise<OpencodeSession[]> {
   });
 }
 
-/** A failed read keeps the last names with their status unknown. */
-export async function opencodeSessions(): Promise<OpencodeListing> {
+/**
+ * A failed read keeps the last names with their status unknown. `held` is the exact session ids in live process
+ * argv, which the capped list may not name.
+ */
+export async function opencodeSessions(held: readonly string[] = []): Promise<OpencodeListing> {
   try {
-    last = await read();
+    last = await read(held);
     return { sessions: last, live: true };
   } catch {
     last = last.map(({ activity, ...session }) => session);

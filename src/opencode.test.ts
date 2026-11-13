@@ -79,6 +79,132 @@ test("sessions are read from the service over HTTP, with a pending permission as
   }
 });
 
+test("a running session the capped list leaves out is read from the service by id", async () => {
+  const requests: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      const url = new URL(request.url);
+      if (request.headers.get("Authorization") !== `Basic ${btoa("opencode:pw")}`)
+        return new Response("unauthorized", { status: 401 });
+      requests.push(`${request.method} ${url.pathname}`);
+      const listed = { id: "ses_listed", time: { created: 1, updated: 2 }, location: { directory: "/repo" } };
+      const offPage = { id: "ses_busy", time: { created: 3, updated: 4 }, location: { directory: "/repo" } };
+      const routes: Record<string, unknown> = {
+        // The page is capped: the busy session is active but not on it.
+        "/api/session/active": { data: { ses_listed: { type: "running" }, ses_busy: { type: "running" } } },
+        "/api/session": { data: [listed], cursor: { previous: null, next: "next-page" } },
+        "/api/session/ses_busy": { data: offPage },
+        "/api/session/ses_listed/permission": { data: [] },
+        "/api/session/ses_listed/form": { data: [] },
+        "/api/session/ses_busy/permission": { data: [] },
+        "/api/session/ses_busy/form": { data: [] },
+      };
+      return url.pathname in routes ? Response.json(routes[url.pathname]) : new Response("missing", { status: 404 });
+    },
+  });
+  const dir = mkdtempSync(join(tmpdir(), "kiln-opencode-"));
+  const state = Bun.env.XDG_STATE_HOME;
+  serviceFile(dir, { url: `http://127.0.0.1:${server.port}`, password: "pw" });
+  Bun.env.XDG_STATE_HOME = dir;
+  try {
+    const listing = await opencodeSessions();
+    expect(listing.live).toBe(true);
+    expect(listing.sessions.map(({ id, activity, running }) => ({ id, activity, running }))).toEqual([
+      { id: "ses_listed", activity: "working", running: true },
+      { id: "ses_busy", activity: "working", running: true },
+    ]);
+    expect(requests).toContain("GET /api/session/ses_busy");
+    // A session the page already names is not asked for again.
+    expect(requests).not.toContain("GET /api/session/ses_listed");
+  } finally {
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+    server.stop(true);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("a missing active session the service cannot read leaves its status unknown, not idle", async () => {
+  let fail = false;
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      const url = new URL(request.url);
+      if (request.headers.get("Authorization") !== `Basic ${btoa("opencode:pw")}`)
+        return new Response("unauthorized", { status: 401 });
+      if (url.pathname === "/api/session/active") return Response.json({ data: { ses_busy: { type: "running" } } });
+      if (url.pathname === "/api/session") return Response.json({ data: [], cursor: { previous: null, next: null } });
+      if (url.pathname === "/api/session/ses_busy")
+        return fail
+          ? new Response("service unavailable", { status: 500 })
+          : Response.json({
+              data: { id: "ses_busy", time: { created: 1, updated: 2 }, location: { directory: "/r" } },
+            });
+      if (url.pathname.endsWith("/permission") || url.pathname.endsWith("/form")) return Response.json({ data: [] });
+      return new Response("missing", { status: 404 });
+    },
+  });
+  const dir = mkdtempSync(join(tmpdir(), "kiln-opencode-"));
+  const state = Bun.env.XDG_STATE_HOME;
+  serviceFile(dir, { url: `http://127.0.0.1:${server.port}`, password: "pw" });
+  Bun.env.XDG_STATE_HOME = dir;
+  try {
+    const listed = await opencodeSessions();
+    expect(listed.sessions.map(({ id, activity }) => ({ id, activity }))).toEqual([
+      { id: "ses_busy", activity: "working" },
+    ]);
+    fail = true;
+    const failed = await opencodeSessions();
+    expect(failed.live).toBe(false);
+    expect(failed.sessions.map(({ id, activity, running }) => ({ id, activity, running }))).toEqual([
+      { id: "ses_busy", activity: undefined, running: true },
+    ]);
+  } finally {
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+    server.stop(true);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("a conversation an archive hides is still read while a live process holds its id", async () => {
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      const url = new URL(request.url);
+      if (request.headers.get("Authorization") !== `Basic ${btoa("opencode:pw")}`)
+        return new Response("unauthorized", { status: 401 });
+      const archived = { id: "ses_a", time: { created: 1, updated: 2, archived: 3 }, location: { directory: "/repo" } };
+      if (url.pathname === "/api/session/active") return Response.json({ data: {} });
+      if (url.pathname === "/api/session")
+        return Response.json({ data: [archived], cursor: { previous: null, next: null } });
+      return new Response("missing", { status: 404 });
+    },
+  });
+  const dir = mkdtempSync(join(tmpdir(), "kiln-opencode-"));
+  const state = Bun.env.XDG_STATE_HOME;
+  serviceFile(dir, { url: `http://127.0.0.1:${server.port}`, password: "pw" });
+  Bun.env.XDG_STATE_HOME = dir;
+  try {
+    const held = await opencodeSessions(["ses_a"]);
+    expect(held.live).toBe(true);
+    expect(held.sessions.map(({ id, activity, running }) => ({ id, activity, running }))).toEqual([
+      { id: "ses_a", activity: "idle", running: false },
+    ]);
+    // A run archiving the conversation when it exits still hides it once no process holds it.
+    expect((await opencodeSessions()).sessions).toEqual([]);
+  } finally {
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+    server.stop(true);
+    rmSync(dir, { recursive: true });
+  }
+});
+
 test("a terminal session is told from a subcommand on argv, and only a valid id is read back", () => {
   const id = "ses_e67fb939cffebq6gr36R6Z5T16";
   expect(opencodeInvocation(["opencode"])).toEqual({ id: undefined, shared: true });
@@ -135,7 +261,7 @@ test("a finished headless run stays for six hours idle, then is hidden", () => {
   expect(opencodeShown(undefined, true, now - headlessIdleMs - 1, now)).toBe(true);
 });
 
-test("a headless run is matched to its process by session id, then by directory and start", () => {
+test("a headless run is matched to its process by its exact session id only", () => {
   const sessions = [
     { id: "ses_a", cwd: "/repo", createdAt: 1_000 },
     { id: "ses_b", cwd: "/repo", createdAt: 2_000 },
@@ -145,14 +271,11 @@ test("a headless run is matched to its process by session id, then by directory 
   const processes = [
     { pid: 10, id: "ses_b", cwd: "/elsewhere", startedAt: 8_000 },
     { pid: 11, cwd: "/repo", startedAt: 1_100 },
-    { pid: 12, cwd: "/other", startedAt: 3_100 },
-    { pid: 13, cwd: "/far", startedAt: 1 },
+    { pid: 12, id: "ses_other", cwd: "/other", startedAt: 3_100 },
+    { pid: 13, cwd: "/far", startedAt: 9_000_000 },
   ];
-  expect(Object.fromEntries(matchHeadlessProcesses(processes, sessions))).toEqual({
-    ses_a: 11,
-    ses_b: 10,
-    ses_c: 12,
-  });
+  // A process that names no id, or another one, is never paired by directory or start time.
+  expect(Object.fromEntries(matchHeadlessProcesses(processes, sessions))).toEqual({ ses_b: 10 });
 });
 
 const question = {

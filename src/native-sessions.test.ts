@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionAction } from "./launcher";
@@ -18,6 +18,7 @@ import {
   withCodexThreads,
   withOpencodeSessions,
 } from "./native-sessions";
+import { attachParents, recordSpawn } from "./saved-sessions";
 import type { Place, Session } from "./sessions";
 
 describe("isInteractiveCodex", () => {
@@ -321,10 +322,10 @@ describe("OpenCode pairing", () => {
     expect(headless[0]).toMatchObject({ id: "ses_a", pid: 4242 });
   });
 
-  test("a session not stored yet is idle only when the service answered", () => {
+  test("a terminal whose session is not stored carries no activity", () => {
     const named = { ...process, id: "ses_new" };
-    expect(withOpencodeSessions([named], { sessions: [], live: true }).processes[0]?.activity).toBe("idle");
-    expect(withOpencodeSessions([named], { sessions: [], live: false }).processes[0]?.activity).toBeUndefined();
+    for (const live of [true, false])
+      expect(withOpencodeSessions([named], { sessions: [], live }).processes[0]?.activity).toBeUndefined();
   });
 
   test("a private server's terminal does not borrow the shared service's status", () => {
@@ -349,6 +350,82 @@ describe("OpenCode pairing", () => {
     expect(
       deduplicateSessions([row(1, { kind: "elsewhere" }), row(2, { kind: "kiln", name: "a" })]).map(({ pid }) => pid),
     ).toEqual([2]);
+  });
+
+  test("a live run absent from the service, or with no service at all, is listed from its exact id", () => {
+    const run = { pid: 77, id: "ses_run", cwd: "/worktree/fix", startedAt: 9 };
+    for (const live of [false, true]) {
+      const { headless } = withOpencodeSessions([], { sessions: [], live }, new Map(), new Map(), [run]);
+      expect(headless).toHaveLength(1);
+      // Its directory and start are the process's own; what it is doing is not known.
+      expect(headless[0]).toMatchObject({
+        agent: "opencode",
+        id: "ses_run",
+        pid: 77,
+        cwd: "/worktree/fix",
+        startedAt: 9,
+      });
+      expect(headless[0]?.activity).toBeUndefined();
+      expect(headless[0]?.place).toEqual({
+        kind: "thread",
+        id: "ses_run",
+        attach: ["opencode", "--session", "ses_run"],
+      });
+      expect(headless[0]?.opencodeService).toBeUndefined();
+    }
+  });
+
+  test("a run the service already lists is one row, with the service's status", () => {
+    const run = { pid: 77, id: "ses_a", cwd: "/repo", startedAt: 9 };
+    const { headless } = withOpencodeSessions([], { sessions: [stored], live: true }, new Map(), new Map(), [run]);
+    expect(headless).toHaveLength(1);
+    expect(headless[0]).toMatchObject({ id: "ses_a", activity: "working", opencodeService: true });
+  });
+
+  test("a run whose id the page does not name is one process row with its recorded parent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kiln-opencode-"));
+    const path = join(dir, "sessions.sqlite");
+    try {
+      recordSpawn(
+        {
+          agent: "opencode",
+          id: "ses_run",
+          cwd: "/worktree/fix",
+          title: "Fix run",
+          parent: "codex:parent",
+          startedAt: 9,
+          pid: 77,
+        },
+        path,
+      );
+      const run = { pid: 77, id: "ses_run", cwd: "/worktree/fix", startedAt: 9 };
+      const { headless } = withOpencodeSessions([], { sessions: [], live: true }, new Map(), new Map(), [run]);
+      const attached = attachParents(headless, path);
+      expect(attached).toHaveLength(1);
+      expect(attached[0]).toMatchObject({
+        id: "ses_run",
+        pid: 77,
+        title: "Fix run",
+        spawnParent: "codex:parent",
+      });
+      expect(attached[0]?.activity).toBeUndefined();
+      expect(attached[0]?.opencodeService).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a run whose id a terminal already owns is not listed twice", () => {
+    const run = { pid: 77, id: "ses_a", cwd: "/repo", startedAt: 9 };
+    const { processes, headless } = withOpencodeSessions(
+      [{ ...process, id: "ses_a" }],
+      { sessions: [stored], live: true },
+      new Map(),
+      new Map(),
+      [run],
+    );
+    expect(processes).toHaveLength(1);
+    expect(headless).toEqual([]);
   });
 });
 
@@ -390,4 +467,6 @@ test("an OpenCode child closes once its run has exited and its last turn ended w
   expect(finishedOpencodeChildren([done, fromOpencode, running, working, failed, unknown, topLevel, terminal])).toEqual(
     [done, fromOpencode],
   );
+  // A process row is never archived by discovery, whether its activity is idle or unknown.
+  expect(finishedOpencodeChildren([child({ activity: undefined, pid: 42 })])).toEqual([]);
 });

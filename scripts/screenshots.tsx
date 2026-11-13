@@ -1,10 +1,11 @@
 /**
  * Render the README screenshots from the real UI with demo sessions.
  *
- *   bun scripts/screenshots.tsx 2>/dev/null   # React warns about act(), which only a test runner needs
+ *   bun scripts/screenshots.tsx
  *
- * OpenTUI's test renderer draws the App off-screen; each captured frame becomes
- * an SVG of its cells, and rsvg-convert turns that into assets/<name>.png.
+ * OpenTUI's test renderer draws the App off-screen; each shot renders and presses its keys inside React's
+ * act, then waits for the text that proves the requested panel is on screen before capturing it. Each
+ * captured frame becomes an SVG of its cells, and rsvg-convert turns that into assets/<name>.png.
  * The fonts are JetBrains Mono where installed, else any monospace.
  */
 
@@ -13,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CapturedFrame, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
+import { act, type ReactNode } from "react";
 
 import { App } from "../src/app";
 import type { DashboardRow, DashboardSnapshot, PullRequest } from "../src/dashboard";
@@ -172,8 +174,57 @@ ${shapes.join("\n")}
 `;
 }
 
-async function shoot(name: string, keys: string[]): Promise<void> {
-  const setup = await testRender(
+type Setup = Awaited<ReturnType<typeof testRender>>;
+
+/** A missing state must fail instead of parking on a renderer kept awake by the app's refresh timer. */
+const stateDeadlineMs = 10_000;
+
+/** Render inside act so effects and the seeded session load settle before the first key. */
+async function render(node: ReactNode, size: { width: number; height: number }): Promise<Setup> {
+  let setup!: Setup;
+  await act(async () => {
+    setup = await testRender(node, size);
+  });
+  return setup;
+}
+
+/** Press keys inside act, then require the state the shot asked for; a stale list is a failure, not a screenshot. */
+async function reach(setup: Setup, shot: string, keys: string[], expected: readonly string[]): Promise<void> {
+  for (const key of keys)
+    await act(async () => {
+      await setup.mockInput.pressKeys([key]);
+    });
+  const wanted = expected.map((text) => JSON.stringify(text)).join(", ");
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    deadline = setTimeout(() => reject(new Error(`no matching frame within ${stateDeadlineMs} ms`)), stateDeadlineMs);
+  });
+  try {
+    await Promise.race([setup.waitForFrame((frame) => expected.every((text) => frame.includes(text))), expired]);
+  } catch {
+    const how = keys.length ? ` after ${keys.join(" ")}` : " after render";
+    const saw = setup.captureCharFrame();
+    await close(setup);
+    throw new Error(`${shot}: expected ${wanted}${how}, saw:\n${saw}`);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
+/** Unmount inside act, as the keys were pressed, so the last updates stay out of React's act warnings. */
+async function close(setup: Setup): Promise<void> {
+  await act(async () => {
+    setup.renderer.destroy();
+  });
+}
+
+async function shoot(
+  name: string,
+  keys: string[],
+  expected: readonly string[],
+  initial = "kiln 9 tasks",
+): Promise<void> {
+  const setup = await render(
     name === "skills" ? (
       <SkillsView project={code("atlas")} onBack={() => {}} edit={async () => {}} loadSkills={() => demoSkills} />
     ) : (
@@ -184,7 +235,20 @@ async function shoot(name: string, keys: string[]): Promise<void> {
           nestSessions(
             name === "unavailable"
               ? demo.map((session, index) => (index ? session : { ...session, activity: undefined }))
-              : demo,
+              : name === "archive"
+                ? demo.map((session, index) =>
+                    index === 1
+                      ? {
+                          ...session,
+                          place: {
+                            kind: "thread" as const,
+                            id: "019a7c",
+                            attach: ["codex", "resume", "019a7c"],
+                          },
+                        }
+                      : session,
+                  )
+                : demo,
           )
         }
       />
@@ -194,12 +258,12 @@ async function shoot(name: string, keys: string[]): Promise<void> {
       height: rows,
     },
   );
-  await setup.waitForFrame((frame) => frame.includes(name === "skills" ? "kiln skills" : "atlas"));
-  for (const key of keys) await setup.mockInput.pressKey(key);
-  await setup.flush();
+  await reach(setup, name, [], [initial]);
+  await reach(setup, name, keys, expected);
   const path = join(scratch, `${name}.svg`);
-  await Bun.write(path, svg(setup.captureSpans()));
-  setup.renderer.destroy();
+  const image = svg(setup.captureSpans());
+  await close(setup);
+  await Bun.write(path, image);
   const png = Bun.spawnSync(["rsvg-convert", "--zoom", "2", "-o", join(out, `${name}.png`), path], {
     stderr: "inherit",
   });
@@ -208,7 +272,12 @@ async function shoot(name: string, keys: string[]): Promise<void> {
 }
 
 /** The edits view over a demo checkout: one prompt by Claude, a later doc comment by Codex. */
-async function shootEdits(name: string, keys: string[]): Promise<void> {
+async function shootEdits(
+  name: string,
+  keys: string[],
+  expected: readonly string[],
+  initial = "Cap the cache at 512 tiles",
+): Promise<void> {
   const file = join(code("atlas"), "src", "tiles.ts");
   const text = [
     'import { fetchTile } from "./net";',
@@ -325,7 +394,7 @@ async function shootEdits(name: string, keys: string[]): Promise<void> {
       },
     ],
   };
-  const setup = await testRender(
+  const setup = await render(
     <EditsView
       session={tiles}
       sessions={[tiles, { ...backoff, id: "019a7c", cwd: code("atlas") }]}
@@ -336,13 +405,12 @@ async function shootEdits(name: string, keys: string[]): Promise<void> {
     />,
     { width: cols, height: rows + 4 },
   );
-  await setup.waitForFrame((frame) => frame.includes("kiln edits"));
-  for (const key of keys) await setup.mockInput.pressKey(key);
-  await Bun.sleep(300);
-  await setup.flush();
+  await reach(setup, name, [], [initial]);
+  await reach(setup, name, keys, expected);
   const path = join(scratch, `${name}.svg`);
-  await Bun.write(path, svg(setup.captureSpans()));
-  setup.renderer.destroy();
+  const image = svg(setup.captureSpans());
+  await close(setup);
+  await Bun.write(path, image);
   const png = Bun.spawnSync(["rsvg-convert", "--zoom", "2", "-o", join(out, `${name}.png`), path], {
     stderr: "inherit",
   });
@@ -654,13 +722,16 @@ async function shootDashboard(): Promise<void> {
   }
 }
 
-await shoot("list", ["j"]);
-await shoot("unavailable", []);
-await shoot("archive", ["j", "j", "j", "j", "j", "j", "x"]);
-await shoot("new", ["n", "l"]);
-await shoot("skills", ["p"]);
-await shootEdits("edits", []);
-await shootEdits("edits-file", ["\r"]);
-await shootDashboard();
-rmSync(scratch, { recursive: true, force: true });
+try {
+  await shoot("list", ["j"], ["Codex · fix/retry-backoff", "Fix retry backoff"]);
+  await shoot("unavailable", [], ["status unavailable from provider"]);
+  await shoot("archive", ["j", "x"], ["archive Codex in ~/code/atlas? y to confirm"]);
+  await shoot("new", ["n", "l"], ["[Codex]", "h/l or j/k pick agent"]);
+  await shoot("skills", ["p"], ["kiln skills · project"], "kiln skills");
+  await shootEdits("edits", [], ["f follow newest edit"]);
+  await shootEdits("edits-file", ["\r"], ["]/[ next change"]);
+  await shootDashboard();
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}
 process.exit(0);

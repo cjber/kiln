@@ -231,7 +231,7 @@ export function recordSpawn(
  * detached run inherited. Both need the child's process, and a headless run's session stays listed after it exits.
  */
 export function rememberParents(sessions: readonly Session[], path = statePath()): void {
-  const recorded = recordedParents(path);
+  const recorded = recordedSpawns(path);
   const byPid = new Map(sessions.flatMap((session) => (session.pid === undefined ? [] : [[session.pid, session]])));
   for (const session of sessions) {
     if (session.id === undefined || session.parentSessionId !== undefined) continue;
@@ -255,29 +255,37 @@ export function rememberParents(sessions: readonly Session[], path = statePath()
   }
 }
 
-/** Each child's recorded parent, by the child's kiln id. */
-function recordedParents(path: string): Map<string, string> {
-  const recorded = new Map<string, string>();
+/** Each spawned child's recorded parent and title, by the child's kiln id. */
+function recordedSpawns(path: string): Map<string, { parent?: string; title?: string }> {
+  const recorded = new Map<string, { parent?: string; title?: string }>();
   try {
     if (existsSync(path))
       for (const row of open(path)
-        .query<{ agent: Agent; id: string; parent: string | null }, []>(
-          "SELECT agent, id, parent FROM sessions WHERE parent IS NOT NULL",
+        .query<{ agent: Agent; id: string; parent: string | null; title: string | null }, []>(
+          "SELECT agent, id, parent, title FROM sessions WHERE parent IS NOT NULL",
         )
         .all())
-        if (row.parent) recorded.set(`${row.agent}:${row.id}`, row.parent);
+        recorded.set(`${row.agent}:${row.id}`, { parent: row.parent ?? undefined, title: row.title ?? undefined });
   } catch {
     // An unreadable state file only costs the recorded nesting.
   }
   return recorded;
 }
 
-/** Mark the sessions whose parent `kiln msg spawn` recorded; that parent outranks process ancestry. */
+/**
+ * Mark the sessions whose parent `kiln msg spawn` recorded; that parent outranks process ancestry. A child the
+ * provider does not title takes the title the spawn recorded.
+ */
 export function attachParents(sessions: readonly Session[], path = statePath()): Session[] {
-  const recorded = recordedParents(path);
+  const recorded = recordedSpawns(path);
   return sessions.map((session) => {
-    const parent = recorded.get(sessionIdentity(session));
-    return parent ? { ...session, spawnParent: parent } : session;
+    const spawn = recorded.get(sessionIdentity(session));
+    if (!spawn) return session;
+    return {
+      ...session,
+      spawnParent: spawn.parent ?? session.spawnParent,
+      title: session.title ?? spawn.title,
+    };
   });
 }
 
