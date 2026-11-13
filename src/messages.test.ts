@@ -9,6 +9,7 @@ import {
   findRecipient,
   flush,
   frame,
+  heldBecause,
   NotNow,
   processAgent,
   route,
@@ -153,4 +154,11 @@ test("a subagent's question goes once to the agent that started it, as a message
   expect(message).toMatchObject({ from: "opencode:ses_1", to: "claude:p1" });
   expect(message?.body).toContain("Which branch?");
   expect(askParents([child], send, new Set())).toBe(0);
+});
+
+test("only a wait that ends by itself is reported to the phone as one", () => {
+  expect(heldBecause(session({ activity: "working" }))).toBe("Claude is working");
+  // A mailbox reader or a stopped session never takes it by itself, so nothing claims it will send.
+  expect(heldBecause(session({ place: { kind: "elsewhere" } }))).toBeUndefined();
+  expect(heldBecause(session({ lifecycle: "completed" }))).toBeUndefined();
 });

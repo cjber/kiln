@@ -195,12 +195,16 @@ function typingHold(name: string): string | undefined {
     : "someone is typing in its terminal; it is delivered once that prompt is sent or cleared";
 }
 
-/** Why a message for this session would wait right now, in the words flush reports; nothing when it can go. */
+/**
+ * Why a message for this session waits right now, in the words flush reports, when the wait ends by itself and flush
+ * then delivers it. Nothing when it can go now, or when it never goes by itself: it is not running, or it reads its
+ * mailbox, which `sessionAbilities` reports as `inbox`.
+ */
 export function heldBecause(session: Session, inboxExists?: (pid: number) => boolean): string | undefined {
-  if (!reachable(session)) return "it is not running; it can read it later";
+  if (!reachable(session)) return undefined;
   const way = route(session, inboxExists);
   if ("wait" in way) return way.wait;
-  if ("inbox" in way) return way.inbox;
+  if ("inbox" in way) return undefined;
   return way.push === "tmux" && session.place.kind === "kiln" ? typingHold(session.place.name) : undefined;
 }
 

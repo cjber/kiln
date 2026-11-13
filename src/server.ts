@@ -683,11 +683,14 @@ export function startServer({
   // Discovery starts several provider CLIs, so it runs every interval only while a phone watches,
   // or while a session works and a phone waits for its push. With pushes on and nothing working it
   // still looks every `pushInterval`, so a turn that starts and ends between idle checks is caught.
+  // Keeping awake looks as often, so a turn that starts takes the sleep lock within seconds, not a minute.
   const timer = setInterval(() => {
     publish();
     const working = snapshot.sessions.some((row) => row.where !== "cloud" && row.activity === "working");
     const since = Date.now() - refreshedAt;
-    if (sockets.size || (pushing() && (working || since >= pushInterval)) || since >= idleInterval) void refresh();
+    const looking = pushing() || keepingAwake();
+    if (sockets.size || (pushing() && working) || (looking && since >= pushInterval) || since >= idleInterval)
+      void refresh();
   }, interval);
   void refresh();
   return {
