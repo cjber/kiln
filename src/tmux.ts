@@ -259,8 +259,8 @@ export function start(
   );
 }
 
-/** How a kept pane of a session started with `start` ended: its status and the output still on screen. */
-export function ended(name: string): { status: number; output: string } | undefined {
+/** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
+export function ended(name: string): { status?: number; output: string } | undefined {
   const target = `=${name}:`;
   const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
     stdout: "pipe",
@@ -280,7 +280,8 @@ export function ended(name: string): { status: number; output: string } | undefi
     .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
     .slice(-20)
     .join("\n");
-  return { status: Number(status) || 0, output };
+  const code = Number(status);
+  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output };
 }
 
 /** Why a session's command quit, read from its kept pane. */
