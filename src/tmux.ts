@@ -203,8 +203,43 @@ export function start(
   onExit?: string,
 ): boolean {
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
-  const kept = keep || onExit ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
-  const hook = onExit ? [";", "set-hook", "-w", "pane-died", onExit] : [];
+  if (onExit) {
+    // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
+    if (
+      !run(
+        "-f",
+        configPath(),
+        "new-session",
+        "-d",
+        "-s",
+        name,
+        "-c",
+        cwd,
+        "sleep",
+        "60",
+        ";",
+        "set-option",
+        "-w",
+        "remain-on-exit",
+        "on",
+        ";",
+        "set-hook",
+        "-w",
+        "pane-died",
+        onExit,
+        ";",
+        "set-option",
+        "@kiln_title",
+        title,
+      )
+    )
+      return false;
+    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv)) return true;
+    // The placeholder must not sit there and report a clean exit for an agent that never started.
+    kill(name);
+    return false;
+  }
+  const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
   return run(
     "-f",
     configPath(),
@@ -216,7 +251,6 @@ export function start(
     cwd,
     ...argv,
     ...kept,
-    ...hook,
     ";",
     "set-option",
     "@kiln_title",
