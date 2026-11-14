@@ -235,7 +235,8 @@ export function start(
     )
       return false;
     if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv)) return true;
-    // The placeholder must not sit there and report a clean exit for an agent that never started.
+    // The placeholder must not report an exit for an agent that never started.
+    run("set-hook", "-u", "-w", "-t", `=${name}:`, "pane-died");
     kill(name);
     return false;
   }
