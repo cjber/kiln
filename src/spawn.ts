@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { post } from "./mailbox";
-import { flush, spawnSender } from "./messages";
+import { flush, spawnReportSender } from "./messages";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
@@ -167,7 +167,7 @@ export async function reportSpawnExit(name: string, child: string, parent: strin
   if (parent && separator > 0) {
     try {
       post(
-        spawnSender,
+        spawnReportSender(identity),
         parent,
         exitMessage(identity, record?.title, ending?.status, ending?.output),
         undefined,
