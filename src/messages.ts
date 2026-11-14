@@ -23,6 +23,12 @@ export const terminal = "terminal";
 /** The name kiln's own messages about an agent's pull requests carry; nobody reads replies to it. */
 export const autopilotSender = "kiln-autopilot";
 
+/** A spawned child's exit report carries this prefix; its process is gone, so a reply has nowhere to go. */
+export const spawnSender = "kiln-spawn";
+
+/** Each child reports under its own name, so one busy parent can collect more than the per-sender send limit. */
+export const spawnReportSender = (child: string) => `${spawnSender}:${child}`;
+
 /** The name a message typed on a paired phone carries. */
 export const phoneSender = (device: string) => `phone:${device}`;
 
@@ -149,7 +155,10 @@ export function frame(message: Message, sender: Session | undefined, command = k
   const quoted = /^[\w./-]+$/.test(command) ? command : `'${command.replaceAll("'", "'\\''")}'`;
   // A person cannot be messaged back.
   const reply =
-    message.from === terminal || message.from === autopilotSender || message.from.startsWith(phoneSender(""))
+    message.from === terminal ||
+    message.from === autopilotSender ||
+    message.from.startsWith(spawnSender) ||
+    message.from.startsWith(phoneSender(""))
       ? ""
       : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;

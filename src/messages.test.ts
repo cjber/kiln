@@ -13,6 +13,7 @@ import {
   NotNow,
   processAgent,
   route,
+  spawnSender,
   type Transports,
 } from "./messages";
 import type { Session } from "./sessions";
@@ -134,6 +135,10 @@ test("a message from a person at a shell offers no reply command", () => {
   const message = { id: "1", from: "terminal", to: "claude:a", body: "hi", createdAt: 0 };
   expect(frame(message, undefined)).toBe("[kiln message from terminal]\n\nhi");
   expect(frame({ ...message, from: "phone:Pixel 9" }, undefined)).toBe("[kiln message from phone:Pixel 9]\n\nhi");
+  expect(frame({ ...message, from: spawnSender }, undefined)).toBe(`[kiln message from ${spawnSender}]\n\nhi`);
+  expect(frame({ ...message, from: `${spawnSender}:claude:child` }, undefined)).toBe(
+    `[kiln message from ${spawnSender}:claude:child]\n\nhi`,
+  );
   // The reply names the exact executable, quoted when its path needs it.
   expect(frame({ ...message, from: "pi:p" }, undefined, "/opt/my kiln/kiln")).toBe(
     "[kiln message from pi:p]\n\nhi\n\n[Reply with: '/opt/my kiln/kiln' msg send pi:p \"<your reply>\"]",
