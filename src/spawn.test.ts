@@ -2,8 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { recordSpawn } from "./saved-sessions";
-import { exitHook, exitMessage, headlessCommand, reportSpawnExit, spawnOptions, spawnUsage } from "./spawn";
+import { exitHook, exitMessage, headlessCommand, spawnOptions, spawnUsage } from "./spawn";
 import { ended, kill, start } from "./tmux";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -156,23 +155,4 @@ test("a spawned pane's exit hook runs, and its kept pane reports the status and 
   expect(existsSync(marker)).toBe(true);
   expect(ended("limit-child")).toEqual({ status: 3, output: "you hit the limit" });
   expect(kill("limit-child")).toBe(true);
-});
-
-test("an exit before registration keeps the pane until the spawn is recorded", async () => {
-  const state = Bun.env.XDG_STATE_HOME;
-  Bun.env.XDG_STATE_HOME = join(paneDir, "state");
-  const name = "unregistered-child";
-  try {
-    expect(start(name, paneDir, ["sh", "-c", "echo stopped; exit 3"], "early", true)).toBe(true);
-    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
-    await reportSpawnExit(name, "", "");
-    expect(ended(name)?.status).toBe(3);
-    recordSpawn({ agent: "codex", id: "early", cwd: paneDir, startedAt: Date.now(), pane: name });
-    await reportSpawnExit(name, "", "");
-    expect(ended(name)).toBeUndefined();
-  } finally {
-    kill(name);
-    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
-    else Bun.env.XDG_STATE_HOME = state;
-  }
 });

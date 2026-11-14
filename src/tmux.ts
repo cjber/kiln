@@ -203,44 +203,8 @@ export function start(
   onExit?: string,
 ): boolean {
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
-  if (onExit) {
-    // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
-    if (
-      !run(
-        "-f",
-        configPath(),
-        "new-session",
-        "-d",
-        "-s",
-        name,
-        "-c",
-        cwd,
-        "sleep",
-        "60",
-        ";",
-        "set-option",
-        "-w",
-        "remain-on-exit",
-        "on",
-        ";",
-        "set-hook",
-        "-w",
-        "pane-died",
-        onExit,
-        ";",
-        "set-option",
-        "@kiln_title",
-        title,
-      )
-    )
-      return false;
-    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv)) return true;
-    // The placeholder must not report an exit for an agent that never started.
-    run("set-hook", "-u", "-w", "-t", `=${name}:`, "pane-died");
-    kill(name);
-    return false;
-  }
-  const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  const kept = keep || onExit ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  const hook = onExit ? [";", "set-hook", "-w", "pane-died", onExit] : [];
   return run(
     "-f",
     configPath(),
@@ -252,6 +216,7 @@ export function start(
     cwd,
     ...argv,
     ...kept,
+    ...hook,
     ";",
     "set-option",
     "@kiln_title",
@@ -259,8 +224,8 @@ export function start(
   );
 }
 
-/** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
-export function ended(name: string): { status?: number; output: string } | undefined {
+/** How a kept pane of a session started with `start` ended: its status and the output still on screen. */
+export function ended(name: string): { status: number; output: string } | undefined {
   const target = `=${name}:`;
   const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
     stdout: "pipe",
@@ -280,8 +245,7 @@ export function ended(name: string): { status?: number; output: string } | undef
     .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
     .slice(-20)
     .join("\n");
-  const code = Number(status);
-  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output };
+  return { status: Number(status) || 0, output };
 }
 
 /** Why a session's command quit, read from its kept pane. */

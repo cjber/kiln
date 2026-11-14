@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { post } from "./mailbox";
-import { flush, spawnReportSender } from "./messages";
+import { flush, spawnSender } from "./messages";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
@@ -130,7 +130,6 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       pid,
       pane: name,
     });
-    if (ended(name)) await reportSpawnExit(name, "", parent ?? "");
     return `codex:${id}`;
   }
 
@@ -151,7 +150,6 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`could not start ${agentName(options.agent)}`);
   const pid = await panePid(name);
   recordSpawn({ agent: options.agent, id, cwd: options.dir, title, parent, startedAt, pid, pane: name });
-  if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");
   return `${options.agent}:${id}`;
 }
 
@@ -159,11 +157,9 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
  * A spawned child's process has exited: tell its parent why, so a child that stops on a usage limit is not lost, then
  * close the pane kept for this report. The parent may be gone too; the message then waits in the mailbox.
  */
-export async function reportSpawnExit(name: string, _child: string, parent: string): Promise<void> {
+export async function reportSpawnExit(name: string, child: string, parent: string): Promise<void> {
   const record = spawnRecord(name);
-  // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
-  if (!record) return;
-  const identity = `${record.agent}:${record.id}`;
+  const identity = record ? `${record.agent}:${record.id}` : child;
   const separator = identity.indexOf(":");
   const agent = identity.slice(0, separator);
   const id = identity.slice(separator + 1);
@@ -171,7 +167,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   if (parent && separator > 0) {
     try {
       post(
-        spawnReportSender(identity),
+        spawnSender,
         parent,
         exitMessage(identity, record?.title, ending?.status, ending?.output),
         undefined,
