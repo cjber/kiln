@@ -3,7 +3,15 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attachParents, forget, reconcile, recordSpawn, rememberParents, restartStopped } from "./saved-sessions";
+import {
+  attachParents,
+  forget,
+  reconcile,
+  recordSpawn,
+  rememberParents,
+  restartStopped,
+  spawnRecord,
+} from "./saved-sessions";
 import type { Session } from "./sessions";
 
 const running: Session = {
@@ -230,6 +238,31 @@ test("a headless OpenCode run is never saved, even when its parent is unknown", 
   };
   const codex: Session = { ...run, agent: "codex", id: "thread", place: { kind: "thread", id: "thread", attach: [] } };
   expect(reconcile([], [run, codex], "b", 0, () => false).saved.map((item) => item.agent)).toEqual(["codex"]);
+});
+
+test("a spawn is found by its pane after its process has gone, even when its row moved to a thread id", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  recordSpawn(
+    {
+      agent: "codex",
+      id: "40:7",
+      cwd: "/repo",
+      title: "audit",
+      parent: "claude:lead",
+      startedAt: 7,
+      pid: 40,
+      pane: "codex-1",
+    },
+    path,
+  );
+  expect(spawnRecord("codex-1", path)).toMatchObject({ agent: "codex", id: "40:7", parent: "claude:lead" });
+  expect(spawnRecord("other", path)).toBeUndefined();
+  // The row moves to the thread id once Codex names it, and keeps the pane its exit hook still names.
+  restartStopped(
+    [{ agent: "codex", id: "thread", pid: 40, cwd: "/repo", startedAt: 7, place: { kind: "kiln", name: "c" } }],
+    path,
+  );
+  expect(spawnRecord("codex-1", path)).toMatchObject({ agent: "codex", id: "thread", pane: "codex-1" });
 });
 
 test("a spawned Codex run keeps its recorded parent and title once its thread id is known", () => {

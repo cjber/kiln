@@ -192,10 +192,19 @@ export function exists(name: string): boolean {
 /**
  * Start a detached session. With `keep`, its pane stays after the command exits, so `survives` can read why an agent
  * quit at launch; the option is set in the same tmux call that creates the session, before the command can exit.
+ * `onExit` is a tmux hook command run from the kept pane after it dies, which is how a spawned child reports itself.
  */
-export function start(name: string, cwd: string, argv: string[], title: string, keep = false): boolean {
+export function start(
+  name: string,
+  cwd: string,
+  argv: string[],
+  title: string,
+  keep = false,
+  onExit?: string,
+): boolean {
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
-  const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  const kept = keep || onExit ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  const hook = onExit ? [";", "set-hook", "-w", "pane-died", onExit] : [];
   return run(
     "-f",
     configPath(),
@@ -207,11 +216,36 @@ export function start(name: string, cwd: string, argv: string[], title: string, 
     cwd,
     ...argv,
     ...kept,
+    ...hook,
     ";",
     "set-option",
     "@kiln_title",
     title,
   );
+}
+
+/** How a kept pane of a session started with `start` ended: its status and the output still on screen. */
+export function ended(name: string): { status: number; output: string } | undefined {
+  const target = `=${name}:`;
+  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (shown.exitCode !== 0) return undefined;
+  const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
+  if (dead !== "1") return undefined;
+  const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  // tmux adds its own "Pane is dead" line below what the command printed.
+  const output = captured.stdout
+    .toString()
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
+    .slice(-20)
+    .join("\n");
+  return { status: Number(status) || 0, output };
 }
 
 /** Why a session's command quit, read from its kept pane. */
