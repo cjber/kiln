@@ -201,7 +201,14 @@ test("an offline child exit reaches its parent mailbox without a provider call",
   try {
     expect(start(name, paneDir, ["sh", "-c", "echo offline-limit; exit 7"], "offline", true)).toBe(true);
     for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
-    recordSpawn({ agent: "codex", id: "offline-thread", cwd: paneDir, title: "offline", startedAt: Date.now(), pane: name });
+    recordSpawn({
+      agent: "codex",
+      id: "offline-thread",
+      cwd: paneDir,
+      title: "offline",
+      startedAt: Date.now(),
+      pane: name,
+    });
     await reportSpawnExit(name, "", "codex:parent");
     const messages = takeUnread("codex:parent");
     expect(messages).toHaveLength(1);
