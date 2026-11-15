@@ -191,5 +191,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
       // A service that is down leaves the row to the next refresh.
     }
   }
-  kill(name);
+  // The pane may have been replaced after a delayed hook ran. Only reap the pane
+  // when the identity we recorded is still the dead pane we inspected.
+  if (ending) kill(name);
 }

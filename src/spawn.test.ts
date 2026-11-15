@@ -176,3 +176,19 @@ test("an exit before registration keeps the pane until the spawn is recorded", a
     else Bun.env.XDG_STATE_HOME = state;
   }
 });
+
+test("a delayed exit report does not kill a live replacement pane", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "replacement-state");
+  const name = "replacement-child";
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "sleep 2"], "replacement", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "replacement", cwd: paneDir, startedAt: Date.now(), pane: name });
+    await reportSpawnExit(name, "", "");
+    expect(ended(name)).toBeUndefined();
+  } finally {
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
