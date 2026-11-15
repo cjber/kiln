@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { takeUnread } from "./mailbox";
 import { recordSpawn } from "./saved-sessions";
 import { exitHook, exitMessage, headlessCommand, reportSpawnExit, spawnOptions, spawnUsage } from "./spawn";
 import { ended, kill, start } from "./tmux";
@@ -186,6 +187,25 @@ test("a delayed exit report does not kill a live replacement pane", async () => 
     recordSpawn({ agent: "codex", id: "replacement", cwd: paneDir, startedAt: Date.now(), pane: name });
     await reportSpawnExit(name, "", "");
     expect(ended(name)).toBeUndefined();
+  } finally {
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("an offline child exit reaches its parent mailbox without a provider call", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "mailbox-state");
+  const name = "mailbox-child";
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "echo offline-limit; exit 7"], "offline", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({ agent: "codex", id: "offline-thread", cwd: paneDir, title: "offline", startedAt: Date.now(), pane: name });
+    await reportSpawnExit(name, "", "codex:parent");
+    const messages = takeUnread("codex:parent");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.body).toContain("codex:offline-thread exited with status 7");
   } finally {
     kill(name);
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
