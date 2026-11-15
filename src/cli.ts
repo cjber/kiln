@@ -71,7 +71,7 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         (item) => item.agent === "codex" && (item.id === args[1] || `${item.agent}:${item.id}` === args[1]),
       );
       if (!session) throw new Error(`no Codex session "${args[1]}"`);
-      const result = reconnectCodex(session, loadSettings());
+      const result = await reconnectCodex(session, loadSettings());
       if ("problem" in result) throw new Error(result.problem);
       console.log(`reconnected ${args[1]} in ${result.name}`);
       return 0;
