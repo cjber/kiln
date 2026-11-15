@@ -7,6 +7,7 @@ const usage = `usage: kiln            open the session list
        kiln status     print session counts (used by the in-session status bar)
        kiln resume <name...|--all> [--prompt TEXT]
                                   resume sessions a restart stopped, one at a time; no names lists them
+       kiln reconnect <name>      reconnect an unknown Codex Kiln pane using its existing thread id
        kiln close [name...]       close, archive or forget sessions as x does in the list; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
@@ -58,6 +59,24 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return 0;
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "msg command failed"}`);
+      return 2;
+    }
+  }
+  if (command === "reconnect") {
+    try {
+      const { reconnectCodex } = await import("./launcher");
+      const sessions = await listSessions({ kitty: false });
+      if (args.length !== 2) throw new Error("usage: kiln reconnect <name>");
+      const session = sessions.find(
+        (item) => item.agent === "codex" && (item.id === args[1] || `${item.agent}:${item.id}` === args[1]),
+      );
+      if (!session) throw new Error(`no Codex session "${args[1]}"`);
+      const result = reconnectCodex(session, loadSettings());
+      if ("problem" in result) throw new Error(result.problem);
+      console.log(`reconnected ${args[1]} in ${result.name}`);
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "reconnect failed"}`);
       return 2;
     }
   }
