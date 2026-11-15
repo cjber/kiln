@@ -80,5 +80,7 @@ the request it answers and the paths it touched, since the sender may have sever
 End the exchange with a reply that needs no answer, so two agents do not keep talking.
 
 `kiln msg inbox` prints messages that could not be typed into this session and marks them read.
-Check it at the start of a task when you expect a reply. `kiln msg whoami` prints your own name.
+Check it at the start of a task when you expect a reply. A script that waits for a message reads
+`kiln msg inbox --json`, which prints `[]` when nothing is waiting; its plain-text lines are for
+people and can change. `kiln msg whoami` prints your own name.
 kiln stops a sender after 20 messages to one recipient in ten minutes.
