@@ -130,6 +130,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       pid,
       pane: name,
     });
+    if (ended(name)) await reportSpawnExit(name, "", parent ?? "");
     return `codex:${id}`;
   }
 
@@ -150,6 +151,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`could not start ${agentName(options.agent)}`);
   const pid = await panePid(name);
   recordSpawn({ agent: options.agent, id, cwd: options.dir, title, parent, startedAt, pid, pane: name });
+  if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");
   return `${options.agent}:${id}`;
 }
 
@@ -157,9 +159,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
  * A spawned child's process has exited: tell its parent why, so a child that stops on a usage limit is not lost, then
  * close the pane kept for this report. The parent may be gone too; the message then waits in the mailbox.
  */
-export async function reportSpawnExit(name: string, child: string, parent: string): Promise<void> {
+export async function reportSpawnExit(name: string, _child: string, parent: string): Promise<void> {
   const record = spawnRecord(name);
-  const identity = record ? `${record.agent}:${record.id}` : child;
+  // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
+  if (!record) return;
+  const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
   const agent = identity.slice(0, separator);
   const id = identity.slice(separator + 1);
