@@ -11,6 +11,7 @@ import {
   reconnectCodex,
   sessionAction,
 } from "./launcher";
+import { resumedCodexThread } from "./native-sessions";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
@@ -273,5 +274,20 @@ test("reconnect replaces a private pane with the same UUID and reports provider 
     Bun.spawnSync(["tmux", "-L", server, "kill-server"], { stderr: "ignore" });
     if (previous === undefined) delete Bun.env.KILN_TMUX_SERVER;
     else Bun.env.KILN_TMUX_SERVER = previous;
+  }
+});
+
+test("configured reconnect flags and wrappers preserve the identity discovery reads", () => {
+  const thread = "12345678-1234-1234-1234-123456789abc";
+  for (const command of [
+    ["codex", "--model", "example"],
+    ["env", "WRAPPED=1", "/opt/bin/codex", "--model", "example"],
+  ]) {
+    const settings = { ...defaults, agents: { ...defaults.agents, codex: command } };
+    const argv = codexReconnectCommand(settings, thread);
+    const provider = argv.findIndex((word) => word.split("/").pop() === "codex");
+    expect(resumedCodexThread(argv.slice(provider))).toBe(thread);
+    expect(argv.slice(provider + 3)).toEqual(["--model", "example", "--remote", "unix://"]);
+    expect(argv.slice(0, provider + 1)).toEqual(command.slice(0, provider + 1));
   }
 });

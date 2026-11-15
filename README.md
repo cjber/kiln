@@ -63,10 +63,10 @@ impersonate a session. `kiln msg send --json` prints one `{to, delivered, reason
 and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command. When a child's process exits, kiln messages its parent with
-the exit status and the last output, so a child that stops on a usage limit is not lost. An
-OpenCode child is archived once its run has exited and its last turn ended, whether or not kiln
-started it; one that failed or asks a question stays listed. Any other headless OpenCode run is
-hidden after six hours idle.
+the exit status and the last output, so a child that stops on a usage limit is not lost.
+Exiting removes the child's pane and keeps its provider conversation available to resume.
+Headless OpenCode conversations remain listed for six hours after their last update;
+`kiln close <name>` interrupts and archives one explicitly.
 
 A nested session waiting for input is shown under its parent even when the parent is collapsed.
 When a nested OpenCode session stops to ask a question, kiln also sends the question to the parent

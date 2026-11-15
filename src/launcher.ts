@@ -219,7 +219,7 @@ export async function reconnectCodex(
 
 /** Exact provider argv used by reconnect, kept separate so callers and tests can verify thread preservation. */
 export function codexReconnectCommand(settings: Settings, threadId: string): string[] {
-  return [...settings.agents.codex, "resume", threadId, "--remote", "unix://"];
+  return [...agentCommand("codex", settings, threadId), "--remote", "unix://"];
 }
 
 export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {

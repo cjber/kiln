@@ -202,6 +202,7 @@ export function start(
   keep = false,
   onExit?: string,
 ): boolean {
+  const generation = crypto.randomUUID();
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
   if (onExit) {
     // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
@@ -222,6 +223,11 @@ export function start(
         "-w",
         "remain-on-exit",
         "on",
+        ";",
+        "set-option",
+        "-p",
+        "@kiln_generation",
+        generation,
         ";",
         "set-hook",
         "-w",
@@ -254,6 +260,11 @@ export function start(
     ...kept,
     ";",
     "set-option",
+    "-p",
+    "@kiln_generation",
+    generation,
+    ";",
+    "set-option",
     "@kiln_title",
     title,
   );
@@ -262,6 +273,13 @@ export function start(
 /** Replace a live pane command in place, preserving its tmux session and scrollback. */
 export function respawn(name: string, cwd: string, argv: string[]): boolean {
   return run(
+    "set-option",
+    "-p",
+    "-t",
+    `=${name}:`,
+    "@kiln_generation",
+    crypto.randomUUID(),
+    ";",
     "set-hook",
     "-u",
     "-w",
@@ -288,14 +306,26 @@ export function respawn(name: string, cwd: string, argv: string[]): boolean {
 }
 
 /** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
-export function ended(name: string): { status?: number; output: string } | undefined {
+type PaneExit = { status?: number; output: string; pane: string; generation: string };
+
+export function endedPane(name: string): PaneExit | undefined {
   const target = `=${name}:`;
-  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const shown = Bun.spawnSync(
+    [
+      ...tmux(),
+      "display-message",
+      "-p",
+      "-t",
+      target,
+      "#{pane_dead}\t#{pane_dead_status}\t#{pane_id}\t#{@kiln_generation}",
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   if (shown.exitCode !== 0) return undefined;
-  const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
+  const [dead, status = "", pane = "", generation = ""] = shown.stdout.toString().trim().split("\t");
   if (dead !== "1") return undefined;
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
@@ -309,7 +339,31 @@ export function ended(name: string): { status?: number; output: string } | undef
     .slice(-20)
     .join("\n");
   const code = Number(status);
-  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output };
+  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output, pane, generation };
+}
+
+/** Read an exit without exposing tmux's process-generation fields to callers. */
+export function ended(name: string): { status?: number; output: string } | undefined {
+  const exit = endedPane(name);
+  return exit ? { status: exit.status, output: exit.output } : undefined;
+}
+
+/** Claim an inspected exit inside tmux, so an asynchronous reporter cannot reap a replacement. */
+export function reapEnded(exit: PaneExit): boolean {
+  if (!/^%\d+$/.test(exit.pane) || !/^[0-9a-f-]{36}$/.test(exit.generation)) return false;
+  const result = Bun.spawnSync(
+    [
+      ...tmux(),
+      "if-shell",
+      "-F",
+      "-t",
+      exit.pane,
+      `#{&&:#{pane_dead},#{==:#{@kiln_generation},${exit.generation}}}`,
+      `kill-pane -t ${exit.pane} ; display-message -p claimed`,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  return result.exitCode === 0 && result.stdout.toString().trim() === "claimed";
 }
 
 /** Why a session's command quit, read from its kept pane. */

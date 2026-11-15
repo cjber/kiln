@@ -1,11 +1,13 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { takeUnread } from "./mailbox";
+import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
+import * as sessions from "./sessions";
 import { exitHook, exitMessage, headlessCommand, reportSpawnExit, spawnOptions, spawnUsage } from "./spawn";
-import { ended, kill, start } from "./tmux";
+import { ended, exists, kill, respawn, start } from "./tmux";
 
 // A private tmux server, so these tests never touch the real sessions.
 Bun.env.KILN_TMUX_SERVER = `kiln-spawn-${process.pid}`;
@@ -198,6 +200,7 @@ test("an offline child exit reaches its parent mailbox without a provider call",
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "mailbox-state");
   const name = "mailbox-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
   try {
     expect(start(name, paneDir, ["sh", "-c", "echo offline-limit; exit 7"], "offline", true)).toBe(true);
     for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
@@ -214,6 +217,88 @@ test("an offline child exit reaches its parent mailbox without a provider call",
     expect(messages).toHaveLength(1);
     expect(messages[0]?.body).toContain("codex:offline-thread exited with status 7");
   } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "discovery-race-state");
+  const name = "discovery-race-child";
+  const server = `kiln-spawn-${process.pid}`;
+  const channel = `exited-${crypto.randomUUID()}`;
+  let release!: (rows: sessions.Session[]) => void;
+  const barrier = new Promise<sessions.Session[]>((resolve) => {
+    release = resolve;
+  });
+  const discovery = spyOn(sessions, "listSessions").mockImplementation(() => barrier);
+  const archive = spyOn(opencode, "archiveOpencodeSession").mockResolvedValue(undefined);
+  let reporting: Promise<void> | undefined;
+  try {
+    expect(
+      start(
+        name,
+        paneDir,
+        ["sh", "-c", "exit 7"],
+        "old child",
+        true,
+        exitHook(["tmux", "-L", server, "wait-for", "-S", channel]),
+      ),
+    ).toBe(true);
+    expect(await Bun.spawn(["tmux", "-L", server, "wait-for", channel]).exited).toBe(0);
+    expect(ended(name)?.status).toBe(7);
+    recordSpawn({ agent: "opencode", id: "ses_old", cwd: paneDir, startedAt: Date.now(), pane: name });
+    reporting = reportSpawnExit(name, "", "codex:race-parent");
+    expect(discovery).toHaveBeenCalledTimes(1);
+    expect(respawn(name, paneDir, ["cat"])).toBe(true);
+    release([]);
+    await reporting;
+    expect(exists(name)).toBe(true);
+    expect(ended(name)).toBeUndefined();
+    expect(takeUnread("codex:race-parent")).toHaveLength(0);
+    expect(archive).not.toHaveBeenCalled();
+  } finally {
+    release([]);
+    await reporting;
+    discovery.mockRestore();
+    archive.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a completed OpenCode exit reports and reaps locally without interrupting or archiving its conversation", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "completed-state");
+  const name = "completed-child";
+  const server = `kiln-spawn-${process.pid}`;
+  const channel = `completed-${crypto.randomUUID()}`;
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  const archive = spyOn(opencode, "archiveOpencodeSession").mockResolvedValue(undefined);
+  try {
+    expect(
+      start(
+        name,
+        paneDir,
+        ["sh", "-c", "echo done; exit 0"],
+        "completed",
+        true,
+        exitHook(["tmux", "-L", server, "wait-for", "-S", channel]),
+      ),
+    ).toBe(true);
+    expect(await Bun.spawn(["tmux", "-L", server, "wait-for", channel]).exited).toBe(0);
+    recordSpawn({ agent: "opencode", id: "ses_done", cwd: paneDir, startedAt: Date.now(), pane: name });
+    await reportSpawnExit(name, "", "codex:completed-parent");
+    expect(exists(name)).toBe(false);
+    expect(takeUnread("codex:completed-parent")[0]?.body).toContain("opencode:ses_done finished");
+    expect(archive).not.toHaveBeenCalled();
+  } finally {
+    discovery.mockRestore();
+    archive.mockRestore();
     kill(name);
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = state;

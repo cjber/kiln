@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **Child exit reports leave replacement panes running.** A delayed report only removes the exited pane generation it inspected. OpenCode conversations remain available after a child exits; use `kiln close` to interrupt and archive one explicitly.
+
+- **Codex reconnect keeps configured commands discoverable.** `kiln reconnect <name>` resumes an unknown Codex pane with its thread UUID, including when the configured command has flags or a wrapper.
+
 ## [0.26.2] - 2026-11-13
 
 - **Commits no longer fail in watched checkouts.** Kiln counts a checkout's changed files with `git --no-optional-locks status`, so its poll never holds `index.lock` while an agent commits there.
