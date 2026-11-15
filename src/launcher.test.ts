@@ -3,7 +3,14 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentCommand, closeSession, openSession, sessionAction } from "./launcher";
+import {
+  agentCommand,
+  closeSession,
+  codexReconnectCommand,
+  openSession,
+  reconnectCodex,
+  sessionAction,
+} from "./launcher";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
@@ -202,4 +209,33 @@ test("a first prompt is the agent's own argument and never reads as an option or
   expect(agentCommand("opencode", settings, undefined, "-x").at(-1)).toBe("--prompt=-x");
   expect(agentCommand("pi", settings, undefined, "go").slice(-2)).toEqual(["--", "go"]);
   expect(agentCommand("codex", settings)).toEqual(["codex"]);
+});
+
+test("reconnect preserves an authoritative UUID and refuses process aliases or known activity", async () => {
+  const thread = "12345678-1234-1234-1234-123456789abc";
+  expect(codexReconnectCommand(defaults, thread)).toEqual(["codex", "resume", thread, "--remote", "unix://"]);
+  const base: Session = {
+    agent: "codex",
+    id: thread,
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "kiln", name: "missing" },
+  };
+  expect(await reconnectCodex({ ...base, id: "40:7" }, defaults)).toEqual({
+    problem: "the Codex session has no authoritative thread id",
+  });
+  expect(await reconnectCodex({ ...base, activity: "working" }, defaults)).toEqual({
+    problem: "the Codex status is available; reconnect is refused",
+  });
+});
+
+test("reconnect reports startup failure when the target pane is gone", async () => {
+  const session: Session = {
+    agent: "codex",
+    id: "12345678-1234-1234-1234-123456789abc",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "kiln", name: "missing-reconnect-pane" },
+  };
+  expect(await reconnectCodex(session, defaults)).toEqual({ problem: "could not restart the Codex pane" });
 });

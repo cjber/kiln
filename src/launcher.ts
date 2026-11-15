@@ -205,12 +205,17 @@ export async function reconnectCodex(session: Session, _settings: Settings): Pro
     return { problem: "the Codex session has no authoritative thread id" };
   if (session.activity !== undefined) return { problem: "the Codex status is available; reconnect is refused" };
   if (session.place.kind !== "kiln") return { problem: "the Codex thread has no live Kiln pane" };
-  const command = [..._settings.agents.codex, "resume", session.id, "--remote", "unix://"];
+  const command = codexReconnectCommand(_settings, session.id);
   if (!respawn(session.place.name, session.cwd, command)) return { problem: "could not restart the Codex pane" };
   const result = await survives(session.place.name, 5_000);
   if (result !== true)
     return { problem: `Codex exited with status ${result.status}${result.output ? `: ${result.output}` : ""}` };
   return { name: session.place.name };
+}
+
+/** Exact provider argv used by reconnect, kept separate so callers and tests can verify thread preservation. */
+export function codexReconnectCommand(settings: Settings, threadId: string): string[] {
+  return [...settings.agents.codex, "resume", threadId, "--remote", "unix://"];
 }
 
 export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
