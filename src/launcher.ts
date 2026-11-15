@@ -201,6 +201,8 @@ export async function resumeStopped(
 /** Reconnect a Codex pane whose daemon status is unavailable, reusing its thread id and tmux session. */
 export function reconnectCodex(session: Session, _settings: Settings): { name: string } | { problem: string } {
   if (session.agent !== "codex" || !session.id) return { problem: "only a Codex thread can be reconnected" };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(session.id))
+    return { problem: "the Codex session has no authoritative thread id" };
   if (session.activity !== undefined) return { problem: "the Codex status is available; reconnect is refused" };
   if (session.place.kind !== "kiln") return { problem: "the Codex thread has no live Kiln pane" };
   const command = [..._settings.agents.codex, "resume", session.id, "--remote", "unix://"];

@@ -261,7 +261,23 @@ export function start(
 
 /** Replace a live pane command in place, preserving its tmux session and scrollback. */
 export function respawn(name: string, cwd: string, argv: string[]): boolean {
-  return run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv);
+  return run(
+    "set-hook",
+    "-u",
+    "-w",
+    "-t",
+    `=${name}:`,
+    "pane-died",
+    ";",
+    "respawn-pane",
+    "-k",
+    "-t",
+    `=${name}:`,
+    "-c",
+    cwd,
+    "--",
+    ...argv,
+  );
 }
 
 /** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
