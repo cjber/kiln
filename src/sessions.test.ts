@@ -3,8 +3,8 @@ import {
   nestSessions,
   openable,
   type Session,
-  sessionIdentity,
   sessionAliases,
+  sessionIdentity,
   sessionParents,
   withSubagentActivity,
 } from "./sessions";
