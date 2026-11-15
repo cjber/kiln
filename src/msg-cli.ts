@@ -3,7 +3,7 @@ import { post, takeUnread } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
 import { agentName, discovery, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
-import { spawnAgent, spawnOptions, spawnUsage } from "./spawn";
+import { reportSpawnExit, spawnAgent, spawnOptions, spawnUsage } from "./spawn";
 import { tilde } from "./tui";
 
 const usage = `usage: kiln msg list [--json]          the sessions you can message
@@ -54,7 +54,13 @@ export async function runMsgCli(args: string[]): Promise<void> {
     console.log(await spawnAgent(spawnOptions(args.slice(1)), callerIdentity()));
     return;
   }
-  // The wrapper around a spawned OpenCode run calls this when the run exits.
+  // A spawned child's kept pane calls this from its pane-died hook when its process exits.
+  if (first === "exit") {
+    const [, name, child, parent] = args;
+    if (name) await reportSpawnExit(name, child ?? "", parent ?? "");
+    return;
+  }
+  // Older versions wrapped a spawned OpenCode run with this; keep it working for one already running.
   if (first === "archive") {
     const child = args[1] ?? "";
     const separator = child.indexOf(":");

@@ -19,6 +19,8 @@ export type Saved = {
   pid?: number;
   /** When its process was first found gone during that boot. */
   goneAt?: number;
+  /** The tmux session `kiln msg spawn` started it in, so its exit hook can name it. */
+  pane?: string;
 };
 
 /**
@@ -53,10 +55,11 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
     if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
+    if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
     databases.set(path, db);
   }
   return db;
@@ -75,6 +78,7 @@ function read(db: Database): Saved[] {
       lastActiveAt: row.lastActiveAt ?? undefined,
       pid: row.pid ?? undefined,
       goneAt: row.goneAt ?? undefined,
+      pane: row.pane ?? undefined,
     }));
 }
 
@@ -125,6 +129,7 @@ export function reconcile(
       boot,
       pid: session.pid,
       goneAt: undefined,
+      pane: recorded?.pane,
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));
@@ -179,7 +184,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
         const result = reconcile(before, sessions, boot, Date.now(), (pid) => existsSync(`/proc/${pid}`));
         if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
           db.exec("DELETE FROM sessions");
-          const insert = db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+          const insert = db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
           for (const item of result.saved)
             insert.run(
               item.agent,
@@ -192,6 +197,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
               item.pid ?? null,
               item.goneAt ?? null,
               item.parent ?? null,
+              item.pane ?? null,
             );
         }
         return result.stopped;
@@ -205,13 +211,22 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
 
 /** Record a child started by `kiln msg spawn`, so its parent survives process ancestry and daemon lookup. */
 export function recordSpawn(
-  item: { agent: Agent; id: string; cwd: string; title?: string; parent?: string; startedAt: number; pid?: number },
+  item: {
+    agent: Agent;
+    id: string;
+    cwd: string;
+    title?: string;
+    parent?: string;
+    startedAt: number;
+    pid?: number;
+    pane?: string;
+  },
   path = statePath(),
 ): void {
   try {
     open(path)
       .query(
-        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent",
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane)",
       )
       .run(
         item.agent,
@@ -222,9 +237,34 @@ export function recordSpawn(
         bootId() ?? "",
         item.pid ?? null,
         item.parent ?? null,
+        item.pane ?? null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
+  }
+}
+
+/** The spawn recorded for a tmux session, which its exit hook names after the child's process has gone. */
+export function spawnRecord(pane: string, path = statePath()): Saved | undefined {
+  try {
+    if (!existsSync(path)) return undefined;
+    const row = open(path)
+      .query<Row, [string]>("SELECT * FROM sessions WHERE pane = ? ORDER BY startedAt DESC LIMIT 1")
+      .get(pane);
+    return row
+      ? {
+          ...(row as Saved),
+          title: row.title ?? undefined,
+          parent: row.parent ?? undefined,
+          lastActiveAt: row.lastActiveAt ?? undefined,
+          pid: row.pid ?? undefined,
+          goneAt: row.goneAt ?? undefined,
+          pane: row.pane ?? undefined,
+        }
+      : undefined;
+  } catch {
+    // An unreadable state file only costs the exit report.
+    return undefined;
   }
 }
 

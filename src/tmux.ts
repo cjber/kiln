@@ -192,9 +192,54 @@ export function exists(name: string): boolean {
 /**
  * Start a detached session. With `keep`, its pane stays after the command exits, so `survives` can read why an agent
  * quit at launch; the option is set in the same tmux call that creates the session, before the command can exit.
+ * `onExit` is a tmux hook command run from the kept pane after it dies, which is how a spawned child reports itself.
  */
-export function start(name: string, cwd: string, argv: string[], title: string, keep = false): boolean {
+export function start(
+  name: string,
+  cwd: string,
+  argv: string[],
+  title: string,
+  keep = false,
+  onExit?: string,
+): boolean {
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
+  if (onExit) {
+    // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
+    if (
+      !run(
+        "-f",
+        configPath(),
+        "new-session",
+        "-d",
+        "-s",
+        name,
+        "-c",
+        cwd,
+        "sleep",
+        "60",
+        ";",
+        "set-option",
+        "-w",
+        "remain-on-exit",
+        "on",
+        ";",
+        "set-hook",
+        "-w",
+        "pane-died",
+        onExit,
+        ";",
+        "set-option",
+        "@kiln_title",
+        title,
+      )
+    )
+      return false;
+    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv)) return true;
+    // The placeholder must not report an exit for an agent that never started.
+    run("set-hook", "-u", "-w", "-t", `=${name}:`, "pane-died");
+    kill(name);
+    return false;
+  }
   const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
   return run(
     "-f",
@@ -212,6 +257,31 @@ export function start(name: string, cwd: string, argv: string[], title: string, 
     "@kiln_title",
     title,
   );
+}
+
+/** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
+export function ended(name: string): { status?: number; output: string } | undefined {
+  const target = `=${name}:`;
+  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (shown.exitCode !== 0) return undefined;
+  const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
+  if (dead !== "1") return undefined;
+  const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  // tmux adds its own "Pane is dead" line below what the command printed.
+  const output = captured.stdout
+    .toString()
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
+    .slice(-20)
+    .join("\n");
+  const code = Number(status);
+  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output };
 }
 
 /** Why a session's command quit, read from its kept pane. */
