@@ -4,9 +4,23 @@ import {
   openable,
   type Session,
   sessionIdentity,
+  sessionAliases,
   sessionParents,
   withSubagentActivity,
 } from "./sessions";
+
+test("a provider session exposes its process identity as an alias", () => {
+  const run: Session = {
+    agent: "codex",
+    id: "thread-1",
+    pid: 40,
+    cwd: "/repo",
+    startedAt: 7.5,
+    place: { kind: "kiln", name: "codex" },
+  };
+  expect(sessionAliases(run)).toEqual(["codex:40:7.5"]);
+  expect(sessionAliases({ ...run, id: undefined })).toEqual([]);
+});
 
 describe("nested sessions", () => {
   const parent: Session = { pid: 1, agent: "codex", cwd: "/z", startedAt: 1, place: { kind: "kiln", name: "parent" } };

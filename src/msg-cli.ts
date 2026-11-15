@@ -2,7 +2,15 @@ import { parseArgs } from "node:util";
 import { post, takeUnread } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
-import { agentName, discovery, type Session, sessionDirectory, sessionIdentity, sessionParents } from "./sessions";
+import {
+  agentName,
+  discovery,
+  type Session,
+  sessionAliases,
+  sessionDirectory,
+  sessionIdentity,
+  sessionParents,
+} from "./sessions";
 import { reportSpawnExit, spawnAgent, spawnOptions, spawnUsage } from "./spawn";
 import { tilde } from "./tui";
 
@@ -99,12 +107,13 @@ export async function runMsgCli(args: string[]): Promise<void> {
         const parent = parents.get(session);
         return {
           name: sessionIdentity(session),
+          aliases: sessionAliases(session),
           agent: session.agent,
           title: session.title,
           directory: sessionDirectory(session),
           activity: session.activity,
           delivery: delivery(session),
-          you: sessionIdentity(session) === me,
+          you: me !== undefined && (sessionIdentity(session) === me || sessionAliases(session).includes(me)),
           parent: parent ? sessionIdentity(parent) : null,
           depth: depth(session),
         };
