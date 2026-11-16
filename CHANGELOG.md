@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-16
+
 - **Agent messages arrive without waiting on unrelated sessions.** Active Codex sessions receive replies during their current turn. Separate recipients deliver concurrently, and peer sends and JSON inbox reads avoid a full session discovery.
 
 - **Peer programs can forward replies reliably.** `kiln msg inbox --peek --wait` leaves messages unread until a recipient-scoped `kiln msg ack`. `kiln msg view` reads transcript pages for local daemon integrations.
