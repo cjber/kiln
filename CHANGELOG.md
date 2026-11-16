@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Codex spawn identities stay resolvable.** `kiln msg list --json` keeps the provider session as `name` and exposes the process identity printed by `kiln msg spawn` in `aliases`, so liveness checks continue to find a running child after Codex assigns its thread id.
+
 ## [0.26.2] - 2026-11-13
 
 - **Commits no longer fail in watched checkouts.** Kiln counts a checkout's changed files with `git --no-optional-locks status`, so its poll never holds `index.lock` while an agent commits there.
