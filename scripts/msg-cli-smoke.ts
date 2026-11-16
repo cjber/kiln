@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { post } from "../src/mailbox";
 import * as sessions from "../src/sessions";
 
+const fixtureRoot = Bun.env.CLAUDE_CONFIG_DIR;
+if (!fixtureRoot || !Bun.env.XDG_STATE_HOME)
+  throw new Error("CLI smoke requires isolated CLAUDE_CONFIG_DIR and XDG_STATE_HOME");
+
 const fixture = {
   id: "fixture-session",
   agent: "claude" as const,
@@ -12,9 +16,9 @@ const fixture = {
   startedAt: 1,
   place: { kind: "kiln" as const, name: "fixture" },
 };
-mkdirSync(join(Bun.env.CLAUDE_CONFIG_DIR ?? ".", "projects", "-fixture"), { recursive: true });
+mkdirSync(join(fixtureRoot, "projects", "-fixture"), { recursive: true });
 writeFileSync(
-  join(Bun.env.CLAUDE_CONFIG_DIR ?? ".", "projects", "-fixture", "fixture-session.jsonl"),
+  join(fixtureRoot, "projects", "-fixture", "fixture-session.jsonl"),
   `${JSON.stringify({ type: "user", uuid: "u1", message: { content: "fixture prompt" } })}\n${JSON.stringify({
     type: "assistant",
     uuid: "a1",
