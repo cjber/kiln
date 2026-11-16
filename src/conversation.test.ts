@@ -278,6 +278,8 @@ test("a session that has ended is read by its full name from the transcript its 
       "codex:01a1e472-0000-0000-0000-000000000000",
       "codex:351399:1794834079045.629",
       "codex:01a1e472",
+      "codex:21153573da40",
+      "codex:ad4b-21153573da40",
       "opencode:ses_other",
       "nobody:x",
       "codex:",

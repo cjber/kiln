@@ -397,7 +397,8 @@ export function transcriptFile(session: Session): { path: string; agent: "claude
     case "codex":
       path = sessionFile(
         join(Bun.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions"),
-        `*/*/*/rollout-*-${id}.jsonl`,
+        // The timestamp before the id has a fixed width, so a suffix of a longer id cannot match.
+        `*/*/*/rollout-????-??-??T??-??-??-${id}.jsonl`,
       );
       break;
     case "pi":
