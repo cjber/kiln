@@ -319,6 +319,17 @@ test("a completed OpenCode exit reports and reaps locally without interrupting o
   }
 });
 
+test("kiln's tmux server outlives its last session, so a start right after a reap cannot meet it shutting down", () => {
+  const name = "server-keeper";
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "keeper")).toBe(true);
+    const shown = Bun.spawnSync(["tmux", "-L", `kiln-spawn-${process.pid}`, "show-options", "-gv", "exit-empty"]);
+    expect(shown.stdout.toString().trim()).toBe("off");
+  } finally {
+    kill(name);
+  }
+});
+
 test("an interactive Claude child runs its full terminal UI with the chosen id, title and model", () => {
   expect(interactiveClaudeCommand(["mclaude", "--chrome"], "id", "-start the sweep", "sweep", "opus")).toEqual([
     "mclaude",

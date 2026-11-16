@@ -58,6 +58,8 @@ let emulator: Bun.Subprocess | undefined;
 let stopServer: (() => void) | undefined;
 function cleanup() {
   stopServer?.();
+  // Kiln's tmux server stays up once empty, so the harness stops its own.
+  Bun.spawnSync(["tmux", "-L", "kiln-qa-phone", "kill-server"], { stderr: "ignore" });
   if (emulator) {
     Bun.spawnSync([adb, "-s", serial, "emu", "kill"]);
     emulator.kill();

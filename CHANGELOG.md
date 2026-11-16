@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Starting a session right after the last one closed no longer fails.** Kiln's tmux server now stays up when it has no sessions, so a spawn or new session that arrives while it would have been shutting down starts as usual.
+
 ## [0.28.0] - 2026-11-16
 
 - **Spawned Claude sessions can be watched.** `kiln msg spawn claude --interactive` starts Claude's terminal UI with the chosen title and model, so you can attach from the list and follow a long run as it works.
