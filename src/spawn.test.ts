@@ -6,7 +6,15 @@ import { takeUnread } from "./mailbox";
 import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
 import * as sessions from "./sessions";
-import { exitHook, exitMessage, headlessCommand, reportSpawnExit, spawnOptions, spawnUsage } from "./spawn";
+import {
+  exitHook,
+  exitMessage,
+  headlessCommand,
+  interactiveClaudeCommand,
+  reportSpawnExit,
+  spawnOptions,
+  spawnUsage,
+} from "./spawn";
 import { ended, exists, kill, respawn, start } from "./tmux";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -70,6 +78,8 @@ test("headless commands keep the id kiln chose for the child", () => {
     "do the work",
   ]);
   expect(headlessCommand(["claude"], "claude", "session-id", "do the work")).toEqual([
+    "env",
+    "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
     "claude",
     "-p",
     "--session-id",
@@ -77,6 +87,8 @@ test("headless commands keep the id kiln chose for the child", () => {
     "do the work",
   ]);
   expect(headlessCommand(["claude"], "claude", "session-id", "do the work", "sweep oss")).toEqual([
+    "env",
+    "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
     "claude",
     "-p",
     "--session-id",
@@ -89,6 +101,8 @@ test("headless commands keep the id kiln chose for the child", () => {
 
 test("a chosen model is passed to every provider's headless command", () => {
   expect(headlessCommand(["claude"], "claude", "id", "work", undefined, "sonnet")).toEqual([
+    "env",
+    "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
     "claude",
     "-p",
     "--session-id",
@@ -303,4 +317,22 @@ test("a completed OpenCode exit reports and reaps locally without interrupting o
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = state;
   }
+});
+
+test("an interactive Claude child runs its full terminal UI with the chosen id, title and model", () => {
+  expect(interactiveClaudeCommand(["mclaude", "--chrome"], "id", "-start the sweep", "sweep", "opus")).toEqual([
+    "mclaude",
+    "--chrome",
+    "--session-id",
+    "id",
+    "--name",
+    "sweep",
+    "--model",
+    "opus",
+    "--",
+    "-start the sweep",
+  ]);
+  const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
+  expect(spawnOptions(["claude", "--interactive", "--dir", dir, "--", "work"]).interactive).toBe(true);
+  expect(() => spawnOptions(["codex", "--interactive", "--dir", dir, "--", "work"])).toThrow("claude only");
 });
