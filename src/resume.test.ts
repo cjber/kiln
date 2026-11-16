@@ -9,7 +9,7 @@ import { pickSessions } from "./resume-cli";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
-import { awaitStart, exists, start, survives } from "./tmux";
+import { awaitStart, exists, respawn, start, survives } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -129,6 +129,99 @@ test("a server that exits while a dead pane is read reports the session gone", a
     killServer(`kiln-gone-${process.pid}`);
     if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
     Bun.env.KILN_TMUX_SERVER = server;
+  }
+});
+
+/**
+ * Respawn `name` with a healthy command right after the first read of its pane that `when` accepts, as a concurrent
+ * reconnect can between a watcher's read and its action. Says whether it has.
+ */
+function respawnAfterRead(name: string, when: (read: string) => boolean) {
+  const spawn = Bun.spawnSync;
+  const state = { respawned: false };
+  const spy = spyOn(Bun, "spawnSync").mockImplementation(((command: string[], options?: object) => {
+    const result = spawn(command, options);
+    const read = command.some((part) => String(part).startsWith("#{pane_dead}\t")) ? result.stdout.toString() : "";
+    if (!state.respawned && read && when(read)) {
+      state.respawned = true;
+      expect(respawn(name, dir, ["sleep", "30"])).toBe(true);
+    }
+    return result;
+  }) as typeof Bun.spawnSync);
+  return { state, restore: () => spy.mockRestore() };
+}
+
+/** Whether a session's window still keeps its pane once its command exits. */
+const kept = (name: string) =>
+  Bun.spawnSync([
+    "tmux",
+    "-L",
+    String(Bun.env.KILN_TMUX_SERVER),
+    "show-options",
+    "-w",
+    "-v",
+    "-t",
+    `=${name}:`,
+    "remain-on-exit",
+  ])
+    .stdout.toString()
+    .trim() === "on";
+
+test("a pane respawned after a watcher reads it running is left kept for its new command", async () => {
+  expect(start("respawned-running", dir, ["sleep", "30"], "respawned running", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-running", (read) => read.startsWith("0\t"));
+  try {
+    expect(await survives("respawned-running", 0, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-running")).toBe(true);
+  expect(kept("respawned-running")).toBe(true);
+});
+
+test("a pane respawned after a watcher reads its exit is left running", async () => {
+  expect(start("respawned-exit", dir, ["sh", "-c", "echo old; exit 3"], "respawned exit", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-exit", (read) => /^1\t\d/.test(read));
+  try {
+    expect(await survives("respawned-exit", 2_000, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-exit")).toBe(true);
+});
+
+test("a pane respawned after a launch is read as hung is left running", async () => {
+  expect(start("respawned-hung", dir, ["sleep", "30"], "respawned hung", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-hung", (read) => read.startsWith("0\t"));
+  try {
+    expect(await awaitStart("respawned-hung", async () => false, 0, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-hung")).toBe(true);
+});
+
+test("a pane respawned after a watcher reads its command as exiting is not abandoned", async () => {
+  const pidFile = join(dir, "respawned-exiting.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  // The old command reads as exited without a status, so the deadline abandons it.
+  const zombie = fakeProc(() => "1 (sleep) Z 0 0 0");
+  const replaced = respawnAfterRead("respawned-exiting", (read) => read.startsWith("1\t\t\t"));
+  try {
+    expect(start("respawned-exiting", dir, ["sh", "-c", runsOn], "respawned exiting", true)).toBe(true);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, reads it running and releases it.
+    for (let waited = 0; !existsSync(pidFile) && waited < 2_000; waited += 50) await Bun.sleep(50);
+    await Bun.sleep(100);
+    expect(await survives("respawned-exiting", 0, 50)).toBe(true);
+    expect(exists("respawned-exiting")).toBe(true);
+    if (replaced.state.respawned) expect(kept("respawned-exiting")).toBe(true);
+  } finally {
+    replaced.restore();
+    zombie.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
   }
 });
 
