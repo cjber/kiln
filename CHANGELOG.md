@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-16
+
 - **A spawned child's answer can be read after it exits.** `kiln msg view <name>` reads a session that is no longer running by the full name `kiln msg spawn` printed, from the transcript its provider keeps. A spawned Codex run is now named by its thread rather than its process, so its name leads to that transcript.
 
 - **Starting a session right after the last one closed no longer fails.** Kiln's tmux server now stays up when it has no sessions, so a spawn or new session that arrives while it would have been shutting down starts as usual.
