@@ -7,6 +7,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +19,10 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,6 +38,9 @@ fun SessionDetails(
     send: ((String, (String) -> Unit) -> Unit)? = null,
     /** Resumes a session a restart stopped and reports why it failed; null where it cannot. */
     resume: (((String?) -> Unit) -> Unit)? = null,
+    /** Debug screenshot hook; production callers leave immersive capture disabled. */
+    immersiveScreenshot: Boolean = false,
+    screenshotReady: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(
         onDismissRequest = dismiss,
@@ -41,12 +48,31 @@ fun SessionDetails(
     ) {
         // The sheet's window picks its bar icons from the system theme; kiln is always dark.
         val view = LocalView.current
+        val dialogWindow = (view.parent as? DialogWindowProvider)?.window
         SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.let {
+            dialogWindow?.let {
                 WindowCompat.getInsetsController(it, view).apply {
                     isAppearanceLightStatusBars = false
                     isAppearanceLightNavigationBars = false
+                    if (immersiveScreenshot) hide(WindowInsetsCompat.Type.systemBars())
                 }
+                if (immersiveScreenshot) {
+                    WindowCompat.setDecorFitsSystemWindows(it, false)
+                    it.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                }
+            }
+        }
+        LaunchedEffect(dialogWindow, immersiveScreenshot) {
+            if (immersiveScreenshot && dialogWindow != null) {
+                while (
+                    ViewCompat.getRootWindowInsets(dialogWindow.decorView)
+                        ?.isVisible(WindowInsetsCompat.Type.systemBars()) != false
+                ) {
+                    WindowCompat.getInsetsController(dialogWindow, dialogWindow.decorView)
+                        .hide(WindowInsetsCompat.Type.systemBars())
+                    delay(50)
+                }
+                screenshotReady?.invoke()
             }
         }
         Column(

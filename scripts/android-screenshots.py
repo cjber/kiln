@@ -59,11 +59,13 @@ try:
     device("install", "-r", str(root / "android/app/build/outputs/apk/debug/app-debug.apk"))
     for screen, marker in [("list", "Cache map tiles"), ("progress", "PR FAILING"), ("pair", "Pairing invitation"), ("handoff", "Open in Claude")]:
         device("shell", "am", "force-stop", "com.cjber.kiln")
+        device("logcat", "-c")
         device("shell", "am", "start", "-W", "-n", "com.cjber.kiln/.ScreenshotActivity", "--es", "screen", screen)
         for _ in range(15):
             device("shell", "uiautomator", "dump", "/sdcard/kiln-screenshot.xml")
             hierarchy = device("shell", "cat", "/sdcard/kiln-screenshot.xml")
-            if marker in hierarchy:
+            ready = device("logcat", "-d", "-s", "KilnScreenshot:I", "*:S")
+            if marker in hierarchy and "KILN_SCREENSHOT_READY" in ready:
                 break
             for node in ET.fromstring(hierarchy).iter("node"):
                 if node.get("package") == "android" and node.get("resource-id") in {"android:id/ok", "android:id/aerr_close"}:

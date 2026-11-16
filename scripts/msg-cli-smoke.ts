@@ -29,7 +29,8 @@ writeFileSync(
 mock.module("../src/sessions", () => ({
   ...sessions,
   discovery: () => async () => {
-    return { sessions: [fixture] };
+    if (Bun.env.VIEW_ONLY === "1") return { sessions: [fixture] };
+    throw new Error("mailbox-only command must not discover sessions");
   },
 }));
 const { runMsgCli } = await import("../src/msg-cli");
@@ -44,5 +45,5 @@ await runMsgCli(["inbox", "--as", "@reader", "--peek", "--json"]);
 if (!lateId) throw new Error("late message was not posted");
 await runMsgCli(["ack", lateId, "--as", "@reader"]);
 await runMsgCli(["inbox", "--as", "@reader", "--peek", "--wait", "0.02", "--json"]);
-await runMsgCli(["view", "claude:fixture-session"]);
+if (Bun.env.VIEW_ONLY === "1") await runMsgCli(["view", "claude:fixture-session"]);
 await runMsgCli(["send", "@receiver", "ping", "--as", "@sender", "--json"]);

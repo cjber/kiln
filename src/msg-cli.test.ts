@@ -33,9 +33,17 @@ test("JSON inbox and peer sends work without session discovery", async () => {
     expect(output).toContain('"to": "@receiver"');
     expect(output.match(/"body": "late"/g)).toHaveLength(2);
     expect(output).toContain("\n1\n");
-    expect(output).toContain("[]\nyou: fixture prompt");
-    expect(output).toContain("fixture answer");
-    expect(output).toContain("Read notes.md");
+    const view = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/msg-cli-smoke.ts")], {
+      env: { ...Bun.env, XDG_STATE_HOME: root, CLAUDE_CONFIG_DIR: root, VIEW_ONLY: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(await view.exited).toBe(0);
+    expect(await new Response(view.stderr).text()).toBe("");
+    const viewOutput = await new Response(view.stdout).text();
+    expect(viewOutput).toContain("you: fixture prompt");
+    expect(viewOutput).toContain("fixture answer");
+    expect(viewOutput).toContain("Read notes.md");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
