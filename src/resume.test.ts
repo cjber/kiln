@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterAll, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,6 +62,51 @@ test("a command that closes its terminal and runs on counts as running once its 
   // Released, its session closes as usual once the command exits.
   for (let waited = 0; exists("runs-on") && waited < 2_000; waited += 50) await Bun.sleep(50);
   expect(exists("runs-on")).toBe(false);
+});
+
+/** Answer reads of `/proc` with `answer`, as a system that hides or fakes process state would; other reads pass through. */
+function fakeProc(answer: (path: string) => string) {
+  const read = fs.readFileSync;
+  return spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, options?: unknown) =>
+    String(path).startsWith("/proc/")
+      ? answer(String(path))
+      : read(path, options as BufferEncoding)) as typeof fs.readFileSync);
+}
+
+test("a dead pane whose command cannot be inspected is released once its grace period ends", async () => {
+  const pidFile = join(dir, "hidden.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  const denied = fakeProc((path) => {
+    throw Object.assign(new Error(`EACCES: permission denied, open '${path}'`), { code: "EACCES" });
+  });
+  try {
+    expect(start("hidden", dir, ["sh", "-c", runsOn], "hidden", true)).toBe(true);
+    const watched = survives("hidden", 100, 50);
+    expect(await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")])).toBe(true);
+  } finally {
+    denied.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
+});
+
+test("a command that exits without tmux collecting its status is reported once its grace period ends", async () => {
+  const pidFile = join(dir, "uncollected.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; echo never collected; exec >&- 2>&- <&-; exec sleep 30`;
+  // The command reads as exited while it runs on, so the nudge to tmux never yields a status.
+  const zombie = fakeProc(() => "1 (sleep) Z 0 0 0");
+  try {
+    expect(start("uncollected", dir, ["sh", "-c", runsOn], "uncollected", true)).toBe(true);
+    const watched = survives("uncollected", 100, 50);
+    const result = await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")]);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, never asks about the process here.
+    if (zombie.mock.calls.some(([path]) => String(path).startsWith("/proc/"))) {
+      expect(result).toEqual({ status: -1, output: "never collected" });
+      expect(exists("uncollected")).toBe(false);
+    } else expect(result).toBe(true);
+  } finally {
+    zombie.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
 });
 
 test("a server that exits while a dead pane is read reports the session gone", async () => {

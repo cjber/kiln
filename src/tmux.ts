@@ -321,9 +321,10 @@ type PaneExit = { status: number; output: string; pane: string; generation: stri
  * A tmux built with libutempter, as Debian and Ubuntu ship it, runs a helper when a pane's terminal closes and resets
  * SIGCHLD to its default while it waits for it, so a command that exits meanwhile is never reaped and its status never
  * read. A dead pane without a status sends tmux the SIGCHLD it may have lost; tmux then reaps every exited child, and a
- * command that has exited, `exiting` until then, has its status on the next read.
+ * command that has exited, `exiting` until then, has its status on the next read. A command whose process cannot be
+ * inspected is `unknown`.
  */
-function readExit(name: string): PaneExit | "running" | "closed" | "exiting" | "gone" {
+function readExit(name: string): PaneExit | Waiting | "gone" {
   const target = `=${name}:`;
   const shown = Bun.spawnSync(
     [
@@ -348,7 +349,8 @@ function readExit(name: string): PaneExit | "running" | "closed" | "exiting" | "
     } catch {
       // The server can exit after the read; the next read then finds the session gone.
     }
-    return hasExited(Number(command)) ? "exiting" : "closed";
+    const exited = hasExited(Number(command));
+    return exited === undefined ? "unknown" : exited ? "exiting" : "closed";
   }
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
@@ -358,14 +360,14 @@ function readExit(name: string): PaneExit | "running" | "closed" | "exiting" | "
   return { status: status ? Number(status) : 128 + signalNumber(signal), output, pane, generation };
 }
 
-/** Whether a process has exited, including one its parent has not reaped yet. */
-function hasExited(pid: number): boolean {
+/** Whether a process has exited, including one its parent has not reaped yet; undefined when its state cannot be read. */
+function hasExited(pid: number): boolean | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     // The state follows the parenthesised command name, which may contain spaces.
     return stat[stat.lastIndexOf(")") + 2] === "Z";
   } catch {
-    return true;
+    return undefined;
   }
 }
 
@@ -408,17 +410,24 @@ export function reapEnded(exit: PaneExit): boolean {
 /** Why a session's command quit, read from its kept pane. */
 type EarlyExit = { status: number; output: string };
 
+/** Why a kept pane has no exit to read yet: its command runs, or its pane is dead without a status, as `readExit` says. */
+type Waiting = "running" | "closed" | "exiting" | "unknown";
+
 /**
  * Watch a session started by `start` with `keep` for `graceMs`. A command still running then is left to close its session as
- * usual when it exits; one that quit is reported with its last output, and its session is closed.
+ * usual when it exits; one that quit is reported with its last output, and its session is closed. One whose exit tmux has
+ * not collected by then is reported with status -1.
  */
 export async function survives(name: string, graceMs: number, pollMs = 250): Promise<true | EarlyExit> {
   const deadline = Date.now() + graceMs;
   for (;;) {
     const exit = quit(name);
     if (typeof exit === "object") return exit;
-    // A command that quit just now is read on the next poll, as is one tmux is still collecting.
-    if (exit !== "exiting" && Date.now() >= deadline && release(name, exit === "closed")) return true;
+    // A command that quit just now is read on the next poll, as is one tmux is still collecting, until the deadline.
+    if (Date.now() >= deadline) {
+      if (exit === "exiting") return abandon(name);
+      if (release(name, exit !== "running")) return true;
+    }
     await Bun.sleep(pollMs);
   }
 }
@@ -439,8 +448,9 @@ export async function awaitStart(
     const exit = quit(name);
     if (typeof exit === "object") return exit;
     // The agent can quit while `started` awaits; its kept pane is then read on the next poll.
-    if (exit !== "exiting" && (await started()) && release(name, exit === "closed")) return true;
+    if (exit !== "exiting" && (await started()) && release(name, exit !== "running")) return true;
     if (Date.now() >= deadline) {
+      if (exit === "exiting") return abandon(name);
       const shown = screen(name)?.text ?? "";
       kill(name);
       return { hung: lastLines(shown) };
@@ -459,7 +469,7 @@ function lastLines(text: string): string {
 }
 
 /** How a kept pane's command quit, closing its session, or why it has not, as `readExit` says. A session that is gone has status -1. */
-function quit(name: string): EarlyExit | "running" | "closed" | "exiting" {
+function quit(name: string): EarlyExit | Waiting {
   const exit = readExit(name);
   if (exit === "gone") return { status: -1, output: "" };
   if (typeof exit === "string") return exit;
@@ -468,10 +478,20 @@ function quit(name: string): EarlyExit | "running" | "closed" | "exiting" {
 }
 
 /**
+ * Close the session of a command that exited without tmux collecting its status by the deadline, which the nudge in
+ * `readExit` should prevent. It is reported with what it printed and status -1, as kiln reports any exit it cannot read.
+ */
+function abandon(name: string): EarlyExit {
+  const output = lastLines(screen(name)?.text ?? "");
+  kill(name);
+  return { status: -1, output };
+}
+
+/**
  * Stop keeping a pane whose command still runs, so its session closes as usual when it exits. A pane already dead is
- * kept, checked inside tmux so the command cannot die in between, and false says to read its exit instead. A `closed`
- * pane, dead with its command running on, is released unless tmux has its status by then: its terminal is already
- * closed, so tmux collects its exit as usual.
+ * kept, checked inside tmux so the command cannot die in between, and false says to read its exit instead. A pane that
+ * is already dead without a status, `closed` or `unknown`, is released unless tmux has its status by then: its
+ * terminal is already closed, so tmux collects its exit as usual.
  */
 function release(name: string, closed: boolean): boolean {
   const target = `=${name}:`;
