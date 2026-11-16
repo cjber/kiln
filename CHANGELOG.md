@@ -9,6 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-16
+
+- **Spawned Claude sessions can be watched.** `kiln msg spawn claude --interactive` starts Claude's terminal UI with the chosen title and model, so you can attach from the list and follow a long run as it works.
+
+- **Headless Claude children keep their background work.** Claude's print mode stopped a child's workflows, monitors and shells 10 minutes after its last turn. Spawned Claude children now wait for them.
+
 ## [0.27.0] - 2026-11-16
 
 - **Agent messages arrive without waiting on unrelated sessions.** Active Codex sessions receive replies during their current turn. Separate recipients deliver concurrently, and peer sends and JSON inbox reads avoid a full session discovery.
