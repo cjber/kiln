@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,6 +46,44 @@ test("a command that closes its terminal before it exits is reported with its ow
   expect(await survives("closes", 2_000, 50)).toEqual({ status: 1, output: "cannot be resumed" });
   expect(start("killed", dir, ["sh", "-c", "echo stopped; kill -TERM $$"], "killed", true)).toBe(true);
   expect(await survives("killed", 2_000, 50)).toEqual({ status: 143, output: "stopped" });
+});
+
+test("a command that closes its terminal and runs on counts as running once its grace period ends", async () => {
+  const pidFile = join(dir, "runs-on.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  expect(start("runs-on", dir, ["sh", "-c", runsOn], "runs on", true)).toBe(true);
+  try {
+    const watched = survives("runs-on", 300, 50);
+    expect(await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")])).toBe(true);
+  } finally {
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
+  // Released, its session closes as usual once the command exits.
+  for (let waited = 0; exists("runs-on") && waited < 2_000; waited += 50) await Bun.sleep(50);
+  expect(exists("runs-on")).toBe(false);
+});
+
+test("a server that exits while a dead pane is read reports the session gone", async () => {
+  const server = Bun.env.KILN_TMUX_SERVER;
+  Bun.env.KILN_TMUX_SERVER = `kiln-gone-${process.pid}`;
+  const pidFile = join(dir, "gone.pid");
+  const closes = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  // The server exits between the read of a dead pane without a status and the signal sent to it.
+  const signal = spyOn(process, "kill").mockImplementation(() => {
+    killServer(`kiln-gone-${process.pid}`);
+    throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+  });
+  try {
+    expect(start("gone", dir, ["sh", "-c", closes], "gone", true)).toBe(true);
+    const result = await survives("gone", 300, 50);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, has nothing to signal here.
+    expect(result).toEqual(signal.mock.calls.length ? { status: -1, output: "" } : true);
+  } finally {
+    signal.mockRestore();
+    killServer(`kiln-gone-${process.pid}`);
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+    Bun.env.KILN_TMUX_SERVER = server;
+  }
 });
 
 /** A fake provider listing: the agent counts as running in its pane once it has written `marker`. */

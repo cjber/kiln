@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -314,15 +314,16 @@ type PaneExit = { status: number; output: string; pane: string; generation: stri
 
 /**
  * Read a kept pane's exit, or say its command still runs or its session is gone. tmux marks a pane dead once its terminal
- * closes, which can come before the command exits, so a pane counts as ended only once tmux has its exit status. A
- * command killed by a signal has the status a shell gives it, 128 plus the signal number.
+ * closes, which can come before the command exits, so a pane counts as ended only once tmux has its exit status. A dead
+ * pane whose command runs on is `closed`. A command killed by a signal has the status a shell gives it, 128 plus the
+ * signal number.
  *
  * A tmux built with libutempter, as Debian and Ubuntu ship it, runs a helper when a pane's terminal closes and resets
  * SIGCHLD to its default while it waits for it, so a command that exits meanwhile is never reaped and its status never
- * read. A dead pane without a status sends tmux the SIGCHLD it may have lost; tmux then reaps every exited child, and the
- * next read has the status.
+ * read. A dead pane without a status sends tmux the SIGCHLD it may have lost; tmux then reaps every exited child, and a
+ * command that has exited, `exiting` until then, has its status on the next read.
  */
-function readExit(name: string): PaneExit | "running" | "gone" {
+function readExit(name: string): PaneExit | "running" | "closed" | "exiting" | "gone" {
   const target = `=${name}:`;
   const shown = Bun.spawnSync(
     [
@@ -331,20 +332,23 @@ function readExit(name: string): PaneExit | "running" | "gone" {
       "-p",
       "-t",
       target,
-      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}\t#{pid}",
+      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}\t#{pid}\t#{pane_pid}",
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
   if (shown.exitCode !== 0) return "gone";
-  const [dead, status = "", signal = "", pane = "", generation = "", server = ""] = shown.stdout
+  const [dead, status = "", signal = "", pane = "", generation = "", server = "", command = ""] = shown.stdout
     .toString()
     .trimEnd()
     .split("\t");
   if (dead !== "1") return "running";
   if (!status && !signal) {
-    const pid = Number(server);
-    if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGCHLD");
-    return "running";
+    try {
+      if (Number(server) > 0) process.kill(Number(server), "SIGCHLD");
+    } catch {
+      // The server can exit after the read; the next read then finds the session gone.
+    }
+    return hasExited(Number(command)) ? "exiting" : "closed";
   }
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
@@ -352,6 +356,17 @@ function readExit(name: string): PaneExit | "running" | "gone" {
   });
   const output = lastLines(captured.stdout.toString());
   return { status: status ? Number(status) : 128 + signalNumber(signal), output, pane, generation };
+}
+
+/** Whether a process has exited, including one its parent has not reaped yet. */
+function hasExited(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The state follows the parenthesised command name, which may contain spaces.
+    return stat[stat.lastIndexOf(")") + 2] === "Z";
+  } catch {
+    return true;
+  }
 }
 
 /** tmux names a signal by number on Linux and by name, such as `term`, where the system has signal names. */
@@ -401,9 +416,9 @@ export async function survives(name: string, graceMs: number, pollMs = 250): Pro
   const deadline = Date.now() + graceMs;
   for (;;) {
     const exit = quit(name);
-    if (exit) return exit;
-    // A command that quit just now is read on the next poll.
-    if (Date.now() >= deadline && release(name)) return true;
+    if (typeof exit === "object") return exit;
+    // A command that quit just now is read on the next poll, as is one tmux is still collecting.
+    if (exit !== "exiting" && Date.now() >= deadline && release(name, exit === "closed")) return true;
     await Bun.sleep(pollMs);
   }
 }
@@ -422,9 +437,9 @@ export async function awaitStart(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const exit = quit(name);
-    if (exit) return exit;
+    if (typeof exit === "object") return exit;
     // The agent can quit while `started` awaits; its kept pane is then read on the next poll.
-    if ((await started()) && release(name)) return true;
+    if (exit !== "exiting" && (await started()) && release(name, exit === "closed")) return true;
     if (Date.now() >= deadline) {
       const shown = screen(name)?.text ?? "";
       kill(name);
@@ -443,20 +458,22 @@ function lastLines(text: string): string {
     .join("\n");
 }
 
-/** How a kept pane's command quit, closing its session; undefined while it runs. A session that is gone has status -1. */
-function quit(name: string): EarlyExit | undefined {
+/** How a kept pane's command quit, closing its session, or why it has not, as `readExit` says. A session that is gone has status -1. */
+function quit(name: string): EarlyExit | "running" | "closed" | "exiting" {
   const exit = readExit(name);
-  if (exit === "running") return undefined;
   if (exit === "gone") return { status: -1, output: "" };
+  if (typeof exit === "string") return exit;
   kill(name);
   return { status: exit.status, output: exit.output };
 }
 
 /**
  * Stop keeping a pane whose command still runs, so its session closes as usual when it exits. A pane already dead is
- * kept, checked inside tmux so the command cannot die in between, and false says to read its exit instead.
+ * kept, checked inside tmux so the command cannot die in between, and false says to read its exit instead. A `closed`
+ * pane, dead with its command running on, is released unless tmux has its status by then: its terminal is already
+ * closed, so tmux collects its exit as usual.
  */
-function release(name: string): boolean {
+function release(name: string, closed: boolean): boolean {
   const target = `=${name}:`;
   const result = Bun.spawnSync(
     [
@@ -465,7 +482,7 @@ function release(name: string): boolean {
       "-F",
       "-t",
       target,
-      "#{?pane_dead,0,1}",
+      closed ? "#{==:#{pane_dead_status}#{pane_dead_signal},}" : "#{?pane_dead,0,1}",
       "set-option -w remain-on-exit off ; display-message -p released",
     ],
     { stdout: "pipe", stderr: "pipe" },
