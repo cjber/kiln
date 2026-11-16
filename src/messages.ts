@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { startCodexTurn } from "./codex";
+import { CodexNotReady, messageCodexSession } from "./codex";
 import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
@@ -128,7 +128,9 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
       // Only a thread on Codex's shared daemon reports a status, and only that daemon can start its turn.
       return session.activity === undefined
         ? { inbox: "it is not on Codex's shared daemon" }
-        : (busy() ?? { push: "codex" });
+        : session.activity === "waiting" && !session.turnEnded
+          ? { wait: "Codex is waiting" }
+          : { push: "codex" };
     case "claude":
       return session.place.kind === "kiln"
         ? (busy() ?? { push: "tmux" })
@@ -176,7 +178,14 @@ export type Transports = Record<
 const askId = (session: Session, question: string) => `ask:${sessionIdentity(session)}:${question}`;
 
 const transports: Transports = {
-  codex: (session, text) => startCodexTurn(session.id ?? "", text),
+  codex: async (session, text) => {
+    try {
+      await messageCodexSession(session.id ?? "", text);
+    } catch (error) {
+      if (error instanceof CodexNotReady) throw new NotNow(error.message);
+      throw error;
+    }
+  },
   // A reply from the agent kiln asked about the open form answers it; anyone else's message waits behind it.
   opencode: (session, text, message) =>
     messageOpencodeSession(session.id ?? "", text, (form) =>
@@ -233,38 +242,57 @@ export type Outcome = { message: Message; delivered: true } | { message: Message
  */
 export async function flush(
   sessions: readonly Session[],
-  options: { path?: string; send?: Transports; inboxExists?: (pid: number) => boolean } = {},
+  options: {
+    path?: string;
+    send?: Transports;
+    inboxExists?: (pid: number) => boolean;
+    recipients?: ReadonlySet<string>;
+  } = {},
 ): Promise<Outcome[]> {
   const path = options.path ?? mailboxPath();
   const byName = new Map(sessions.filter(reachable).map((session) => [sessionIdentity(session), session]));
-  const outcomes: Outcome[] = [];
-  for (const message of pending(path)) {
-    const session = byName.get(message.to);
-    if (!session) {
-      outcomes.push({ message, delivered: false, reason: "it is not running; it can read it later" });
-      continue;
-    }
-    const way = route(session, options.inboxExists);
-    if (!("push" in way)) {
-      outcomes.push({ message, delivered: false, reason: "wait" in way ? way.wait : way.inbox });
-      continue;
-    }
-    if (!claim(message.id, path)) continue;
-    try {
-      await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)), message);
-      outcomes.push({ message, delivered: true });
-    } catch (error) {
-      const refused = error instanceof NotNow;
-      release(message.id, !refused, path);
-      const reason = error instanceof Error ? error.message : String(error);
-      outcomes.push({
-        message,
-        delivered: false,
-        reason: refused ? reason : `${reason}; it may have arrived, so it is left for kiln msg inbox`,
-      });
-    }
+  const messages = pending(path).filter((message) => !options.recipients || options.recipients.has(message.to));
+  const queues = new Map<string, Message[]>();
+  for (const message of messages) {
+    const queue = queues.get(message.to) ?? [];
+    queue.push(message);
+    queues.set(message.to, queue);
   }
-  return outcomes;
+  const outcomes = new Map<string, Outcome>();
+  await Promise.all(
+    [...queues.values()].map(async (queue) => {
+      for (const message of queue) {
+        const session = byName.get(message.to);
+        if (!session) {
+          outcomes.set(message.id, { message, delivered: false, reason: "it is not running; it can read it later" });
+          continue;
+        }
+        const way = route(session, options.inboxExists);
+        if (!("push" in way)) {
+          outcomes.set(message.id, { message, delivered: false, reason: "wait" in way ? way.wait : way.inbox });
+          continue;
+        }
+        if (!claim(message.id, path)) continue;
+        try {
+          await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)), message);
+          outcomes.set(message.id, { message, delivered: true });
+        } catch (error) {
+          const refused = error instanceof NotNow;
+          release(message.id, !refused, path);
+          const reason = error instanceof Error ? error.message : String(error);
+          outcomes.set(message.id, {
+            message,
+            delivered: false,
+            reason: refused ? reason : `${reason}; it may have arrived, so it is left for kiln msg inbox`,
+          });
+        }
+      }
+    }),
+  );
+  return messages.flatMap((message) => {
+    const outcome = outcomes.get(message.id);
+    return outcome ? [outcome] : [];
+  });
 }
 
 const asked = new Set<string>();

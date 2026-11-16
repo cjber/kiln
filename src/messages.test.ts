@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pending, post } from "./mailbox";
+import { pending, post, posted } from "./mailbox";
 import {
   askParents,
   callerIdentity,
@@ -80,7 +80,8 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
   expect(route(session({ activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });
   expect(route(session({ activity: undefined }))).toEqual({ wait: "its status is unknown" });
   expect("inbox" in route(session({ place: { kind: "elsewhere" } }))).toBe(true);
-  expect(route(session({ agent: "codex", activity: "working" }))).toEqual({ wait: "Codex is working" });
+  expect(route(session({ agent: "codex", activity: "working" }))).toEqual({ push: "codex" });
+  expect(route(session({ agent: "codex", activity: "waiting" }))).toEqual({ wait: "Codex is waiting" });
   expect(route(session({ activity: "working", turnEnded: true }))).toEqual({ push: "tmux" });
   expect(route(session({ agent: "codex", activity: "working", turnEnded: true }))).toEqual({ push: "codex" });
   expect(route(session({ agent: "codex", activity: "idle", place: { kind: "thread", id: "c1", attach: [] } }))).toEqual(
@@ -182,4 +183,66 @@ test("only a wait that ends by itself is reported to the phone as one", () => {
   // A mailbox reader or a stopped session never takes it by itself, so nothing claims it will send.
   expect(heldBecause(session({ place: { kind: "elsewhere" } }))).toBeUndefined();
   expect(heldBecause(session({ lifecycle: "completed" }))).toBeUndefined();
+});
+
+test("a slow recipient cannot block another, while each recipient keeps its message order", async () => {
+  const path = mailbox();
+  const first = post("claude:sender", "codex:slow", "first", path);
+  const second = post("claude:sender", "codex:slow", "second", path);
+  const fast = post("claude:sender", "codex:fast", "fast", path);
+  const started: string[] = [];
+  let unblock = () => {};
+  const blocked = new Promise<void>((resolve) => {
+    unblock = resolve;
+  });
+  let fastDone = () => {};
+  const fastFinished = new Promise<void>((resolve) => {
+    fastDone = resolve;
+  });
+  const send = {
+    codex: async (_target: Session, _text: string, message: { body: string }) => {
+      started.push(message.body);
+      if (message.body === "first") await blocked;
+      if (message.body === "fast") fastDone();
+    },
+  } as unknown as Transports;
+  const flushing = flush([session({ agent: "codex", id: "slow" }), session({ agent: "codex", id: "fast" })], {
+    path,
+    send,
+  });
+  try {
+    await Promise.race([
+      fastFinished,
+      Bun.sleep(100).then(() => {
+        throw new Error("unrelated recipient blocked");
+      }),
+    ]);
+    expect(started).toEqual(["first", "fast"]);
+  } finally {
+    unblock();
+    await flushing;
+  }
+  expect(started).toEqual(["first", "fast", "second"]);
+  expect((await flushing).map((outcome) => outcome.message.id)).toEqual([first.id, second.id, fast.id]);
+});
+
+test("a direct send flushes only its recipients and leaves unrelated messages unclaimed", async () => {
+  const path = mailbox();
+  const unrelated = post("claude:sender", "codex:slow", "later", path);
+  post("claude:sender", "codex:fast", "now", path);
+  const touched: string[] = [];
+  const send = {
+    codex: async (target: Session) => {
+      touched.push(target.id ?? "");
+    },
+  } as unknown as Transports;
+  const outcomes = await flush([session({ agent: "codex", id: "slow" }), session({ agent: "codex", id: "fast" })], {
+    path,
+    send,
+    recipients: new Set(["codex:fast"]),
+  });
+  expect(touched).toEqual(["fast"]);
+  expect(outcomes).toHaveLength(1);
+  expect(posted(unrelated.id, path)?.deliveredAt).toBeUndefined();
+  expect(pending(path).map((message) => message.id)).toEqual([unrelated.id]);
 });

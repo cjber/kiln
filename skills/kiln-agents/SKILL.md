@@ -5,9 +5,10 @@ description: Message other running Claude, Codex, OpenCode and Pi sessions throu
 
 # Message other agents
 
-`kiln msg` reaches any running session kiln lists. A message is stored first, then typed into
-the recipient as a new prompt when kiln can do that safely; otherwise the recipient reads it
-with `kiln msg inbox`.
+`kiln msg` reaches any running session kiln lists. A message is stored first, then delivered
+through the recipient's provider or typed into its terminal when safe. Working Codex daemon
+sessions receive input in their active turn; approvals still wait. A session without a push
+transport reads its messages with `kiln msg inbox`.
 
 ## Resuming after a restart
 
@@ -60,8 +61,8 @@ question until your own turn ends.
 2. `kiln msg send <name> "<text>"`. Pass `-` instead of the text to read a long message from
    stdin. `--all` sends to every other session, so keep it for something every one of them needs.
 3. Each recipient is reported as `delivered` or `queued` with the reason. A queued message is
-   delivered once the recipient is idle while the kiln list or phone server runs, or read the
-   next time it checks its inbox.
+   retried while the kiln list or phone server runs, or read the next time it checks its inbox.
+   Sending retries only that send's recipients, so unrelated agents cannot delay it.
 
 A name starting with `@` is a peer rather than a session: a program outside kiln with a mailbox
 of its own, such as the `nebula-ai` CLI or a Nebula agent. Kiln never types into a peer, so the

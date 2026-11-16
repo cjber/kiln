@@ -129,10 +129,10 @@ export async function runMsgCli(args: string[]): Promise<void> {
       if (rest.length !== (values.all ? 1 : 2) || text === undefined) break;
       const body = (text === "-" ? await Bun.stdin.text() : text).trim();
       if (!body) throw new Error("the message is empty");
-      const found = await sessions();
       // A peer is not in the roster, so it is never typed into: the message waits in its mailbox.
       const peer = name !== undefined && isPeer(name) ? peerName(name) : undefined;
       if (peer !== undefined && peer === me) throw new Error("you cannot message yourself");
+      const found = peer === undefined ? await sessions() : [];
       const recipients =
         peer !== undefined
           ? [peer]
@@ -141,7 +141,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
               .filter((recipient) => recipient !== me);
       if (!recipients.length) throw new Error("there is no other session to message");
       const sent = recipients.map((recipient) => post(me ?? terminal, recipient, body));
-      const outcomes = await flush(found);
+      const outcomes = peer === undefined ? await flush(found, { recipients: new Set(recipients) }) : [];
       const results = sent.map((message) => {
         const outcome = outcomes.find((item) => item.message.id === message.id);
         if (isPeer(message.to))
@@ -171,7 +171,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
       if (!me)
         throw new Error("this shell does not belong to an agent session, so it has no inbox; name a peer with --as");
       const messages = takeUnread(me);
-      const found = messages.length ? await sessions() : [];
+      const found = messages.length && !values.json ? await sessions() : [];
       const sender = (from: string) => found.find((session) => sessionIdentity(session) === from);
       if (values.json) console.log(JSON.stringify(messages, null, 2));
       else if (!messages.length) console.log("no new messages");
