@@ -107,6 +107,23 @@ The terminal list and the phone show the same stages: the list adds a `pr` colum
 
 The page updates itself over a server-sent event stream: session status every two seconds while it is open, uncommitted files every ten seconds, and pull requests at most once a minute per branch or pull request, fetched in the background with the GitHub CLI (`gh`). It keeps six hours of history, one sample at most every 30 seconds, for the charts and its lanes. Nothing is read while no page is open. The server listens on 127.0.0.1 only, answers only requests addressed to that name, and is separate from the phone server and its tunnel.
 
+## Cloud agents and peer programs
+
+Nebula reaches kiln through its local device daemon. The daemon runs the same mailbox CLI as other programs on the computer; `nebula-ai kiln list`, `send` and `inbox` expose that bridge. Give each cloud task a distinct peer name, such as `@nebula:fix-tests`, so replies reach its own inbox.
+
+```sh
+kiln msg list --json
+kiln msg send codex:session-id "Check the failing tests" --as @nebula:fix-tests --json
+kiln msg inbox --as @nebula:fix-tests --peek --wait 60 --json
+# Forward the returned messages, deduplicating by id, then acknowledge each id:
+kiln msg ack message-id --as @nebula:fix-tests
+kiln msg view codex:session-id --json
+```
+
+`--wait` accepts up to 300 seconds and returns when mail arrives or the timeout expires. `--peek` leaves messages unread until `ack`; ordinary `inbox` marks them read immediately. Transcript pages return a cursor for the next read. `kiln msg spawn` also works from the daemon's shell without a parent session.
+
+Peer access trusts the local operating-system user: any program running as that user can use any peer name. The daemon owns cloud authentication, connectivity and agent wakeups. When it stops or the computer sleeps, delivery waits; mailbox messages expire after seven days. Kiln's phone pairing API remains separate from this bridge.
+
 ## Terminal
 
 | Key | Action |

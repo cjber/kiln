@@ -21,7 +21,7 @@ test("JSON inbox and peer sends work without session discovery", async () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-msg-cli-"));
   try {
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/msg-cli-smoke.ts")], {
-      env: { ...Bun.env, XDG_STATE_HOME: root },
+      env: { ...Bun.env, XDG_STATE_HOME: root, CLAUDE_CONFIG_DIR: root },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -31,6 +31,11 @@ test("JSON inbox and peer sends work without session discovery", async () => {
     const output = await new Response(child.stdout).text();
     expect(output).toContain('"body": "reply"');
     expect(output).toContain('"to": "@receiver"');
+    expect(output.match(/"body": "late"/g)).toHaveLength(2);
+    expect(output).toContain("\n1\n");
+    expect(output).toContain("[]\nyou: fixture prompt");
+    expect(output).toContain("fixture answer");
+    expect(output).toContain("Read notes.md");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

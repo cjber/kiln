@@ -9,6 +9,14 @@ verbatim.
 
 ## [Unreleased]
 
+- **Agent messages arrive without waiting on unrelated sessions.** Active Codex sessions receive replies during their current turn. Separate recipients deliver concurrently, and peer sends and JSON inbox reads avoid a full session discovery.
+
+- **Peer programs can forward replies reliably.** `kiln msg inbox --peek --wait` leaves messages unread until a recipient-scoped `kiln msg ack`. `kiln msg view` reads transcript pages for local daemon integrations.
+
+- **Spawned sessions are easier to identify and recover.** The message list includes the process identity printed at spawn, failed starts report their exit to the parent, and disconnected Codex sessions can reconnect.
+
+- **Android screenshot capture waits for hidden system bars.** Seeded screenshots signal readiness after immersive mode takes effect.
+
 ## [0.26.2] - 2026-11-13
 
 - **Commits no longer fail in watched checkouts.** Kiln counts a checkout's changed files with `git --no-optional-locks status`, so its poll never holds `index.lock` while an agent commits there.

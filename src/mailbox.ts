@@ -148,3 +148,30 @@ export function takeUnread(to: string, path = mailboxPath(), now = Date.now()): 
     })
     .immediate();
 }
+
+/** Read pending messages without acknowledging them. The caller must ack each id after forwarding it. */
+export function peekUnread(to: string, path = mailboxPath()): Message[] {
+  if (!existsSync(path)) return [];
+  return open(path)
+    .query<Row, [string]>(
+      'SELECT * FROM messages WHERE "to" = ? AND deliveredAt IS NULL AND readAt IS NULL ORDER BY createdAt',
+    )
+    .all(to)
+    .map(message);
+}
+
+/** Acknowledge only messages owned by the recipient, leaving other mailboxes untouched. */
+export function acknowledge(to: string, ids: readonly string[], path = mailboxPath(), now = Date.now()): number {
+  if (!ids.length || !existsSync(path)) return 0;
+  const db = open(path);
+  return db
+    .transaction(() => {
+      let count = 0;
+      for (const id of ids)
+        count += db
+          .query('UPDATE messages SET readAt = ? WHERE id = ? AND "to" = ? AND deliveredAt IS NULL AND readAt IS NULL')
+          .run(now, id, to).changes;
+      return count;
+    })
+    .immediate();
+}

@@ -88,3 +88,10 @@ Check it at the start of a task when you expect a reply. A script that waits for
 `kiln msg inbox --json`, which prints `[]` when nothing is waiting; its plain-text lines are for
 people and can change. `kiln msg whoami` prints your own name.
 kiln stops a sender after 20 messages to one recipient in ten minutes.
+
+Programs forwarding replies can use `kiln msg inbox --as @peer --peek --wait 60 --json`.
+Forward each returned message using its id for deduplication, then run
+`kiln msg ack <message-id...> --as @peer`. A crash before acknowledgement leaves it available
+for retry. `--wait` accepts 0 to 300 seconds. `kiln msg view <name> --json` reads a transcript
+page; pass its `cursor` back with `--cursor` to continue. Nebula uses its local device daemon
+as the bridge to these commands; kiln opens no extra network endpoint for peers.
