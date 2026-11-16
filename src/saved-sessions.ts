@@ -118,6 +118,9 @@ export function reconcile(
   for (const session of sessions.filter(resumable)) {
     // A spawned Codex run is recorded by its process until its thread id is known; its row moves to that id here.
     const recorded = previous.get(key(session)) ?? previous.get(processIdentity(session));
+    // A listing is taken before it is written, and a resumed agent can quit in between, after its failed resume put the
+    // earlier boot's row back. Only a process still running takes that row over.
+    if (recorded && recorded.boot !== boot && session.pid !== undefined && !alive(session.pid)) continue;
     next.set(key(session), {
       agent: session.agent,
       id: session.id,

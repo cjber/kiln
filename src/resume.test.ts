@@ -8,7 +8,7 @@ import { pickSessions } from "./resume-cli";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
-import { exists, start, survives } from "./tmux";
+import { awaitStart, exists, start, survives } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -92,6 +92,51 @@ test("an agent that quits after a while, before its provider lists it, is report
       clearInterval(refresh);
     }
     expect(boots()).toEqual([{ boot: "earlier" }]);
+  } finally {
+    if (before === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = before;
+  }
+});
+
+test("an agent that quits while discovery is awaited is reported, not left as a dead pane", async () => {
+  const marker = join(dir, "listed-then-quit");
+  expect(
+    start("late-quit", dir, ["sh", "-c", `touch ${marker}; sleep 0.3; echo gone; exit 4`], "late-quit", true),
+  ).toBe(true);
+  // Discovery lists the agent, then takes long enough over another provider that the agent quits meanwhile.
+  const started = async () => {
+    if (!existsSync(marker)) return false;
+    await Bun.sleep(1_000);
+    return true;
+  };
+  expect(await awaitStart("late-quit", started, 5_000, 50)).toEqual({ status: 4, output: "gone" });
+  expect(exists("late-quit")).toBe(false);
+});
+
+test("a listing taken while a failed resume ran does not take the stopped row over", async () => {
+  const before = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(dir, "stale-state");
+  try {
+    const session = stopped("stale-listing");
+    const path = join(dir, "stale-state", "kiln", "sessions.sqlite");
+    restartStopped([{ ...session, pid: process.pid, place: { kind: "kiln", name: "old" } }]);
+    new Database(path).query("UPDATE sessions SET boot = 'earlier'").run();
+    const pidFile = join(dir, "stale-listing-pid");
+    const settings = {
+      ...defaults,
+      remoteControl: false,
+      agents: { ...defaults.agents, claude: ["sh", "-c", `echo $$ > ${pidFile}; sleep 0.3; exit 1`] },
+    };
+    expect(await resumeStopped(session, settings, undefined, listedOnce(join(dir, "never")))).toEqual({
+      problem: "Claude exited with status 1",
+    });
+    // A refresh that listed the agent while it ran, and writes only now that the resume has failed.
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    restartStopped([{ ...session, pid, place: { kind: "kiln", name: "claude-stale-listing" } }]);
+    expect(new Database(path, { readonly: true }).query("SELECT boot FROM sessions").all()).toEqual([
+      { boot: "earlier" },
+    ]);
+    expect(restartStopped([]).map((item) => item.id)).toEqual(["stale-listing"]);
   } finally {
     if (before === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = before;

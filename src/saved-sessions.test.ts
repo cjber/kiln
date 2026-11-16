@@ -47,9 +47,16 @@ test("a session saved in an earlier boot comes back stopped, until it is running
   ]);
   expect(restarted.stopped[0]?.pid).toBeUndefined();
 
-  const resumed = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, dead);
+  const resumed = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, (pid) => pid === 20);
   expect(resumed.stopped).toEqual([]);
   expect(resumed.saved).toMatchObject([{ id: "a", boot: "boot-2", pid: 20 }]);
+});
+
+test("a listing whose process quit before it was written leaves a stopped session stopped", () => {
+  const { saved } = reconcile([], [running], "boot-1", 0, dead);
+  const stale = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, dead);
+  expect(stale.saved).toEqual(saved);
+  expect(reconcile(stale.saved, [], "boot-2", 0, dead).stopped).toMatchObject([{ id: "a", lifecycle: "stopped" }]);
 });
 
 test("a session closed during the same boot is dropped once kiln has outlived it", () => {

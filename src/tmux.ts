@@ -401,7 +401,8 @@ export async function awaitStart(
     if (exit) return exit;
     if (await started()) {
       run("set-option", "-w", "-t", `=${name}:`, "remain-on-exit", "off");
-      return true;
+      // The agent can quit while `started` awaits; a pane that died before the option went off is still kept.
+      return quit(name) ?? true;
     }
     if (Date.now() >= deadline) {
       const shown = screen(name)?.text ?? "";
