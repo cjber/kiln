@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **An agent that quits is reported with its real exit status.** tmux can mark a pane dead as soon as its terminal closes, before the command has exited. `kiln resume` and spawned-child reports now wait for tmux to have the status, so they no longer report status 0 for an agent that failed, and an agent killed by a signal is reported with the status a shell gives it, such as 143 for SIGTERM.
+
 ## [0.28.2] - 2026-11-16
 
 - **`kiln resume` reports a session that does not start.** A resume now counts only once kiln sees the conversation running in its pane, so an agent that quits during launch, however late, makes `kiln resume` exit non-zero with what it printed, and the session stays in the stopped list to try again.

@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import configText from "../tmux.conf" with { type: "text" };
@@ -309,10 +309,15 @@ export function respawn(name: string, cwd: string, argv: string[]): boolean {
   );
 }
 
-/** How a kept pane of a session started with `start` ended: its status, when tmux knows it, and the output still on screen. */
-type PaneExit = { status?: number; output: string; pane: string; generation: string };
+/** How a kept pane of a session started with `start` ended: its exit status and the output still on screen. */
+type PaneExit = { status: number; output: string; pane: string; generation: string };
 
-export function endedPane(name: string): PaneExit | undefined {
+/**
+ * Read a kept pane's exit, or say its command still runs or its session is gone. tmux marks a pane dead once its terminal
+ * closes, which can come before the command exits, so a pane counts as ended only once tmux has its exit status. A
+ * command killed by a signal has the status a shell gives it, 128 plus the signal number.
+ */
+function readExit(name: string): PaneExit | "running" | "gone" {
   const target = `=${name}:`;
   const shown = Bun.spawnSync(
     [
@@ -321,27 +326,35 @@ export function endedPane(name: string): PaneExit | undefined {
       "-p",
       "-t",
       target,
-      "#{pane_dead}\t#{pane_dead_status}\t#{pane_id}\t#{@kiln_generation}",
+      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}",
     ],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-    },
+    { stdout: "pipe", stderr: "pipe" },
   );
-  if (shown.exitCode !== 0) return undefined;
-  const [dead, status = "", pane = "", generation = ""] = shown.stdout.toString().trim().split("\t");
-  if (dead !== "1") return undefined;
+  if (shown.exitCode !== 0) return "gone";
+  const [dead, status = "", signal = "", pane = "", generation = ""] = shown.stdout.toString().trimEnd().split("\t");
+  if (dead !== "1" || (!status && !signal)) return "running";
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
     stderr: "pipe",
   });
   const output = lastLines(captured.stdout.toString());
-  const code = Number(status);
-  return { status: status.trim() && Number.isFinite(code) ? code : undefined, output, pane, generation };
+  return { status: status ? Number(status) : 128 + signalNumber(signal), output, pane, generation };
+}
+
+/** tmux names a signal by number on Linux and by name, such as `term`, where the system has signal names. */
+function signalNumber(signal: string): number {
+  const number = Number(signal);
+  if (Number.isInteger(number)) return number;
+  return constants.signals[`SIG${signal.toUpperCase()}` as keyof typeof constants.signals] ?? 0;
+}
+
+export function endedPane(name: string): PaneExit | undefined {
+  const exit = readExit(name);
+  return typeof exit === "string" ? undefined : exit;
 }
 
 /** Read an exit without exposing tmux's process-generation fields to callers. */
-export function ended(name: string): { status?: number; output: string } | undefined {
+export function ended(name: string): { status: number; output: string } | undefined {
   const exit = endedPane(name);
   return exit ? { status: exit.status, output: exit.output } : undefined;
 }
@@ -376,10 +389,8 @@ export async function survives(name: string, graceMs: number, pollMs = 250): Pro
   for (;;) {
     const exit = quit(name);
     if (exit) return exit;
-    if (Date.now() >= deadline) {
-      run("set-option", "-w", "-t", `=${name}:`, "remain-on-exit", "off");
-      return true;
-    }
+    // A command that quit just now is read on the next poll.
+    if (Date.now() >= deadline && release(name)) return true;
     await Bun.sleep(pollMs);
   }
 }
@@ -399,11 +410,8 @@ export async function awaitStart(
   for (;;) {
     const exit = quit(name);
     if (exit) return exit;
-    if (await started()) {
-      run("set-option", "-w", "-t", `=${name}:`, "remain-on-exit", "off");
-      // The agent can quit while `started` awaits; a pane that died before the option went off is still kept.
-      return quit(name) ?? true;
-    }
+    // The agent can quit while `started` awaits; its kept pane is then read on the next poll.
+    if ((await started()) && release(name)) return true;
     if (Date.now() >= deadline) {
       const shown = screen(name)?.text ?? "";
       kill(name);
@@ -424,20 +432,32 @@ function lastLines(text: string): string {
 
 /** How a kept pane's command quit, closing its session; undefined while it runs. A session that is gone has status -1. */
 function quit(name: string): EarlyExit | undefined {
-  const target = `=${name}:`;
-  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (shown.exitCode !== 0) return { status: -1, output: "" };
-  const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
-  if (dead !== "1") return undefined;
-  const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const exit = readExit(name);
+  if (exit === "running") return undefined;
+  if (exit === "gone") return { status: -1, output: "" };
   kill(name);
-  return { status: Number(status) || 0, output: lastLines(captured.stdout.toString()) };
+  return { status: exit.status, output: exit.output };
+}
+
+/**
+ * Stop keeping a pane whose command still runs, so its session closes as usual when it exits. A pane already dead is
+ * kept, checked inside tmux so the command cannot die in between, and false says to read its exit instead.
+ */
+function release(name: string): boolean {
+  const target = `=${name}:`;
+  const result = Bun.spawnSync(
+    [
+      ...tmux(),
+      "if-shell",
+      "-F",
+      "-t",
+      target,
+      "#{?pane_dead,0,1}",
+      "set-option -w remain-on-exit off ; display-message -p released",
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  return result.exitCode === 0 && result.stdout.toString().trim() === "released";
 }
 
 /** The commands that rebind the way back, dropping whichever key held it before so a changed setting leaves no stray binding. */

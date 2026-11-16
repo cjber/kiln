@@ -39,6 +39,15 @@ test("a kept pane reports why its command quit, and a running one is left alone"
   expect(exists("runs")).toBe(true);
 });
 
+test("a command that closes its terminal before it exits is reported with its own status", async () => {
+  // tmux marks a pane dead once its terminal closes, which can be before it has the command's exit status.
+  const closes = "trap '' HUP; echo cannot be resumed; exec >&- 2>&- <&-; sleep 0.3; exit 1";
+  expect(start("closes", dir, ["sh", "-c", closes], "closes", true)).toBe(true);
+  expect(await survives("closes", 2_000, 50)).toEqual({ status: 1, output: "cannot be resumed" });
+  expect(start("killed", dir, ["sh", "-c", "echo stopped; kill -TERM $$"], "killed", true)).toBe(true);
+  expect(await survives("killed", 2_000, 50)).toEqual({ status: 143, output: "stopped" });
+});
+
 /** A fake provider listing: the agent counts as running in its pane once it has written `marker`. */
 const listedOnce = (marker: string) => ({ started: async () => existsSync(marker), timeoutMs: 5_000, pollMs: 50 });
 
