@@ -30,6 +30,12 @@ writeFileSync(
     },
   })}\n`,
 );
+// A child that has ended is no longer discovered; its transcript is still on disk.
+mkdirSync(join(fixtureRoot, "projects", "-elsewhere"), { recursive: true });
+writeFileSync(
+  join(fixtureRoot, "projects", "-elsewhere", "ended-session.jsonl"),
+  `${JSON.stringify({ type: "assistant", uuid: "e1", message: { content: [{ type: "text", text: "ended answer" }] } })}\n`,
+);
 mock.module("../src/sessions", () => ({
   ...sessions,
   discovery: () => async () => {
@@ -49,5 +55,8 @@ await runMsgCli(["inbox", "--as", "@reader", "--peek", "--json"]);
 if (!lateId) throw new Error("late message was not posted");
 await runMsgCli(["ack", lateId, "--as", "@reader"]);
 await runMsgCli(["inbox", "--as", "@reader", "--peek", "--wait", "0.02", "--json"]);
-if (Bun.env.VIEW_ONLY === "1") await runMsgCli(["view", "claude:fixture-session"]);
+if (Bun.env.VIEW_ONLY === "1") {
+  await runMsgCli(["view", "claude:fixture-session"]);
+  await runMsgCli(["view", "claude:ended-session", "--json"]);
+}
 await runMsgCli(["send", "@receiver", "ping", "--as", "@sender", "--json"]);

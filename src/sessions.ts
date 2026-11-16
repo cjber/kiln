@@ -79,7 +79,8 @@ export function sessionIdentity(session: Session): string {
 
 /**
  * A session named by its process. It is the only name a session has before its provider gives it an id, and the
- * one `kiln msg spawn` returns for a Codex run, so it keeps naming that run once the id is known.
+ * one `kiln msg spawn` returns for a Codex run that ended or hung before starting its thread, so it keeps naming that run
+ * once the id is known.
  */
 export function processIdentity(session: Pick<Session, "agent" | "pid" | "startedAt">): string {
   return `${session.agent}:${session.pid}:${session.startedAt}`;

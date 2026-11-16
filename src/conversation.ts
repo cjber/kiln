@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { claudeTranscript } from "./native-sessions";
-import type { Session } from "./sessions";
+import { claudeConfigDir, claudeTranscript } from "./native-sessions";
+import { type Agent, agents, type Session } from "./sessions";
 
 /** One line of a session as the phone draws it. `result` items attach to the `tool` item named by `of`. */
 export type Item =
@@ -397,7 +397,8 @@ export function transcriptFile(session: Session): { path: string; agent: "claude
     case "codex":
       path = sessionFile(
         join(Bun.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions"),
-        `*/*/*/rollout-*-${id}.jsonl`,
+        // The timestamp before the id has a fixed width, so a suffix of a longer id cannot match.
+        `*/*/*/rollout-????-??-??T??-??-??-${id}.jsonl`,
       );
       break;
     case "pi":
@@ -424,4 +425,40 @@ export function conversationReader(session: Session): ((cursor?: string) => Page
   if (!file) return undefined;
   const toItems = { claude: recordItems, codex: codexItems, pi: piItems }[file.agent];
   return (cursor) => readConversation(file.path, cursor, undefined, toItems);
+}
+
+/**
+ * Read a session that is no longer running by its full name (`agent:id`), from the transcript its provider keeps. A
+ * headless child is not listed once its process exits, but its parent still needs its answer. kiln keeps no copy, so
+ * the conversation stays readable for as long as the provider keeps its transcript.
+ */
+export function endedConversationReader(name: string): ((cursor?: string) => Page) | undefined {
+  const separator = name.indexOf(":");
+  const agent = name.slice(0, separator) as Agent;
+  const id = name.slice(separator + 1);
+  if (separator <= 0 || !agents.includes(agent) || !/^[A-Za-z0-9_-]+$/.test(id)) return undefined;
+  switch (agent) {
+    case "claude": {
+      // Claude files a transcript under its directory, which the name does not carry; the id is unique on its own.
+      const path = sessionFile(join(claudeConfigDir(), "projects"), `*/${id}.jsonl`);
+      return path ? (cursor) => readConversation(path, cursor, undefined, recordItems) : undefined;
+    }
+    case "opencode": {
+      const path = opencodeDatabase();
+      if (!existsSync(path)) return undefined;
+      const db = new Database(path, { readonly: true });
+      try {
+        if (!db.query("SELECT 1 FROM session_message WHERE session_id = ? LIMIT 1").get(id)) return undefined;
+      } finally {
+        db.close();
+      }
+      return (cursor) => readOpencodeConversation(path, id, cursor);
+    }
+    case "codex":
+    case "pi": {
+      // Both find a transcript by its id alone.
+      const session: Session = { agent, id, cwd: "", startedAt: 0, place: { kind: "saved" } };
+      return transcriptFile(session) ? conversationReader(session) : undefined;
+    }
+  }
 }
