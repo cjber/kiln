@@ -316,6 +316,11 @@ type PaneExit = { status: number; output: string; pane: string; generation: stri
  * Read a kept pane's exit, or say its command still runs or its session is gone. tmux marks a pane dead once its terminal
  * closes, which can come before the command exits, so a pane counts as ended only once tmux has its exit status. A
  * command killed by a signal has the status a shell gives it, 128 plus the signal number.
+ *
+ * A tmux built with libutempter, as Debian and Ubuntu ship it, runs a helper when a pane's terminal closes and resets
+ * SIGCHLD to its default while it waits for it, so a command that exits meanwhile is never reaped and its status never
+ * read. A dead pane without a status sends tmux the SIGCHLD it may have lost; tmux then reaps every exited child, and the
+ * next read has the status.
  */
 function readExit(name: string): PaneExit | "running" | "gone" {
   const target = `=${name}:`;
@@ -326,13 +331,21 @@ function readExit(name: string): PaneExit | "running" | "gone" {
       "-p",
       "-t",
       target,
-      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}",
+      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}\t#{pid}",
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
   if (shown.exitCode !== 0) return "gone";
-  const [dead, status = "", signal = "", pane = "", generation = ""] = shown.stdout.toString().trimEnd().split("\t");
-  if (dead !== "1" || (!status && !signal)) return "running";
+  const [dead, status = "", signal = "", pane = "", generation = "", server = ""] = shown.stdout
+    .toString()
+    .trimEnd()
+    .split("\t");
+  if (dead !== "1") return "running";
+  if (!status && !signal) {
+    const pid = Number(server);
+    if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGCHLD");
+    return "running";
+  }
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
     stderr: "pipe",
