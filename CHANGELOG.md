@@ -13,9 +13,8 @@ verbatim.
 
 - **Peer programs can forward replies reliably.** `kiln msg inbox --peek --wait` leaves messages unread until a recipient-scoped `kiln msg ack`. `kiln msg view` reads transcript pages for local daemon integrations.
 
-- **Spawned sessions are easier to identify and recover.** The message list includes the process identity printed at spawn, failed starts report their exit to the parent, and disconnected Codex sessions can reconnect.
-
 - **Android screenshot capture waits for hidden system bars.** Seeded screenshots signal readiness after immersive mode takes effect.
+- **Codex spawn identities stay resolvable.** `kiln msg list --json` keeps the provider session as `name` and exposes the process identity printed by `kiln msg spawn` in `aliases`, so liveness checks continue to find a running child after Codex assigns its thread id.
 
 ## [0.26.2] - 2026-11-13
 

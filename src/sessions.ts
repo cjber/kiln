@@ -85,6 +85,12 @@ export function processIdentity(session: Pick<Session, "agent" | "pid" | "starte
   return `${session.agent}:${session.pid}:${session.startedAt}`;
 }
 
+/** Alternate names that remain valid after a provider assigns its own session id. */
+export function sessionAliases(session: Session): string[] {
+  const process = session.pid === undefined ? undefined : processIdentity(session);
+  return process && process !== sessionIdentity(session) ? [process] : [];
+}
+
 /** Whether `name` names this session: its identity, or the process name it went by before its id was known. */
 export function answersTo(session: Session, name: string): boolean {
   return sessionIdentity(session) === name || (session.pid !== undefined && processIdentity(session) === name);
