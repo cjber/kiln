@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,7 @@ import { pickSessions } from "./resume-cli";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
-import { awaitStart, exists, start, survives } from "./tmux";
+import { awaitStart, exists, respawn, start, survives } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -37,6 +38,191 @@ test("a kept pane reports why its command quit, and a running one is left alone"
   expect(start("runs", dir, ["sleep", "30"], "runs", true)).toBe(true);
   expect(await survives("runs", 300, 50)).toBe(true);
   expect(exists("runs")).toBe(true);
+});
+
+test("a command that closes its terminal before it exits is reported with its own status", async () => {
+  // tmux marks a pane dead once its terminal closes, which can be before it has the command's exit status.
+  const closes = "trap '' HUP; echo cannot be resumed; exec >&- 2>&- <&-; sleep 0.3; exit 1";
+  expect(start("closes", dir, ["sh", "-c", closes], "closes", true)).toBe(true);
+  expect(await survives("closes", 2_000, 50)).toEqual({ status: 1, output: "cannot be resumed" });
+  expect(start("killed", dir, ["sh", "-c", "echo stopped; kill -TERM $$"], "killed", true)).toBe(true);
+  expect(await survives("killed", 2_000, 50)).toEqual({ status: 143, output: "stopped" });
+});
+
+test("a command that closes its terminal and runs on counts as running once its grace period ends", async () => {
+  const pidFile = join(dir, "runs-on.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  expect(start("runs-on", dir, ["sh", "-c", runsOn], "runs on", true)).toBe(true);
+  try {
+    const watched = survives("runs-on", 300, 50);
+    expect(await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")])).toBe(true);
+  } finally {
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
+  // Released, its session closes as usual once the command exits.
+  for (let waited = 0; exists("runs-on") && waited < 2_000; waited += 50) await Bun.sleep(50);
+  expect(exists("runs-on")).toBe(false);
+});
+
+/** Answer reads of `/proc` with `answer`, as a system that hides or fakes process state would; other reads pass through. */
+function fakeProc(answer: (path: string) => string) {
+  const read = fs.readFileSync;
+  return spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, options?: unknown) =>
+    String(path).startsWith("/proc/")
+      ? answer(String(path))
+      : read(path, options as BufferEncoding)) as typeof fs.readFileSync);
+}
+
+test("a dead pane whose command cannot be inspected is released once its grace period ends", async () => {
+  const pidFile = join(dir, "hidden.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  const denied = fakeProc((path) => {
+    throw Object.assign(new Error(`EACCES: permission denied, open '${path}'`), { code: "EACCES" });
+  });
+  try {
+    expect(start("hidden", dir, ["sh", "-c", runsOn], "hidden", true)).toBe(true);
+    const watched = survives("hidden", 100, 50);
+    expect(await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")])).toBe(true);
+  } finally {
+    denied.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
+});
+
+test("a command that exits without tmux collecting its status is reported once its grace period ends", async () => {
+  const pidFile = join(dir, "uncollected.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; echo never collected; exec >&- 2>&- <&-; exec sleep 30`;
+  // The command reads as exited while it runs on, so the nudge to tmux never yields a status.
+  const zombie = fakeProc(() => "1 (sleep) Z 0 0 0");
+  try {
+    expect(start("uncollected", dir, ["sh", "-c", runsOn], "uncollected", true)).toBe(true);
+    const watched = survives("uncollected", 100, 50);
+    const result = await Promise.race([watched, Bun.sleep(3_000).then(() => "still waiting")]);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, never asks about the process here.
+    if (zombie.mock.calls.some(([path]) => String(path).startsWith("/proc/"))) {
+      expect(result).toEqual({ status: -1, output: "never collected" });
+      expect(exists("uncollected")).toBe(false);
+    } else expect(result).toBe(true);
+  } finally {
+    zombie.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
+});
+
+test("a server that exits while a dead pane is read reports the session gone", async () => {
+  const server = Bun.env.KILN_TMUX_SERVER;
+  Bun.env.KILN_TMUX_SERVER = `kiln-gone-${process.pid}`;
+  const pidFile = join(dir, "gone.pid");
+  const closes = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  // The server exits between the read of a dead pane without a status and the signal sent to it.
+  const signal = spyOn(process, "kill").mockImplementation(() => {
+    killServer(`kiln-gone-${process.pid}`);
+    throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+  });
+  try {
+    expect(start("gone", dir, ["sh", "-c", closes], "gone", true)).toBe(true);
+    const result = await survives("gone", 300, 50);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, has nothing to signal here.
+    expect(result).toEqual(signal.mock.calls.length ? { status: -1, output: "" } : true);
+  } finally {
+    signal.mockRestore();
+    killServer(`kiln-gone-${process.pid}`);
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+    Bun.env.KILN_TMUX_SERVER = server;
+  }
+});
+
+/**
+ * Respawn `name` with a healthy command right after the first read of its pane that `when` accepts, as a concurrent
+ * reconnect can between a watcher's read and its action. Says whether it has.
+ */
+function respawnAfterRead(name: string, when: (read: string) => boolean) {
+  const spawn = Bun.spawnSync;
+  const state = { respawned: false };
+  const spy = spyOn(Bun, "spawnSync").mockImplementation(((command: string[], options?: object) => {
+    const result = spawn(command, options);
+    const read = command.some((part) => String(part).startsWith("#{pane_dead}\t")) ? result.stdout.toString() : "";
+    if (!state.respawned && read && when(read)) {
+      state.respawned = true;
+      expect(respawn(name, dir, ["sleep", "30"])).toBe(true);
+    }
+    return result;
+  }) as typeof Bun.spawnSync);
+  return { state, restore: () => spy.mockRestore() };
+}
+
+/** Whether a session's window still keeps its pane once its command exits. */
+const kept = (name: string) =>
+  Bun.spawnSync([
+    "tmux",
+    "-L",
+    String(Bun.env.KILN_TMUX_SERVER),
+    "show-options",
+    "-w",
+    "-v",
+    "-t",
+    `=${name}:`,
+    "remain-on-exit",
+  ])
+    .stdout.toString()
+    .trim() === "on";
+
+test("a pane respawned after a watcher reads it running is left kept for its new command", async () => {
+  expect(start("respawned-running", dir, ["sleep", "30"], "respawned running", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-running", (read) => read.startsWith("0\t"));
+  try {
+    expect(await survives("respawned-running", 0, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-running")).toBe(true);
+  expect(kept("respawned-running")).toBe(true);
+});
+
+test("a pane respawned after a watcher reads its exit is left running", async () => {
+  expect(start("respawned-exit", dir, ["sh", "-c", "echo old; exit 3"], "respawned exit", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-exit", (read) => /^1\t\d/.test(read));
+  try {
+    expect(await survives("respawned-exit", 2_000, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-exit")).toBe(true);
+});
+
+test("a pane respawned after a launch is read as hung is left running", async () => {
+  expect(start("respawned-hung", dir, ["sleep", "30"], "respawned hung", true)).toBe(true);
+  const replaced = respawnAfterRead("respawned-hung", (read) => read.startsWith("0\t"));
+  try {
+    expect(await awaitStart("respawned-hung", async () => false, 0, 50)).toBe(true);
+  } finally {
+    replaced.restore();
+  }
+  expect(replaced.state.respawned).toBe(true);
+  expect(exists("respawned-hung")).toBe(true);
+});
+
+test("a pane respawned after a watcher reads its command as exiting is not abandoned", async () => {
+  const pidFile = join(dir, "respawned-exiting.pid");
+  const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
+  // The old command reads as exited without a status, so the deadline abandons it.
+  const zombie = fakeProc(() => "1 (sleep) Z 0 0 0");
+  const replaced = respawnAfterRead("respawned-exiting", (read) => read.startsWith("1\t\t\t"));
+  try {
+    expect(start("respawned-exiting", dir, ["sh", "-c", runsOn], "respawned exiting", true)).toBe(true);
+    // A tmux that marks a pane dead only once its command exits, such as 3.8, reads it running and releases it.
+    for (let waited = 0; !existsSync(pidFile) && waited < 2_000; waited += 50) await Bun.sleep(50);
+    await Bun.sleep(100);
+    expect(await survives("respawned-exiting", 0, 50)).toBe(true);
+    expect(exists("respawned-exiting")).toBe(true);
+    if (replaced.state.respawned) expect(kept("respawned-exiting")).toBe(true);
+  } finally {
+    replaced.restore();
+    zombie.mockRestore();
+    if (existsSync(pidFile)) process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+  }
 });
 
 /** A fake provider listing: the agent counts as running in its pane once it has written `marker`. */

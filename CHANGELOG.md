@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **An agent that quits is reported with its real exit status.** tmux marks a pane dead as soon as its terminal closes, and a tmux built with libutempter, as Debian and Ubuntu ship it, can miss the command's exit entirely. `kiln resume` now waits for tmux to have the status and asks tmux to collect an exit it missed, so it no longer reports status 0 for an agent that failed, and an agent killed by a signal is reported with the status a shell gives it, such as 143 for SIGTERM. A command that closes its terminal but keeps running no longer keeps kiln waiting past its grace period, and a session another resume or reconnect restarts meanwhile is left running.
+
 ## [0.28.2] - 2026-11-16
 
 - **`kiln resume` reports a session that does not start.** A resume now counts only once kiln sees the conversation running in its pane, so an agent that quits during launch, however late, makes `kiln resume` exit non-zero with what it printed, and the session stays in the stopped list to try again.
