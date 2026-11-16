@@ -3,13 +3,15 @@ import { homedir } from "node:os";
 import { basename } from "node:path";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
+import { claudeTranscript } from "./native-sessions";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
-import { forget } from "./saved-sessions";
+import { forget, restoreRow, savedRow } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
-import { type Agent, agentName, type Session } from "./sessions";
+import { type Agent, agentName, listSessions, type Session } from "./sessions";
 import type { Settings } from "./settings";
-import { exists, kill, respawn, start, survives } from "./tmux";
+import { awaitStart, exists, kill, respawn, start, survives } from "./tmux";
+import { readTranscript } from "./transcript";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
 
@@ -113,15 +115,24 @@ export function promptArguments(agent: Agent, prompt: string | undefined): strin
   }
 }
 
-/** The agent's configured command; `resume` continues a provider conversation instead of starting one. */
-export function agentCommand(agent: Agent, settings: Settings, resume?: string, prompt?: string): string[] {
+/**
+ * The agent's configured command; `resume` continues a provider conversation instead of starting one. Claude refuses
+ * to resume a Code Mode conversation with Remote Control on, so `codeMode` leaves it off, configured or not.
+ */
+export function agentCommand(
+  agent: Agent,
+  settings: Settings,
+  resume?: string,
+  prompt?: string,
+  codeMode = false,
+): string[] {
   const command = settings.agents[agent];
   const first = promptArguments(agent, prompt);
   switch (agent) {
     case "claude":
       return [
-        ...command,
-        ...(settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
+        ...(codeMode ? command.filter((word) => word !== "--remote-control") : command),
+        ...(!codeMode && settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
         ...(resume ? ["--resume", resume] : []),
         ...first,
       ];
@@ -161,7 +172,9 @@ async function launch(
     const command = settings.agents[agent];
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agentName(agent)} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
-    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt), title, keep))
+    const codeMode = agent === "claude" && resume !== undefined && claudeCodeMode(cwd, resume);
+    const env = codeMode ? { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" } : undefined;
+    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt, codeMode), title, keep, undefined, env))
       throw new Error(`could not start ${agentName(agent)}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
@@ -170,32 +183,63 @@ async function launch(
   }
 }
 
-/** How long a resumed agent must keep running before kiln counts it as started. */
-const resumeGraceMs = 5_000;
+/** Whether Claude recorded the conversation as started in Code Mode, which it resumes only with Code Mode on. */
+function claudeCodeMode(cwd: string, id: string): boolean {
+  const path = claudeTranscript(cwd, id);
+  return path !== undefined && readTranscript(path).codeMode === true;
+}
+
+/** Whether kiln's discovery lists the conversation running in the tmux session `name`, which is what makes it resumed. */
+async function runsIn(session: Session, name: string): Promise<boolean> {
+  try {
+    return (await listSessions({ kitty: false })).some(
+      (found) =>
+        found.agent === session.agent &&
+        found.id === session.id &&
+        found.place.kind === "kiln" &&
+        found.place.name === name,
+    );
+  } catch {
+    // A stale listing says nothing either way; the next poll asks again.
+    return false;
+  }
+}
+
+/** How a resume tells that its agent started: `started` defaults to discovery listing it in its pane. */
+export type StartWatch = { started?: (name: string) => Promise<boolean>; timeoutMs?: number; pollMs?: number };
 
 /**
- * Resume a `stopped` session without attaching, as `Enter` would, with an optional first prompt. The agent must still
- * be running after `graceMs`; one that quits sooner is started once more, since agents started at the same moment
- * can race over their shared login and config, and then reported with what it printed.
+ * Resume a `stopped` session without attaching, as `Enter` would, with an optional first prompt. It counts as resumed
+ * once discovery lists the conversation running in its pane; the pane is kept until then, so an agent that quits first,
+ * however late, is caught with its exit status. One that quits is started once more, since agents started at the
+ * same moment can race over their shared login and config, and then reported with what it printed. `timeoutMs` only
+ * bounds a launch that hangs. A failed resume leaves the session stopped, even if a refresh saw it run for a moment.
  */
 export async function resumeStopped(
   session: Session,
   settings: Settings,
   prompt?: string,
-  graceMs = resumeGraceMs,
+  { started = (name) => runsIn(session, name), timeoutMs = 120_000, pollMs = 1_000 }: StartWatch = {},
 ): Promise<{ name: string } | { problem: string }> {
   if (session.place.kind !== "saved" || !session.id) return { problem: "this session is not stopped" };
   const name = sessionName(session.agent, session.id);
   if (exists(name)) return { name };
+  const row = savedRow(session);
+  const failed = (problem: string) => {
+    if (row) restoreRow(row);
+    return { problem };
+  };
   let problem = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const outcome = await launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, prompt, true);
-    if (outcome.kind !== "attach") return { problem: outcome.kind === "notice" ? outcome.text : "not started" };
-    const result = await survives(name, graceMs);
+    if (outcome.kind !== "attach") return failed(outcome.kind === "notice" ? outcome.text : "not started");
+    const result = await awaitStart(name, () => started(name), timeoutMs, pollMs);
     if (result === true) return { name };
+    if ("hung" in result)
+      return failed(`${agentName(session.agent)} did not start${result.hung ? `: ${result.hung}` : ""}`);
     problem = `${agentName(session.agent)} exited with status ${result.status}${result.output ? `: ${result.output}` : ""}`;
   }
-  return { problem };
+  return failed(problem);
 }
 
 /** Reconnect a Codex pane whose daemon status is unavailable, reusing its thread id and tmux session. */

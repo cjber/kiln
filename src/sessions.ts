@@ -37,6 +37,8 @@ export type Session = {
   title?: string;
   /** The agent's process; a daemon thread has none of its own. */
   pid?: number;
+  /** When that process started, read as it was observed, so a later process given the same pid is not taken for it. */
+  processStart?: number;
   /** The live session whose agent spawned this process. */
   parentSessionPid?: number;
   parentSessionId?: string;
@@ -84,6 +86,20 @@ export function sessionIdentity(session: Session): string {
  */
 export function processIdentity(session: Pick<Session, "agent" | "pid" | "startedAt">): string {
   return `${session.agent}:${session.pid}:${session.startedAt}`;
+}
+
+/**
+ * When a process started, in clock ticks after boot: field 22 of its stat. With the pid it names one process, since a
+ * pid the kernel hands out again belongs to a process that started later. Undefined once the process is gone.
+ */
+export function processStartTicks(pid: number): number | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The command name is parenthesised and may contain spaces; the start time is the 20th field after it.
+    return Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Alternate names that remain valid after a provider assigns its own session id. */

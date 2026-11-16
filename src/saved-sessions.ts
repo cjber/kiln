@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type Agent, gitBranch, processIdentity, type Session, sessionIdentity } from "./sessions";
+import { type Agent, gitBranch, processIdentity, processStartTicks, type Session, sessionIdentity } from "./sessions";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -112,12 +112,23 @@ export function reconcile(
   boot: string,
   now: number,
   alive: (pid: number) => boolean,
+  started: (pid: number) => number | undefined,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
   for (const session of sessions.filter(resumable)) {
     // A spawned Codex run is recorded by its process until its thread id is known; its row moves to that id here.
     const recorded = previous.get(key(session)) ?? previous.get(processIdentity(session));
+    // A listing is taken before it is written, and a resumed agent can quit in between, after its failed resume put the
+    // earlier boot's row back, and its pid can go to another process. Only the process listed, still running, takes that
+    // row over.
+    if (
+      recorded &&
+      recorded.boot !== boot &&
+      session.pid !== undefined &&
+      (!alive(session.pid) || session.processStart === undefined || started(session.pid) !== session.processStart)
+    )
+      continue;
     next.set(key(session), {
       agent: session.agent,
       id: session.id,
@@ -172,6 +183,22 @@ export function reconcile(
   };
 }
 
+function insert(db: Database, item: Saved): void {
+  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    item.agent,
+    item.id,
+    item.cwd,
+    item.title ?? null,
+    item.startedAt,
+    item.lastActiveAt ?? null,
+    item.boot,
+    item.pid ?? null,
+    item.goneAt ?? null,
+    item.parent ?? null,
+    item.pane ?? null,
+  );
+}
+
 /** Save what is running and return the sessions a restart stopped. */
 export function restartStopped(sessions: readonly Session[], path = statePath()): Session[] {
   const boot = bootId();
@@ -181,24 +208,17 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
     return db
       .transaction(() => {
         const before = read(db);
-        const result = reconcile(before, sessions, boot, Date.now(), (pid) => existsSync(`/proc/${pid}`));
+        const result = reconcile(
+          before,
+          sessions,
+          boot,
+          Date.now(),
+          (pid) => existsSync(`/proc/${pid}`),
+          processStartTicks,
+        );
         if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
           db.exec("DELETE FROM sessions");
-          const insert = db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-          for (const item of result.saved)
-            insert.run(
-              item.agent,
-              item.id,
-              item.cwd,
-              item.title ?? null,
-              item.startedAt,
-              item.lastActiveAt ?? null,
-              item.boot,
-              item.pid ?? null,
-              item.goneAt ?? null,
-              item.parent ?? null,
-              item.pane ?? null,
-            );
+          for (const item of result.saved) insert(db, item);
         }
         return result.stopped;
       })
@@ -330,6 +350,30 @@ export function attachParents(sessions: readonly Session[], path = statePath()):
       title: session.title ?? spawn.title,
     };
   });
+}
+
+/** The saved row for a conversation, so a failed resume can put it back as it was. */
+export function savedRow(session: Pick<Session, "agent" | "id">, path = statePath()): Saved | undefined {
+  try {
+    if (session.id === undefined || !existsSync(path)) return undefined;
+    return read(open(path)).find((item) => key(item) === key(session));
+  } catch {
+    // An unreadable state file has no row to put back.
+    return undefined;
+  }
+}
+
+/** Put a saved row back, undoing a refresh that saw the conversation run for a moment and took it as resumed. */
+export function restoreRow(item: Saved, path = statePath()): void {
+  try {
+    const db = open(path);
+    db.transaction(() => {
+      db.query("DELETE FROM sessions WHERE agent = ? AND id = ?").run(item.agent, item.id);
+      insert(db, item);
+    })();
+  } catch {
+    // A busy or unwritable state file costs the stopped row, as it does for every refresh.
+  }
 }
 
 export function forget(session: Session, path = statePath()): void {

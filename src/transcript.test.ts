@@ -24,6 +24,19 @@ test("a generated title shows until the user sets one, and later generated title
   }
 });
 
+test("a conversation Claude started in Code Mode says so in its transcript", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-code-mode-"));
+  const path = join(root, "session.jsonl");
+  try {
+    writeFileSync(path, record({ type: "user", message: "mentions repl-mode in text" }));
+    expect(readTranscript(path).codeMode).toBeUndefined();
+    appendFileSync(path, record({ type: "repl-mode", replMode: true, sessionId: "s" }));
+    expect(readTranscript(path).codeMode).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the working checkout follows the latest edit or cd, not reads or directories outside a repository", () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-workdir-"));
   const path = join(root, "session.jsonl");

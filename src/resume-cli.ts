@@ -36,7 +36,7 @@ export async function runResumeCli(args: string[]): Promise<number> {
   if (values.all && positionals.length) throw new Error(resumeUsage);
   const chosen = values.all ? stopped : pickSessions(stopped, positionals, "stopped");
   let failed = 0;
-  // One at a time: each must still be running after its grace period before the next starts.
+  // One at a time: each must be seen running in its pane before the next starts.
   for (const session of chosen) {
     const result = await resumeStopped(session, settings, values.prompt || undefined);
     if ("name" in result) console.log(`resumed ${sessionIdentity(session)} in ${result.name}`);

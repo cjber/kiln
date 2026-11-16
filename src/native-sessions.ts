@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
@@ -22,6 +22,7 @@ import {
   gitBranch,
   type Lifecycle,
   type Place,
+  processStartTicks,
   type Session,
   sessionIdentity,
 } from "./sessions";
@@ -76,6 +77,8 @@ type ClaudeAgent = {
   state?: string;
   kind?: string;
   id?: string;
+  /** The start of the process `pid` named when this row was listed, so a cached row never takes a later owner's. */
+  processStart?: number;
 };
 
 function startedAt(pid: number): number {
@@ -210,12 +213,17 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
 
 let lastClaude: ClaudeAgent[] = [];
 
-/** A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list. */
-export function claudeListing(source: string | undefined): ClaudeAgent[] {
+/**
+ * A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list.
+ * Each process is stamped with its start when it is listed, and a kept row keeps that stamp.
+ */
+export function claudeListing(source: string | undefined, start = processStartTicks): ClaudeAgent[] {
   try {
     const listed: unknown = source === undefined ? undefined : JSON.parse(source);
     if (Array.isArray(listed)) {
-      lastClaude = listed;
+      lastClaude = (listed as ClaudeAgent[]).map((item) =>
+        typeof item.pid === "number" ? { ...item, processStart: start(item.pid) } : item,
+      );
       return lastClaude;
     }
   } catch {
@@ -236,7 +244,11 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     .flatMap((item) =>
       typeof item.pid === "number" && typeof item.cwd === "string" ? [{ ...item, pid: item.pid }] : [],
     )
-    .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
+    // A kept row's pid can belong to another process by now; only the process it was listed with is this session.
+    .filter(
+      (item) =>
+        item.processStart !== undefined && processStartTicks(item.pid) === item.processStart && !isDaemon(item.pid),
+    )
     .flatMap((item) => {
       const transcript = claudeTranscript(item.cwd, item.sessionId);
       const { title, workdir } = transcript ? readTranscript(transcript) : {};
@@ -245,6 +257,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
       const status = item.status === "busy" && claudeSessionStatus(item.pid) === "shell" ? "shell" : item.status;
       const session = {
         pid: item.pid,
+        processStart: item.processStart,
         id: item.sessionId,
         title: title ?? item.name,
         agent: "claude" as const,
@@ -439,12 +452,14 @@ async function piProcesses(): Promise<AgentProcess[]> {
  */
 async function readOpencode() {
   const found = (await pidsNamed("opencode")).map((pid) => ({ pid, args: processArgs(pid) ?? [] }));
-  const processes = found.flatMap(({ pid, args }) => {
-    const invocation = opencodeInvocation(args);
-    const cwd = processCwd(pid);
-    if (!invocation || invocation.headless || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
-    return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
-  });
+  const processes = found
+    .flatMap(({ pid, args }) => {
+      const invocation = opencodeInvocation(args);
+      const cwd = processCwd(pid);
+      if (!invocation || invocation.headless || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
+      return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
+    })
+    .map(stamped);
   // `opencode run` has no terminal. Its process is what carries the parent agent when kiln did not start it.
   const headless = found.flatMap(({ pid, args }) => {
     const invocation = opencodeInvocation(args);
@@ -699,10 +714,18 @@ export function withOpencodeSessions(
   };
 }
 
+/**
+ * A process with its start read as soon as its provider lists it, before the other providers answer, so a pid the
+ * kernel hands to another process meanwhile is not taken for it.
+ */
+function stamped<Process extends { pid: number }>(process: Process): Process & { processStart?: number } {
+  return { ...process, processStart: processStartTicks(process.pid) };
+}
+
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listNativeSessions({ kitty = true } = {}): Promise<Session[]> {
   const readCodex = async () => {
-    const processes = (await codexProcesses()).map((process) => ({
+    const processes = (await codexProcesses()).map(stamped).map((process) => ({
       ...process,
       threadId: codexThreadId(process.pid),
     }));
@@ -714,8 +737,8 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
-    codexExecProcesses(),
-    piProcesses(),
+    codexExecProcesses().then((processes) => processes.map(stamped)),
+    piProcesses().then((processes) => processes.map(stamped)),
     readOpencode(),
   ]);
   const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi];
