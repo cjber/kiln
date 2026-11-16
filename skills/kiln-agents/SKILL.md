@@ -42,6 +42,11 @@ what you already tried and what you want back.
 Run from a shell that belongs to no agent session (a timer, a cron job, a person's terminal), it
 starts a top-level session with no parent, listed in kiln like any other.
 
+`--interactive` (Claude only) starts Claude's terminal UI instead of headless mode, so a person can
+attach from the list and watch it work. The session stays open after its turns, so its parent hears
+of its exit only when someone closes it: use it for long runs a person watches, not for subagents
+whose exit you wait on.
+
 A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
 changed and what it could not finish. `--model M` passes the model to the provider's headless
 command. When the child's process exits, kiln sends you the exit status and its last output, even
