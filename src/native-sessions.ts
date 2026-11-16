@@ -22,6 +22,7 @@ import {
   gitBranch,
   type Lifecycle,
   type Place,
+  processStartTicks,
   type Session,
   sessionIdentity,
 } from "./sessions";
@@ -439,12 +440,14 @@ async function piProcesses(): Promise<AgentProcess[]> {
  */
 async function readOpencode() {
   const found = (await pidsNamed("opencode")).map((pid) => ({ pid, args: processArgs(pid) ?? [] }));
-  const processes = found.flatMap(({ pid, args }) => {
-    const invocation = opencodeInvocation(args);
-    const cwd = processCwd(pid);
-    if (!invocation || invocation.headless || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
-    return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
-  });
+  const processes = found
+    .flatMap(({ pid, args }) => {
+      const invocation = opencodeInvocation(args);
+      const cwd = processCwd(pid);
+      if (!invocation || invocation.headless || !cwd || !hasTerminal(pid) || isDaemon(pid)) return [];
+      return [{ pid, agent: "opencode" as const, cwd, startedAt: startedAt(pid), ...invocation }];
+    })
+    .map(stamped);
   // `opencode run` has no terminal. Its process is what carries the parent agent when kiln did not start it.
   const headless = found.flatMap(({ pid, args }) => {
     const invocation = opencodeInvocation(args);
@@ -699,10 +702,18 @@ export function withOpencodeSessions(
   };
 }
 
+/**
+ * A process with its start read as soon as its provider lists it, before the other providers answer, so a pid the
+ * kernel hands to another process meanwhile is not taken for it.
+ */
+function stamped<Process extends { pid: number }>(process: Process): Process & { processStart?: number } {
+  return { ...process, processStart: processStartTicks(process.pid) };
+}
+
 /** `kitty: false` skips the window lookup, for callers that only count sessions. */
 export async function listNativeSessions({ kitty = true } = {}): Promise<Session[]> {
   const readCodex = async () => {
-    const processes = (await codexProcesses()).map((process) => ({
+    const processes = (await codexProcesses()).map(stamped).map((process) => ({
       ...process,
       threadId: codexThreadId(process.pid),
     }));
@@ -710,12 +721,12 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     return withCodexThreads(processes, threads);
   };
   const [claude, owned, windows, codex, codexExec, pi, opencode] = await Promise.all([
-    claudeSessions(),
+    claudeSessions().then(({ processes, finished }) => ({ processes: processes.map(stamped), finished })),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),
-    codexExecProcesses(),
-    piProcesses(),
+    codexExecProcesses().then((processes) => processes.map(stamped)),
+    piProcesses().then((processes) => processes.map(stamped)),
     readOpencode(),
   ]);
   const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi];

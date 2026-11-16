@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type Agent, gitBranch, processIdentity, type Session, sessionIdentity } from "./sessions";
+import { type Agent, gitBranch, processIdentity, processStartTicks, type Session, sessionIdentity } from "./sessions";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -112,6 +112,7 @@ export function reconcile(
   boot: string,
   now: number,
   alive: (pid: number) => boolean,
+  started: (pid: number) => number | undefined,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
@@ -119,8 +120,15 @@ export function reconcile(
     // A spawned Codex run is recorded by its process until its thread id is known; its row moves to that id here.
     const recorded = previous.get(key(session)) ?? previous.get(processIdentity(session));
     // A listing is taken before it is written, and a resumed agent can quit in between, after its failed resume put the
-    // earlier boot's row back. Only a process still running takes that row over.
-    if (recorded && recorded.boot !== boot && session.pid !== undefined && !alive(session.pid)) continue;
+    // earlier boot's row back, and its pid can go to another process. Only the process listed, still running, takes that
+    // row over.
+    if (
+      recorded &&
+      recorded.boot !== boot &&
+      session.pid !== undefined &&
+      (!alive(session.pid) || session.processStart === undefined || started(session.pid) !== session.processStart)
+    )
+      continue;
     next.set(key(session), {
       agent: session.agent,
       id: session.id,
@@ -200,7 +208,14 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
     return db
       .transaction(() => {
         const before = read(db);
-        const result = reconcile(before, sessions, boot, Date.now(), (pid) => existsSync(`/proc/${pid}`));
+        const result = reconcile(
+          before,
+          sessions,
+          boot,
+          Date.now(),
+          (pid) => existsSync(`/proc/${pid}`),
+          processStartTicks,
+        );
         if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
           db.exec("DELETE FROM sessions");
           for (const item of result.saved) insert(db, item);

@@ -24,9 +24,10 @@ const running: Session = {
   place: { kind: "kiln", name: "claude-1" },
 };
 const dead = () => false;
+const unknown = () => undefined;
 
 test("a session saved in an earlier boot comes back stopped, until it is running again", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
   expect(saved).toEqual([
     {
       agent: "claude",
@@ -40,35 +41,57 @@ test("a session saved in an earlier boot comes back stopped, until it is running
     },
   ]);
 
-  const restarted = reconcile(saved, [], "boot-2", 0, dead);
+  const restarted = reconcile(saved, [], "boot-2", 0, dead, unknown);
   expect(restarted.saved).toEqual(saved);
   expect(restarted.stopped).toMatchObject([
     { agent: "claude", id: "a", title: "fix the build", cwd: "/repo", lifecycle: "stopped", place: { kind: "saved" } },
   ]);
   expect(restarted.stopped[0]?.pid).toBeUndefined();
 
-  const resumed = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, (pid) => pid === 20);
+  const resumed = reconcile(
+    saved,
+    [{ ...running, pid: 20, processStart: 500 }],
+    "boot-2",
+    0,
+    (pid) => pid === 20,
+    () => 500,
+  );
   expect(resumed.stopped).toEqual([]);
   expect(resumed.saved).toMatchObject([{ id: "a", boot: "boot-2", pid: 20 }]);
 });
 
 test("a listing whose process quit before it was written leaves a stopped session stopped", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
-  const stale = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, dead);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const stale = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, dead, unknown);
   expect(stale.saved).toEqual(saved);
-  expect(reconcile(stale.saved, [], "boot-2", 0, dead).stopped).toMatchObject([{ id: "a", lifecycle: "stopped" }]);
+  expect(reconcile(stale.saved, [], "boot-2", 0, dead, unknown).stopped).toMatchObject([
+    { id: "a", lifecycle: "stopped" },
+  ]);
+});
+
+test("a listing whose pid now belongs to another process leaves a stopped session stopped", () => {
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const reused = reconcile(
+    saved,
+    [{ ...running, pid: 20, processStart: 500 }],
+    "boot-2",
+    0,
+    () => true,
+    () => 900,
+  );
+  expect(reused.saved).toEqual(saved);
 });
 
 test("a session closed during the same boot is dropped once kiln has outlived it", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
-  const gone = reconcile(saved, [], "boot-1", 1_000, dead);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const gone = reconcile(saved, [], "boot-1", 1_000, dead, unknown);
   expect(gone.stopped).toEqual([]);
   expect(gone.saved).toMatchObject([{ id: "a", goneAt: 1_000 }]);
   // A shutdown that ends kiln inside the wait leaves the record for the next boot.
-  expect(reconcile(gone.saved, [], "boot-2", 2_000, dead).stopped).toHaveLength(1);
-  expect(reconcile(gone.saved, [], "boot-1", 60_000, dead).saved).toHaveLength(1);
-  expect(reconcile(gone.saved, [], "boot-1", 121_000, dead).saved).toEqual([]);
-  expect(reconcile(gone.saved, [running], "boot-1", 60_000, dead).saved[0]?.goneAt).toBeUndefined();
+  expect(reconcile(gone.saved, [], "boot-2", 2_000, dead, unknown).stopped).toHaveLength(1);
+  expect(reconcile(gone.saved, [], "boot-1", 60_000, dead, unknown).saved).toHaveLength(1);
+  expect(reconcile(gone.saved, [], "boot-1", 121_000, dead, unknown).saved).toEqual([]);
+  expect(reconcile(gone.saved, [running], "boot-1", 60_000, dead, unknown).saved[0]?.goneAt).toBeUndefined();
 });
 
 test("only top-level terminal sessions with a conversation are saved", () => {
@@ -85,27 +108,30 @@ test("only top-level terminal sessions with a conversation are saved", () => {
     "boot-1",
     0,
     dead,
+    unknown,
   );
   expect(saved.map((item) => item.id)).toEqual(["kitty", "thread"]);
 });
 
 test("a process that moved to a new conversation replaces its record", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
-  expect(reconcile(saved, [{ ...running, id: "b" }], "boot-1", 0, dead).saved.map((item) => item.id)).toEqual(["b"]);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  expect(reconcile(saved, [{ ...running, id: "b" }], "boot-1", 0, dead, unknown).saved.map((item) => item.id)).toEqual([
+    "b",
+  ]);
 });
 
 test("a stopped row is hidden while its conversation is listed some other way", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
   const job: Session = { ...running, pid: undefined, place: { kind: "job", id: "0b276145", attach: [] } };
-  const result = reconcile(saved, [job], "boot-2", 0, dead);
+  const result = reconcile(saved, [job], "boot-2", 0, dead, unknown);
   expect(result.stopped).toEqual([]);
   expect(result.saved).toHaveLength(1);
 });
 
 test("a process missing from one listing is kept while it is still there", () => {
-  const { saved } = reconcile([], [running], "boot-1", 0, dead);
-  const gone = reconcile(saved, [], "boot-1", 1_000, dead);
-  const unlisted = reconcile(gone.saved, [], "boot-1", 500_000, () => true);
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const gone = reconcile(saved, [], "boot-1", 1_000, dead, unknown);
+  const unlisted = reconcile(gone.saved, [], "boot-1", 500_000, () => true, unknown);
   expect(unlisted.saved).toMatchObject([{ id: "a", boot: "boot-1" }]);
   expect(unlisted.saved[0]?.goneAt).toBeUndefined();
 });
@@ -191,9 +217,11 @@ test("a child row stays while its session is listed, and is dropped like any clo
   };
   // Long after its process exited, a child its provider still lists keeps its row and its parent.
   const exited = { ...child, pid: 40, goneAt: 0 };
-  expect(reconcile([exited], [listed], "b", 200_000, () => false).saved).toEqual([{ ...exited, goneAt: undefined }]);
-  const gone = reconcile([child], [], "b", 0, () => false).saved;
-  expect(reconcile(gone, [], "b", 200_000, () => false).saved).toEqual([]);
+  expect(reconcile([exited], [listed], "b", 200_000, () => false, unknown).saved).toEqual([
+    { ...exited, goneAt: undefined },
+  ]);
+  const gone = reconcile([child], [], "b", 0, () => false, unknown).saved;
+  expect(reconcile(gone, [], "b", 200_000, () => false, unknown).saved).toEqual([]);
 });
 
 test("a parent read from a detached run's environment is recorded once, and outlives the run", () => {
@@ -221,7 +249,7 @@ test("a restart never turns a child into a stopped session", () => {
     startedAt: 2,
     boot: "b",
   };
-  const after = reconcile([child], [], "c", 0, () => false);
+  const after = reconcile([child], [], "c", 0, () => false, unknown);
   expect(after.stopped).toEqual([]);
   expect(after.saved).toEqual([]);
   // One its provider still lists keeps its row and parent across the restart, as nesting needs.
@@ -232,7 +260,10 @@ test("a restart never turns a child into a stopped session", () => {
     startedAt: 2,
     place: { kind: "elsewhere" },
   };
-  expect(reconcile([child], [listed], "c", 0, () => false)).toEqual({ saved: [{ ...child, boot: "c" }], stopped: [] });
+  expect(reconcile([child], [listed], "c", 0, () => false, unknown)).toEqual({
+    saved: [{ ...child, boot: "c" }],
+    stopped: [],
+  });
 });
 
 test("a headless OpenCode run is never saved, even when its parent is unknown", () => {
@@ -244,7 +275,7 @@ test("a headless OpenCode run is never saved, even when its parent is unknown", 
     place: { kind: "thread", id: "ses_run", attach: ["opencode", "--session", "ses_run"] },
   };
   const codex: Session = { ...run, agent: "codex", id: "thread", place: { kind: "thread", id: "thread", attach: [] } };
-  expect(reconcile([], [run, codex], "b", 0, () => false).saved.map((item) => item.agent)).toEqual(["codex"]);
+  expect(reconcile([], [run, codex], "b", 0, () => false, unknown).saved.map((item) => item.agent)).toEqual(["codex"]);
 });
 
 test("a spawn is found by its pane after its process has gone, even when its row moved to a thread id", () => {
