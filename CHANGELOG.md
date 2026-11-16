@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+- **Child exit reports leave replacement panes running.** A delayed report only removes the exited pane generation it inspected. OpenCode conversations remain available after a child exits; use `kiln close` to interrupt and archive one explicitly.
+
+- **Codex reconnect keeps configured commands discoverable.** `kiln reconnect <name>` resumes an unknown Codex pane with its thread UUID, including when the configured command has flags or a wrapper.
 - **Codex spawn identities stay resolvable.** `kiln msg list --json` keeps the provider session as `name` and exposes the process identity printed by `kiln msg spawn` in `aliases`, so liveness checks continue to find a running child after Codex assigns its thread id.
 
 ## [0.26.2] - 2026-11-13

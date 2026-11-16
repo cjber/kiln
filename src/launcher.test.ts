@@ -1,12 +1,21 @@
 import { Database } from "bun:sqlite";
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentCommand, closeSession, openSession, sessionAction } from "./launcher";
+import {
+  agentCommand,
+  closeSession,
+  codexReconnectCommand,
+  openSession,
+  reconnectCodex,
+  sessionAction,
+} from "./launcher";
+import { resumedCodexThread } from "./native-sessions";
 import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
+import { kill, start } from "./tmux";
 
 /** The agent's own argv in a tmux call, before the options chained after `new-session`. */
 const agentArgv = (command: string[] = []) => command.slice(0, command.indexOf(";") >>> 0);
@@ -202,4 +211,83 @@ test("a first prompt is the agent's own argument and never reads as an option or
   expect(agentCommand("opencode", settings, undefined, "-x").at(-1)).toBe("--prompt=-x");
   expect(agentCommand("pi", settings, undefined, "go").slice(-2)).toEqual(["--", "go"]);
   expect(agentCommand("codex", settings)).toEqual(["codex"]);
+});
+
+test("reconnect preserves an authoritative UUID and refuses process aliases or known activity", async () => {
+  const thread = "12345678-1234-1234-1234-123456789abc";
+  expect(codexReconnectCommand(defaults, thread)).toEqual(["codex", "resume", thread, "--remote", "unix://"]);
+  const base: Session = {
+    agent: "codex",
+    id: thread,
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "kiln", name: "missing" },
+  };
+  expect(await reconnectCodex({ ...base, id: "40:7" }, defaults)).toEqual({
+    problem: "the Codex session has no authoritative thread id",
+  });
+  expect(await reconnectCodex({ ...base, activity: "working" }, defaults)).toEqual({
+    problem: "the Codex status is available; reconnect is refused",
+  });
+});
+
+test("reconnect reports startup failure when the target pane is gone", async () => {
+  const session: Session = {
+    agent: "codex",
+    id: "12345678-1234-1234-1234-123456789abc",
+    cwd: "/repo",
+    startedAt: 1,
+    place: { kind: "kiln", name: "missing-reconnect-pane" },
+  };
+  expect(await reconnectCodex(session, defaults)).toEqual({ problem: "could not restart the Codex pane" });
+});
+
+test("reconnect replaces a private pane with the same UUID and reports provider failure", async () => {
+  const server = `kiln-reconnect-${process.pid}`;
+  const previous = Bun.env.KILN_TMUX_SERVER;
+  Bun.env.KILN_TMUX_SERVER = server;
+  const root = mkdtempSync(join(tmpdir(), "kiln-reconnect-"));
+  const log = join(root, "args");
+  const script = join(root, "fake-codex");
+  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "$@" > '${log}'\nsleep 6\n`);
+  chmodSync(script, 0o700);
+  const thread = "12345678-1234-1234-1234-123456789abc";
+  const session: Session = {
+    agent: "codex",
+    id: thread,
+    cwd: root,
+    startedAt: 1,
+    place: { kind: "kiln", name: "reconnect-child" },
+  };
+  try {
+    expect(start("reconnect-child", root, ["sh", "-c", "sleep 30"], "reconnect", true)).toBe(true);
+    const settings = { ...defaults, agents: { ...defaults.agents, codex: [script] } };
+    expect(await reconnectCodex(session, settings, 250)).toEqual({ name: "reconnect-child" });
+    expect(readFileSync(log, "utf8")).toContain(`${thread}\n--remote\nunix://`);
+    writeFileSync(script, "#!/bin/sh\nexit 7\n");
+    chmodSync(script, 0o700);
+    expect(await reconnectCodex(session, settings, 250)).toMatchObject({
+      problem: expect.stringContaining("status 7"),
+    });
+  } finally {
+    kill("reconnect-child");
+    Bun.spawnSync(["tmux", "-L", server, "kill-server"], { stderr: "ignore" });
+    if (previous === undefined) delete Bun.env.KILN_TMUX_SERVER;
+    else Bun.env.KILN_TMUX_SERVER = previous;
+  }
+});
+
+test("configured reconnect flags and wrappers preserve the identity discovery reads", () => {
+  const thread = "12345678-1234-1234-1234-123456789abc";
+  for (const command of [
+    ["codex", "--model", "example"],
+    ["env", "WRAPPED=1", "/opt/bin/codex", "--model", "example"],
+  ]) {
+    const settings = { ...defaults, agents: { ...defaults.agents, codex: command } };
+    const argv = codexReconnectCommand(settings, thread);
+    const provider = argv.findIndex((word) => word.split("/").pop() === "codex");
+    expect(resumedCodexThread(argv.slice(provider))).toBe(thread);
+    expect(argv.slice(provider + 3)).toEqual(["--model", "example", "--remote", "unix://"]);
+    expect(argv.slice(0, provider + 1)).toEqual(command.slice(0, provider + 1));
+  }
 });

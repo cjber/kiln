@@ -63,10 +63,10 @@ impersonate a session. `kiln msg send --json` prints one `{to, delivered, reason
 and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command. When a child's process exits, kiln messages its parent with
-the exit status and the last output, so a child that stops on a usage limit is not lost. An
-OpenCode child is archived once its run has exited and its last turn ended, whether or not kiln
-started it; one that failed or asks a question stays listed. Any other headless OpenCode run is
-hidden after six hours idle.
+the exit status and the last output, so a child that stops on a usage limit is not lost.
+Exiting removes the child's pane and keeps its provider conversation available to resume.
+Headless OpenCode conversations remain listed for six hours after their last update;
+`kiln close <name>` interrupts and archives one explicitly.
 
 A nested session waiting for input is shown under its parent even when the parent is collapsed.
 When a nested OpenCode session stops to ask a question, kiln also sends the question to the parent
@@ -134,6 +134,8 @@ Each session row carries a dim line with its repository, worktree, branch, pull 
 New sessions run inside kiln's private tmux server. `Ctrl+Q` returns to the list and leaves the session running. Existing Kitty sessions can be focused; loaded Codex daemon threads and Claude background sessions can be attached through their native commands. Sessions in other terminals show their location.
 
 Sessions running in a terminal survive a restart of the computer. They stay in the list as `stopped`: `Enter` resumes the conversation in a new kiln session in the same directory, and `x` forgets the row and leaves the conversation with its provider. `kiln resume` lists them, and `kiln resume --all` or `kiln resume <name...>` resumes them without the list, one at a time, with `--prompt TEXT` as each one's first prompt. A session counts as resumed once its agent has run for five seconds; one that quits sooner is started once more, then reported with what it printed. With `write = true` under `[phone]`, a stopped session's sheet on the phone has a Resume button too. A session closed before the restart is not kept, and neither is one without a provider session id, such as a Pi started outside kiln, nor a subagent or headless run such as `opencode run`: the agent that started it decides whether to run it again.
+
+If a Codex client is still in a Kiln pane but its shared daemon is disconnected, its activity is shown as `unknown`. Reconnect it explicitly with `kiln reconnect <name>`. Kiln only accepts an authoritative Codex thread UUID, refuses sessions with a known status, reuses the existing pane, and reports startup failures. Unknown status is not evidence that a turn is idle, so inspect the pane before reconnecting.
 
 Finished Claude background jobs stay in the list, marked `completed` in green or `stopped` in grey. `Enter` attaches with `claude attach`. `x` deletes a background job, running or finished, with `claude rm`, which also removes its worktree and refuses while that worktree has unpushed commits.
 
