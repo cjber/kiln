@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { killServer } from "../src/tmux-server";
 import { driver } from "./tuistory";
 
 const name = `kiln-native-e2e-${process.pid}`;
@@ -42,5 +43,5 @@ try {
   console.log(`Native TUI input, detach, reattach and resize passed; screenshots: ${output}`);
 } finally {
   await drive("close").catch(() => {});
-  Bun.spawnSync(["tmux", "-L", name, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+  killServer(name);
 }

@@ -16,12 +16,13 @@ import {
   spawnUsage,
 } from "./spawn";
 import { ended, exists, kill, respawn, start } from "./tmux";
+import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
 Bun.env.KILN_TMUX_SERVER = `kiln-spawn-${process.pid}`;
 const paneDir = mkdtempSync(join(tmpdir(), "kiln-spawn-pane-"));
 afterAll(() => {
-  Bun.spawnSync(["tmux", "-L", `kiln-spawn-${process.pid}`, "kill-server"], { stderr: "ignore" });
+  killServer(`kiln-spawn-${process.pid}`);
   rmSync(paneDir, { recursive: true, force: true });
 });
 
