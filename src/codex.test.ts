@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveCodexThread, codexActivity, codexRemoteHost, codexThreads } from "./codex";
+import {
+  archiveCodexThread,
+  CodexNotReady,
+  codexActivity,
+  codexRemoteHost,
+  codexThreads,
+  messageCodexSession,
+} from "./codex";
 import { closeSession } from "./launcher";
 import { restartStopped } from "./saved-sessions";
 
@@ -12,6 +19,10 @@ let server: ReturnType<typeof Bun.serve>;
 let originalHome: string | undefined;
 let originalState: string | undefined;
 let rejectArchive: boolean;
+let messagingStatus: { type: string; activeFlags?: string[] } | undefined;
+let newestTurn: { id: string; status: string };
+let rejectSteer: boolean;
+let holdSteer: boolean;
 let holdInitialization: boolean;
 let requests: { id?: number; method: string; params?: Record<string, unknown> }[];
 let archived: Set<string>;
@@ -37,6 +48,10 @@ beforeEach(() => {
   archived = new Set(["already-archived"]);
   archivePages = 0;
   rejectArchive = false;
+  messagingStatus = undefined;
+  newestTurn = { id: "turn-current", status: "inProgress" };
+  rejectSteer = false;
+  holdSteer = false;
   holdInitialization = false;
   requests = [];
   emptyThread = undefined;
@@ -73,6 +88,16 @@ beforeEach(() => {
                 ? { data: [...archived].map((id) => ({ id })), nextCursor: null }
                 : { data: [], nextCursor: "second-page" };
             break;
+          case "turn/steer":
+            if (holdSteer) return;
+            if (rejectSteer) {
+              ws.send(JSON.stringify({ id: request.id, error: { message: "active turn changed" } }));
+              return;
+            }
+            break;
+          case "thread/turns/list":
+            result = { data: [newestTurn] };
+            break;
           case "thread/read":
             if (request.params.threadId === "missing-local") {
               ws.send(JSON.stringify({ id: request.id, error: { message: "thread not found" } }));
@@ -86,7 +111,7 @@ beforeEach(() => {
                 cwd: "/repo",
                 createdAt: 1,
                 parentThreadId: request.params.threadId === "active" ? "parent" : null,
-                status: { type: request.params.threadId === "local" ? "notLoaded" : "idle" },
+                status: messagingStatus ?? { type: request.params.threadId === "local" ? "notLoaded" : "idle" },
                 ...(request.params.threadId === "empty" ? emptyThread : {}),
               },
             };
@@ -284,4 +309,73 @@ test("empty idle daemon threads stay hidden unless a local terminal owns them", 
   expect((await codexThreads()).map((row) => row.id)).toEqual(["active", "empty"]);
   emptyThread = { name: null, preview: "", status: { type: "systemError" } };
   expect((await codexThreads()).map((row) => row.id)).toEqual(["active", "empty"]);
+});
+
+describe("Codex messages", () => {
+  test("an unavailable daemon remains retryable because no input was sent", async () => {
+    server.stop(true);
+    await expect(messageCodexSession("active", "message")).rejects.toBeInstanceOf(CodexNotReady);
+    expect(requests).toEqual([]);
+  });
+
+  test("idle starts a turn; working steers the newest active turn without loading its history", async () => {
+    await messageCodexSession("active", "idle message");
+    expect(requests.find((r) => r.method === "turn/start")?.params).toEqual({
+      threadId: "active",
+      input: [{ type: "text", text: "idle message" }],
+    });
+    requests.length = 0;
+    messagingStatus = { type: "active", activeFlags: [] };
+    await messageCodexSession("active", "working message");
+    expect(requests.map((r) => r.method)).toEqual([
+      "initialize",
+      "initialized",
+      "thread/read",
+      "thread/turns/list",
+      "turn/steer",
+    ]);
+    expect(requests.find((r) => r.method === "thread/read")?.params).toEqual({ threadId: "active" });
+    expect(requests.find((r) => r.method === "thread/turns/list")?.params).toEqual({
+      threadId: "active",
+      limit: 1,
+      sortDirection: "desc",
+      itemsView: "notLoaded",
+    });
+    expect(requests.find((r) => r.method === "turn/steer")?.params).toEqual({
+      threadId: "active",
+      expectedTurnId: "turn-current",
+      input: [{ type: "text", text: "working message" }],
+    });
+  });
+
+  test("waiting and unknown statuses receive no input, including after an idle discovery snapshot", async () => {
+    for (const status of [
+      { type: "active", activeFlags: ["waitingOnApproval"] },
+      { type: "systemError" },
+      { type: "notLoaded" },
+    ]) {
+      messagingStatus = status;
+      await expect(messageCodexSession("active", "message")).rejects.toBeInstanceOf(CodexNotReady);
+    }
+    expect(requests.some((r) => r.method.startsWith("turn/"))).toBe(false);
+  });
+
+  test("turn completion or replacement waits safely; an uncertain steer timeout is never retryable", async () => {
+    messagingStatus = { type: "active", activeFlags: [] };
+    newestTurn.status = "completed";
+    await expect(messageCodexSession("active", "message")).rejects.toBeInstanceOf(CodexNotReady);
+    expect(requests.some((r) => r.method === "turn/steer")).toBe(false);
+    newestTurn.status = "inProgress";
+    rejectSteer = true;
+    await expect(messageCodexSession("active", "message")).rejects.toBeInstanceOf(CodexNotReady);
+    rejectSteer = false;
+    holdSteer = true;
+    try {
+      await messageCodexSession("active", "message");
+      throw new Error("expected timeout");
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(CodexNotReady);
+      expect((error as Error).message).toBe("the Codex daemon did not answer");
+    }
+  });
 });

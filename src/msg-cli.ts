@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
-import { post, takeUnread } from "./mailbox";
+import { conversationReader } from "./conversation";
+import { acknowledge, peekUnread, post, takeUnread } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
 import {
@@ -17,8 +18,12 @@ import { tilde } from "./tui";
 const usage = `usage: kiln msg list [--json]          the sessions you can message
        kiln msg send <name|@peer|--all> <text|-> [--as <@peer>] [--json]
                                    message one session or peer, or every other session; - reads stdin
-       kiln msg inbox [--as <@peer>] [--json]
+       kiln msg inbox [--as <@peer>] [--json] [--peek] [--wait <seconds>]
                                    read the messages kiln could not deliver to you
+       kiln msg ack <message-id...> [--as <@peer>]
+                                   acknowledge messages after forwarding them
+       kiln msg view <name> [--json] [--cursor <cursor>]
+                                   read a session transcript page
        kiln msg whoami                 your own name
        ${spawnUsage.slice("usage: ".length)}`;
 
@@ -79,7 +84,14 @@ export async function runMsgCli(args: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { json: { type: "boolean" }, all: { type: "boolean" }, as: { type: "string" } },
+    options: {
+      json: { type: "boolean" },
+      all: { type: "boolean" },
+      as: { type: "string" },
+      peek: { type: "boolean" },
+      wait: { type: "string" },
+      cursor: { type: "string" },
+    },
   });
   const [command, ...rest] = positionals;
   const as = values.as === undefined ? undefined : peerName(values.as);
@@ -134,14 +146,15 @@ export async function runMsgCli(args: string[]): Promise<void> {
       return;
     }
     case "send": {
+      if (values.peek || values.wait !== undefined || values.cursor !== undefined) break;
       const [name, text] = values.all ? [undefined, rest[0]] : rest;
       if (rest.length !== (values.all ? 1 : 2) || text === undefined) break;
       const body = (text === "-" ? await Bun.stdin.text() : text).trim();
       if (!body) throw new Error("the message is empty");
-      const found = await sessions();
       // A peer is not in the roster, so it is never typed into: the message waits in its mailbox.
       const peer = name !== undefined && isPeer(name) ? peerName(name) : undefined;
       if (peer !== undefined && peer === me) throw new Error("you cannot message yourself");
+      const found = peer === undefined ? await sessions() : [];
       const recipients =
         peer !== undefined
           ? [peer]
@@ -150,7 +163,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
               .filter((recipient) => recipient !== me);
       if (!recipients.length) throw new Error("there is no other session to message");
       const sent = recipients.map((recipient) => post(me ?? terminal, recipient, body));
-      const outcomes = await flush(found);
+      const outcomes = peer === undefined ? await flush(found, { recipients: new Set(recipients) }) : [];
       const results = sent.map((message) => {
         const outcome = outcomes.find((item) => item.message.id === message.id);
         if (isPeer(message.to))
@@ -176,15 +189,51 @@ export async function runMsgCli(args: string[]): Promise<void> {
       return;
     }
     case "inbox": {
-      if (rest.length || values.all) break;
+      if (rest.length || values.all || values.cursor !== undefined) break;
       if (!me)
         throw new Error("this shell does not belong to an agent session, so it has no inbox; name a peer with --as");
-      const messages = takeUnread(me);
-      const found = messages.length ? await sessions() : [];
+      const waitSeconds = values.wait === undefined ? 0 : Number(values.wait);
+      if (!Number.isFinite(waitSeconds) || waitSeconds < 0 || waitSeconds > 300)
+        throw new Error("--wait must be 0 to 300 seconds");
+      const read = () => (values.peek ? peekUnread(me) : takeUnread(me));
+      let messages = read();
+      const deadline = Date.now() + waitSeconds * 1000;
+      while (!messages.length && Date.now() < deadline) {
+        await Bun.sleep(Math.min(100, Math.max(1, deadline - Date.now())));
+        messages = read();
+      }
+      const found = messages.length && !values.json ? await sessions() : [];
       const sender = (from: string) => found.find((session) => sessionIdentity(session) === from);
       if (values.json) console.log(JSON.stringify(messages, null, 2));
       else if (!messages.length) console.log("no new messages");
       else console.log(messages.map((message) => frame(message, sender(message.from))).join("\n\n---\n\n"));
+      return;
+    }
+    case "ack": {
+      if (
+        !rest.length ||
+        values.all ||
+        values.json ||
+        values.peek ||
+        values.wait !== undefined ||
+        values.cursor !== undefined
+      )
+        break;
+      if (!me) throw new Error("this shell does not belong to an agent session; name a peer with --as");
+      console.log(acknowledge(me, rest));
+      return;
+    }
+    case "view": {
+      if (rest.length !== 1 || values.all || values.peek || values.wait !== undefined || as) break;
+      const found = await sessions();
+      const session = findRecipient(found, rest[0]);
+      const reader = conversationReader(session);
+      if (!reader) throw new Error("this session has no readable transcript");
+      const page = reader(values.cursor);
+      if (values.json) console.log(JSON.stringify(page, null, 2));
+      else
+        for (const item of page.items)
+          console.log(`${item.kind}: ${item.kind === "tool" ? `${item.tool} ${item.text}` : item.text}`);
       return;
     }
   }

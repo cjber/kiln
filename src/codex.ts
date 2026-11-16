@@ -65,6 +65,10 @@ export function codexActivity(status: ThreadStatus): Activity | undefined {
 
 type Call = <T>(method: string, params: object) => Promise<T>;
 class CodexConnectionError extends Error {}
+class CodexRequestError extends Error {}
+
+/** The daemon refused before accepting input, so the mailbox can retry it safely. */
+export class CodexNotReady extends Error {}
 
 /** Bound the connection lifetime, including initialization, and close timed-out sockets. */
 async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experimental = false): Promise<T> {
@@ -82,7 +86,7 @@ async function rpc<T>(socket: string, action: (call: Call) => Promise<T>, experi
     new Promise<T>((resolve, reject) => {
       const id = ++next;
       pending.set(id, (reply) =>
-        reply.error ? reject(new Error(`${method}: ${reply.error.message}`)) : resolve(reply.result as T),
+        reply.error ? reject(new CodexRequestError(`${method}: ${reply.error.message}`)) : resolve(reply.result as T),
       );
       ws.send(JSON.stringify({ id, method, params }));
     });
@@ -241,7 +245,42 @@ export async function codexRemoteHost(): Promise<{ id?: string; problem?: string
   }
 }
 
-/** Start a turn on a loaded daemon thread; every client attached to it, such as its terminal, shows the turn. */
-export async function startCodexTurn(threadId: string, text: string): Promise<void> {
-  await rpc(controlSocket(), (call) => call("turn/start", { threadId, input: [{ type: "text", text }] }));
+/** Deliver to the current turn when working, or start one when idle. Never interrupt a turn or answer approvals. */
+export async function messageCodexSession(threadId: string, text: string): Promise<void> {
+  let sending = false;
+  try {
+    await rpc(controlSocket(), async (call) => {
+      const { thread } = await call<{ thread: Thread }>("thread/read", { threadId });
+      const input = [{ type: "text", text }];
+      switch (codexActivity(thread.status)) {
+        case "idle":
+          sending = true;
+          await call("turn/start", { threadId, input });
+          return;
+        case "working": {
+          // Only the newest turn's metadata, never the conversation's tool output or full history.
+          const { data } = await call<{ data: { id: string; status: string }[] }>("thread/turns/list", {
+            threadId,
+            limit: 1,
+            sortDirection: "desc",
+            itemsView: "notLoaded",
+          });
+          const turn = data[0];
+          if (turn?.status !== "inProgress") throw new CodexNotReady("Codex has no active turn yet");
+          sending = true;
+          await call("turn/steer", { threadId, expectedTurnId: turn.id, input });
+          return;
+        }
+        case "waiting":
+          throw new CodexNotReady("Codex is waiting");
+        case undefined:
+          throw new CodexNotReady("its Codex status is unknown");
+      }
+    });
+  } catch (error) {
+    // Reads cannot deliver input, and explicit RPC rejections did not accept it. A send timeout may have.
+    if (!sending || error instanceof CodexRequestError)
+      throw new CodexNotReady(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }

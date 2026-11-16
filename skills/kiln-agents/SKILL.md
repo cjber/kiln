@@ -5,9 +5,10 @@ description: Message other running Claude, Codex, OpenCode and Pi sessions throu
 
 # Message other agents
 
-`kiln msg` reaches any running session kiln lists. A message is stored first, then typed into
-the recipient as a new prompt when kiln can do that safely; otherwise the recipient reads it
-with `kiln msg inbox`.
+`kiln msg` reaches any running session kiln lists. A message is stored first, then delivered
+through the recipient's provider or typed into its terminal when safe. Working Codex daemon
+sessions receive input in their active turn; approvals still wait. A session without a push
+transport reads its messages with `kiln msg inbox`.
 
 ## Resuming after a restart
 
@@ -60,8 +61,8 @@ question until your own turn ends.
 2. `kiln msg send <name> "<text>"`. Pass `-` instead of the text to read a long message from
    stdin. `--all` sends to every other session, so keep it for something every one of them needs.
 3. Each recipient is reported as `delivered` or `queued` with the reason. A queued message is
-   delivered once the recipient is idle while the kiln list or phone server runs, or read the
-   next time it checks its inbox.
+   retried while the kiln list or phone server runs, or read the next time it checks its inbox.
+   Sending retries only that send's recipients, so unrelated agents cannot delay it.
 
 A name starting with `@` is a peer rather than a session: a program outside kiln with a mailbox
 of its own, such as the `nebula-ai` CLI or a Nebula agent. Kiln never types into a peer, so the
@@ -87,3 +88,10 @@ Check it at the start of a task when you expect a reply. A script that waits for
 `kiln msg inbox --json`, which prints `[]` when nothing is waiting; its plain-text lines are for
 people and can change. `kiln msg whoami` prints your own name.
 kiln stops a sender after 20 messages to one recipient in ten minutes.
+
+Programs forwarding replies can use `kiln msg inbox --as @peer --peek --wait 60 --json`.
+Forward each returned message using its id for deduplication, then run
+`kiln msg ack <message-id...> --as @peer`. A crash before acknowledgement leaves it available
+for retry. `--wait` accepts 0 to 300 seconds. `kiln msg view <name> --json` reads a transcript
+page; pass its `cursor` back with `--cursor` to continue. Nebula uses its local device daemon
+as the bridge to these commands; kiln opens no extra network endpoint for peers.

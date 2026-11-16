@@ -2,11 +2,14 @@ package com.cjber.kiln
 
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import kotlinx.coroutines.delay
 
 /**
  * Debug-only host for README screenshots: `--es screen list` (default), `--es screen progress`,
@@ -16,13 +19,24 @@ import androidx.core.view.WindowInsetsCompat
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.getInsetsController(window, window.decorView)
-            .hide(WindowInsetsCompat.Type.systemBars())
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        hideSystemBars()
         val screen = intent.getStringExtra("screen")
         setContent {
             KilnTheme {
                 if (screen == "handoff")
-                    SessionDetails(demoRows.first(), demoNow, {}, {}, {}, false, {})
+                    SessionDetails(
+                        demoRows.first(),
+                        demoNow,
+                        {},
+                        {},
+                        {},
+                        false,
+                        {},
+                        immersiveScreenshot = true,
+                        screenshotReady = { Log.i("KilnScreenshot", READY) },
+                    )
                 else if (screen == "pair")
                     PairingScreen(
                         error = "",
@@ -65,16 +79,31 @@ class ScreenshotActivity : ComponentActivity() {
                         initialScope =
                             if (screen == "progress") SessionScope.PROGRESS else SessionScope.LIVE,
                     )
-                LaunchedEffect(Unit) { Log.i("KilnScreenshot", READY) }
+                LaunchedEffect(Unit) {
+                    if (screen == "handoff") return@LaunchedEffect
+                    // The content marker is also used by the capture script, so publish it only
+                    // after the window manager confirms that the bars are actually hidden.
+                    while (
+                        ViewCompat.getRootWindowInsets(window.decorView)
+                            ?.isVisible(WindowInsetsCompat.Type.systemBars()) != false
+                    ) {
+                        hideSystemBars()
+                        delay(50)
+                    }
+                    Log.i("KilnScreenshot", READY)
+                }
             }
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus)
-            WindowCompat.getInsetsController(window, window.decorView)
-                .hide(WindowInsetsCompat.Type.systemBars())
+        if (hasFocus) hideSystemBars()
+    }
+
+    private fun hideSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView)
+            .hide(WindowInsetsCompat.Type.systemBars())
     }
 
     companion object {

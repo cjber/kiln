@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claim, pending, post, posted, release, sendLimit, takeUnread } from "./mailbox";
+import { acknowledge, claim, peekUnread, pending, post, posted, release, sendLimit, takeUnread } from "./mailbox";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -26,6 +26,8 @@ test("a message is delivered once, by whichever caller claims it, and never sent
   expect(claim(message.id, path)).toBe(true);
   release(message.id, true, path);
   expect(pending(path, 1_000)).toEqual([]);
+  // A concurrent flusher may still hold the row from before the uncertain failure.
+  expect(claim(message.id, path)).toBe(false);
   expect(takeUnread("codex:b", path).map((item) => item.body)).toEqual(["hello"]);
 });
 
@@ -38,6 +40,26 @@ test("the inbox hands over only undelivered messages for its owner, once", () =>
   expect(takeUnread("codex:b", path, 4_000)).toEqual([{ ...read, readAt: 4_000 }]);
   expect(takeUnread("codex:b", path)).toEqual([]);
   expect(pending(path, 4_000).map((item) => item.to)).toEqual(["pi:c"]);
+});
+
+test("peek and acknowledge preserve recipient ownership", () => {
+  const path = mailbox();
+  const message = post("@a", "@b", "hello", path);
+  expect(peekUnread("@b", path)).toMatchObject([{ id: message.id, body: "hello" }]);
+  expect(acknowledge("@a", [message.id], path)).toBe(0);
+  expect(peekUnread("@b", path)).toHaveLength(1);
+  expect(acknowledge("@b", [message.id], path, 4_000)).toBe(1);
+  expect(peekUnread("@b", path)).toEqual([]);
+});
+
+test("acknowledge is idempotent and cannot acknowledge delivered mail", () => {
+  const path = mailbox();
+  const pendingMessage = post("@a", "@b", "pending", path);
+  const deliveredMessage = post("@a", "@b", "delivered", path);
+  expect(claim(deliveredMessage.id, path)).toBe(true);
+  expect(acknowledge("@b", [deliveredMessage.id], path)).toBe(0);
+  expect(acknowledge("@b", [pendingMessage.id], path)).toBe(1);
+  expect(acknowledge("@b", [pendingMessage.id], path)).toBe(0);
 });
 
 test("old messages expire, a reader never creates the file, and a sender is stopped before a loop runs away", () => {
