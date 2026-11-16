@@ -145,7 +145,7 @@ function isDaemon(pid: number): boolean {
   }
 }
 
-const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+export const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 
 /**
  * `claude agents` reports `shell` as `busy`, so a busy session's raw status is read from its own record:
@@ -546,8 +546,11 @@ export function resumedCodexThread(args: readonly string[]): string | undefined 
     : undefined;
 }
 
-/** Older Codex TUIs hold a local thread lock; they must not borrow a daemon thread's status. */
-function codexThreadId(pid: number): string | undefined {
+/**
+ * The thread a Codex process works in, from the writer lock it holds for that thread while it runs. Older Codex TUIs
+ * hold a local thread lock; they must not borrow a daemon thread's status.
+ */
+export function codexThreadId(pid: number): string | undefined {
   try {
     const resumed = resumedCodexThread(readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0"));
     if (resumed) return resumed;

@@ -98,5 +98,6 @@ Programs forwarding replies can use `kiln msg inbox --as @peer --peek --wait 60 
 Forward each returned message using its id for deduplication, then run
 `kiln msg ack <message-id...> --as @peer`. A crash before acknowledgement leaves it available
 for retry. `--wait` accepts 0 to 300 seconds. `kiln msg view <name> --json` reads a transcript
-page; pass its `cursor` back with `--cursor` to continue. Nebula uses its local device daemon
+page; pass its `cursor` back with `--cursor` to continue. It also reads a spawned child after it
+exits, by the full name `kiln msg spawn` printed, so read a finished child's answer there. Nebula uses its local device daemon
 as the bridge to these commands; kiln opens no extra network endpoint for peers.

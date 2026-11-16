@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { takeUnread } from "./mailbox";
@@ -12,6 +12,7 @@ import {
   headlessCommand,
   interactiveClaudeCommand,
   reportSpawnExit,
+  spawnedCodexThread,
   spawnOptions,
   spawnUsage,
 } from "./spawn";
@@ -347,4 +348,23 @@ test("an interactive Claude child runs its full terminal UI with the chosen id, 
   const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
   expect(spawnOptions(["claude", "--interactive", "--dir", dir, "--", "work"]).interactive).toBe(true);
   expect(() => spawnOptions(["codex", "--interactive", "--dir", dir, "--", "work"])).toThrow("claude only");
+});
+
+test("a spawned Codex run is named by the thread whose writer lock it holds", async () => {
+  const thread = "01a1e476-5fbb-78d0-9ae0-1402282e804b";
+  const locks = join(paneDir, "thread-writer-locks");
+  mkdirSync(locks, { recursive: true });
+  // Codex opens the lock a moment after it starts, once it has chosen the thread.
+  const run = Bun.spawn(["sh", "-c", 'sleep 0.2; exec 3>"$1"; sleep 10', "sh", join(locks, `${thread}.lock`)]);
+  try {
+    expect(await spawnedCodexThread(run.pid)).toBe(thread);
+  } finally {
+    run.kill();
+  }
+  // A run that exits before it starts a thread has none, and the wait ends with it.
+  const quit = Bun.spawn(["sh", "-c", "exit 1"]);
+  await quit.exited;
+  const started = Date.now();
+  expect(await spawnedCodexThread(quit.pid, 10_000)).toBeUndefined();
+  expect(Date.now() - started).toBeLessThan(1_000);
 });

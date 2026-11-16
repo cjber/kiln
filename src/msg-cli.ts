@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { conversationReader } from "./conversation";
+import { conversationReader, endedConversationReader, type Page } from "./conversation";
 import { acknowledge, peekUnread, post, takeUnread } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
@@ -58,6 +58,21 @@ async function sessions(): Promise<Session[]> {
 function delivery(session: Session): string {
   const way = route(session);
   return "push" in way ? "now" : "wait" in way ? `when idle (${way.wait})` : `inbox (${way.inbox})`;
+}
+
+/** A running session by any of its names, or one that has ended by its full name. */
+async function transcriptReader(name: string): Promise<(cursor?: string) => Page> {
+  let session: Session;
+  try {
+    session = findRecipient(await sessions(), name);
+  } catch (error) {
+    const ended = endedConversationReader(name);
+    if (ended) return ended;
+    throw error;
+  }
+  const reader = conversationReader(session);
+  if (!reader) throw new Error("this session has no readable transcript");
+  return reader;
 }
 
 export async function runMsgCli(args: string[]): Promise<void> {
@@ -225,11 +240,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
     }
     case "view": {
       if (rest.length !== 1 || values.all || values.peek || values.wait !== undefined || as) break;
-      const found = await sessions();
-      const session = findRecipient(found, rest[0]);
-      const reader = conversationReader(session);
-      if (!reader) throw new Error("this session has no readable transcript");
-      const page = reader(values.cursor);
+      const page = (await transcriptReader(rest[0]))(values.cursor);
       if (values.json) console.log(JSON.stringify(page, null, 2));
       else
         for (const item of page.items)

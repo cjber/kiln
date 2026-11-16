@@ -44,6 +44,7 @@ test("JSON inbox and peer sends work without session discovery", async () => {
     expect(viewOutput).toContain("you: fixture prompt");
     expect(viewOutput).toContain("fixture answer");
     expect(viewOutput).toContain("Read notes.md");
+    expect(viewOutput).toContain('"text": "ended answer"');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

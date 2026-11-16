@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
+import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
@@ -149,6 +150,20 @@ function processStartedAt(pid: number): number {
   }
 }
 
+/** How long a spawn waits for Codex to start its thread. It bounds a run that hangs before then. */
+const codexThreadWaitMs = 30_000;
+
+/**
+ * The thread a spawned Codex run works in. Codex chooses the id itself as it starts and holds that thread's writer
+ * lock until it exits, so the lock names the thread exactly. Undefined when the process exits, or hangs, first.
+ */
+export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs): Promise<string | undefined> {
+  for (const deadline = Date.now() + waitMs; ; await Bun.sleep(25)) {
+    const thread = codexThreadId(pid);
+    if (thread || !existsSync(`/proc/${pid}`) || Date.now() >= deadline) return thread;
+  }
+}
+
 /** Start a headless agent in kiln's tmux server and record the calling agent, if any, as its parent. Returns its kiln id. */
 export async function spawnAgent(options: SpawnOptions, parent?: string): Promise<string> {
   const command = loadSettings().agents[options.agent];
@@ -157,9 +172,9 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const title = options.title ?? `${options.agent} · ${basename(options.dir)}`;
 
   if (options.agent === "codex") {
-    // Codex exec names its own thread only after it starts, so the process itself is its identity.
+    // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
     const name = `codex-${crypto.randomUUID()}`;
-    // The exit hook names the pane; the record made below supplies the id once the process exists.
+    // The exit hook names the pane; the record made below supplies the id once the thread exists.
     const hook = exitHook([kiln, "msg", "exit", name, "", parent ?? ""]);
     if (
       !start(
@@ -174,14 +189,17 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       throw new Error(`could not start ${agentName("codex")}`);
     const pid = await panePid(name);
     if (!pid) throw new Error("could not find the Codex process kiln started");
-    const id = `${pid}:${processStartedAt(pid)}`;
+    const startedAt = processStartedAt(pid);
+    // The thread id names the rollout, which stays readable after the process exits. A run that ends or hangs before
+    // starting its thread has no rollout, and keeps the name of its process.
+    const id = (await spawnedCodexThread(pid)) ?? `${pid}:${startedAt}`;
     recordSpawn({
       agent: "codex",
       id,
       cwd: options.dir,
       title,
       parent,
-      startedAt: processStartedAt(pid),
+      startedAt,
       pid,
       pane: name,
     });

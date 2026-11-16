@@ -1,9 +1,16 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { codexItems, piItems, readConversation, readOpencodeConversation, recordItems } from "./conversation";
+import {
+  codexItems,
+  endedConversationReader,
+  piItems,
+  readConversation,
+  readOpencodeConversation,
+  recordItems,
+} from "./conversation";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -211,5 +218,76 @@ test("an OpenCode session reads from its database and waits for a message still 
   } finally {
     db.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a session that has ended is read by its full name from the transcript its provider kept", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-ended-"));
+  directories.push(root);
+  const names = ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "XDG_DATA_HOME"] as const;
+  const previous = names.map((name) => Bun.env[name]);
+  for (const name of names) Bun.env[name] = join(root, name);
+  const write = (path: string, lines: unknown[]) => {
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
+  };
+  try {
+    const thread = "01a1e472-9ee5-7952-ad4b-21153573da40";
+    write(join(root, "CODEX_HOME", "sessions", "2026", "11", "16", `rollout-2026-11-16T13-01-19-${thread}.jsonl`), [
+      { type: "session_meta", payload: { id: thread } },
+      {
+        type: "response_item",
+        payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Say hello and stop." }] },
+      },
+      {
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello!" }] },
+      },
+      { type: "event_msg", payload: { type: "task_complete", last_agent_message: "Hello!" } },
+    ]);
+    expect(
+      endedConversationReader(`codex:${thread}`)?.().items.map((item) => item.kind === "agent" && item.text),
+    ).toContain("Hello!");
+
+    // A Claude child's transcript is filed under its directory, which the name does not carry.
+    const claude = "5f0c1d7e-0000-4000-8000-000000000001";
+    write(join(root, "CLAUDE_CONFIG_DIR", "projects", "-work-repo", `${claude}.jsonl`), [
+      { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "claude answer" }] } },
+    ]);
+    expect(endedConversationReader(`claude:${claude}`)?.().items).toEqual([
+      { id: "a1:0", at: undefined, kind: "agent", text: "claude answer" },
+    ]);
+
+    const pi = "5f0c1d7e-0000-4000-8000-000000000002";
+    write(join(root, "PI_CODING_AGENT_DIR", "sessions", "--work-repo--", `2026-11-16_${pi}.jsonl`), [
+      { type: "message", id: "p1", message: { role: "assistant", content: [{ type: "text", text: "pi answer" }] } },
+    ]);
+    expect(endedConversationReader(`pi:${pi}`)?.().items.at(-1)).toMatchObject({ kind: "agent", text: "pi answer" });
+
+    mkdirSync(join(root, "XDG_DATA_HOME", "opencode"), { recursive: true });
+    const db = new Database(join(root, "XDG_DATA_HOME", "opencode", "opencode.db"));
+    db.run("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, data TEXT)");
+    db.run("INSERT INTO session_message VALUES ('m1', 'ses_done', 'assistant', 1, ?)", [
+      JSON.stringify({ time: { created: 1, completed: 2 }, content: [{ type: "text", text: "opencode answer" }] }),
+    ]);
+    db.close();
+    expect(endedConversationReader("opencode:ses_done")?.().items.at(-1)).toMatchObject({ text: "opencode answer" });
+
+    // Only a full provider id names a transcript: not a missing one, a process name or a prefix.
+    for (const name of [
+      "codex:01a1e472-0000-0000-0000-000000000000",
+      "codex:351399:1794834079045.629",
+      "codex:01a1e472",
+      "opencode:ses_other",
+      "nobody:x",
+      "codex:",
+    ])
+      expect(endedConversationReader(name)).toBeUndefined();
+  } finally {
+    names.forEach((name, index) => {
+      const value = previous[index];
+      if (value === undefined) delete Bun.env[name];
+      else Bun.env[name] = value;
+    });
   }
 });
