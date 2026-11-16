@@ -1,6 +1,7 @@
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { killServer } from "../src/tmux-server";
 
 const source = process.argv[2];
 if (!source) throw new Error("usage: bun scripts/smoke-binary.ts <binary>");
@@ -106,7 +107,6 @@ for line in sys.stdin:
   run([tmux, "-L", outer, "send-keys", "-t", "list", "q"]);
   console.log("binary version, status, bundled skills, native TUI prompt and return to list passed");
 } finally {
-  for (const server of [outer, native])
-    Bun.spawnSync([tmux, "-L", server, "kill-server"], { stdout: "ignore", stderr: "ignore" });
+  for (const server of [outer, native]) killServer(server);
   rmSync(scratch, { recursive: true, force: true });
 }

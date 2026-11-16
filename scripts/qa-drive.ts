@@ -7,6 +7,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { killServer } from "../src/tmux-server";
 import { seeds } from "./qa-sessions";
 
 const [cols = "80", rows = "24", seed = "short", ...keys] = Bun.argv.slice(2);
@@ -40,8 +41,8 @@ try {
   const screen = tmux("capture-pane", "-p", "-t", "qa").stdout.toString();
   console.log(screen.replace(/\s+$/, ""));
 } finally {
-  tmux("kill-server");
+  killServer(server);
   // An agent the fixture started would live on its own server; never leave it behind.
-  Bun.spawnSync(["tmux", "-L", `${server}-agents`, "kill-server"], { stderr: "ignore" });
+  killServer(`${server}-agents`);
   rmSync(scratch, { recursive: true, force: true });
 }

@@ -7,12 +7,13 @@ import { pickSessions } from "./resume-cli";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 import { exists, start, survives } from "./tmux";
+import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
 Bun.env.KILN_TMUX_SERVER = `kiln-test-${process.pid}`;
 const dir = mkdtempSync(join(tmpdir(), "kiln-resume-"));
 afterAll(() => {
-  Bun.spawnSync(["tmux", "-L", `kiln-test-${process.pid}`, "kill-server"], { stderr: "ignore" });
+  killServer(`kiln-test-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
 });
 

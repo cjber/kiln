@@ -16,6 +16,7 @@ import { restartStopped } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { defaults } from "./settings";
 import { kill, start } from "./tmux";
+import { killServer } from "./tmux-server";
 
 /** The agent's own argv in a tmux call, before the options chained after `new-session`. */
 const agentArgv = (command: string[] = []) => command.slice(0, command.indexOf(";") >>> 0);
@@ -271,7 +272,7 @@ test("reconnect replaces a private pane with the same UUID and reports provider 
     });
   } finally {
     kill("reconnect-child");
-    Bun.spawnSync(["tmux", "-L", server, "kill-server"], { stderr: "ignore" });
+    killServer(server);
     if (previous === undefined) delete Bun.env.KILN_TMUX_SERVER;
     else Bun.env.KILN_TMUX_SERVER = previous;
   }
