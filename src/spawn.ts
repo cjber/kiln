@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
 import { newOpencodeSessionId } from "./opencode";
@@ -11,16 +12,29 @@ import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
 import { ended, endedPane, kiln, panePid, reapEnded, start } from "./tmux";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] -- <prompt>`;
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>`;
 
-export type SpawnOptions = { agent: Agent; dir: string; title?: string; model?: string; prompt: string };
+export type SpawnOptions = {
+  agent: Agent;
+  dir: string;
+  title?: string;
+  model?: string;
+  prompt: string;
+  /** Start the agent's full terminal UI, so a person can attach and watch it, instead of its headless mode. */
+  interactive?: boolean;
+};
 
 /** Parse one spawn command; the prompt follows `--`, so a leading dash stays text. */
 export function spawnOptions(args: readonly string[], cwd = process.cwd()): SpawnOptions {
   const { values, positionals } = parseArgs({
     args: [...args],
     allowPositionals: true,
-    options: { dir: { type: "string" }, title: { type: "string" }, model: { type: "string" } },
+    options: {
+      dir: { type: "string" },
+      title: { type: "string" },
+      model: { type: "string" },
+      interactive: { type: "boolean" },
+    },
   });
   const [agent, ...prompt] = positionals;
   if (!agent || !agents.includes(agent as Agent) || !prompt.length) throw new Error(spawnUsage);
@@ -29,7 +43,15 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     requested === "~" ? homedir() : requested.startsWith("~/") ? resolve(homedir(), requested.slice(2)) : requested;
   const dir = resolve(cwd, expanded);
   if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Error(`${dir} is not a directory`);
-  return { agent: agent as Agent, dir, title: values.title, model: values.model, prompt: prompt.join(" ") };
+  if (values.interactive && agent !== "claude") throw new Error("--interactive is supported for claude only");
+  return {
+    agent: agent as Agent,
+    dir,
+    title: values.title,
+    model: values.model,
+    prompt: prompt.join(" "),
+    interactive: values.interactive,
+  };
 }
 
 /** One shell word, quoted so a prompt or a path cannot split into another command. */
@@ -55,12 +77,45 @@ export function headlessCommand(
     case "opencode":
       return [...command, "run", "--session", id, ...(title ? ["--title", title] : []), ...chosen, prompt];
     case "claude":
-      return [...command, "-p", "--session-id", id, ...(title ? ["--name", title] : []), ...chosen, prompt];
+      // Print mode stops background work (workflows, monitors, shells) 10 minutes after the last turn. A spawned
+      // child is meant to run to completion, and its kiln row and exit report already show one that hangs.
+      return [
+        "env",
+        "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+        ...command,
+        "-p",
+        "--session-id",
+        id,
+        ...(title ? ["--name", title] : []),
+        ...chosen,
+        prompt,
+      ];
     case "codex":
       return [...command, "exec", ...chosen, prompt];
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
   }
+}
+
+/**
+ * Claude's interactive command for a conversation whose id kiln already chose. It stays open after its turns, so
+ * its parent hears of its exit only when the session is closed.
+ */
+export function interactiveClaudeCommand(
+  command: readonly string[],
+  id: string,
+  prompt: string,
+  title?: string,
+  model?: string,
+): string[] {
+  return [
+    ...command,
+    "--session-id",
+    id,
+    ...(title ? ["--name", title] : []),
+    ...(model ? ["--model", model] : []),
+    ...promptArguments("claude", prompt),
+  ];
 }
 
 /** A tmux `pane-died` hook value that runs one command through a shell, quoted for tmux's own parser. */
@@ -136,14 +191,16 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
 
   const id = options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID();
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
-  const argv = headlessCommand(
-    command,
-    options.agent,
-    id,
-    options.prompt,
-    options.agent === "claude" ? options.title : title,
-    options.model,
-  );
+  const argv = options.interactive
+    ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model)
+    : headlessCommand(
+        command,
+        options.agent,
+        id,
+        options.prompt,
+        options.agent === "claude" ? options.title : title,
+        options.model,
+      );
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? ""]);
   const startedAt = Date.now();

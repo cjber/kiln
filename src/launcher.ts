@@ -100,7 +100,7 @@ async function startCodexRemoteControl(): Promise<string | undefined> {
  * Claude still runs a subcommand named by a lone word after `--`, so a one-word prompt gets a trailing newline, which
  * no subcommand name has and the prompt box ignores.
  */
-function promptArguments(agent: Agent, prompt: string | undefined): string[] {
+export function promptArguments(agent: Agent, prompt: string | undefined): string[] {
   if (!prompt) return [];
   switch (agent) {
     case "claude":
