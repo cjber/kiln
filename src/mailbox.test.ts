@@ -26,6 +26,8 @@ test("a message is delivered once, by whichever caller claims it, and never sent
   expect(claim(message.id, path)).toBe(true);
   release(message.id, true, path);
   expect(pending(path, 1_000)).toEqual([]);
+  // A concurrent flusher may still hold the row from before the uncertain failure.
+  expect(claim(message.id, path)).toBe(false);
   expect(takeUnread("codex:b", path).map((item) => item.body)).toEqual(["hello"]);
 });
 

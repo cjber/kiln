@@ -107,7 +107,9 @@ export function pending(path = mailboxPath(), now = Date.now()): Message[] {
 export function claim(id: string, path = mailboxPath(), now = Date.now()): boolean {
   return (
     open(path)
-      .query("UPDATE messages SET deliveredAt = ? WHERE id = ? AND deliveredAt IS NULL AND readAt IS NULL")
+      .query(
+        "UPDATE messages SET deliveredAt = ? WHERE id = ? AND deliveredAt IS NULL AND readAt IS NULL AND failedAt IS NULL",
+      )
       .run(now, id).changes === 1
   );
 }

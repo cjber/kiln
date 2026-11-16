@@ -312,6 +312,12 @@ test("empty idle daemon threads stay hidden unless a local terminal owns them", 
 });
 
 describe("Codex messages", () => {
+  test("an unavailable daemon remains retryable because no input was sent", async () => {
+    server.stop(true);
+    await expect(messageCodexSession("active", "message")).rejects.toBeInstanceOf(CodexNotReady);
+    expect(requests).toEqual([]);
+  });
+
   test("idle starts a turn; working steers the newest active turn without loading its history", async () => {
     await messageCodexSession("active", "idle message");
     expect(requests.find((r) => r.method === "turn/start")?.params).toEqual({
