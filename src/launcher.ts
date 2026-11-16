@@ -9,7 +9,7 @@ import { forget } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import { type Agent, agentName, type Session } from "./sessions";
 import type { Settings } from "./settings";
-import { exists, kill, start, survives } from "./tmux";
+import { exists, kill, respawn, start, survives } from "./tmux";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
 
@@ -196,6 +196,30 @@ export async function resumeStopped(
     problem = `${agentName(session.agent)} exited with status ${result.status}${result.output ? `: ${result.output}` : ""}`;
   }
   return { problem };
+}
+
+/** Reconnect a Codex pane whose daemon status is unavailable, reusing its thread id and tmux session. */
+export async function reconnectCodex(
+  session: Session,
+  _settings: Settings,
+  graceMs = 5_000,
+): Promise<{ name: string } | { problem: string }> {
+  if (session.agent !== "codex" || !session.id) return { problem: "only a Codex thread can be reconnected" };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(session.id))
+    return { problem: "the Codex session has no authoritative thread id" };
+  if (session.activity !== undefined) return { problem: "the Codex status is available; reconnect is refused" };
+  if (session.place.kind !== "kiln") return { problem: "the Codex thread has no live Kiln pane" };
+  const command = codexReconnectCommand(_settings, session.id);
+  if (!respawn(session.place.name, session.cwd, command)) return { problem: "could not restart the Codex pane" };
+  const result = await survives(session.place.name, graceMs);
+  if (result !== true)
+    return { problem: `Codex exited with status ${result.status}${result.output ? `: ${result.output}` : ""}` };
+  return { name: session.place.name };
+}
+
+/** Exact provider argv used by reconnect, kept separate so callers and tests can verify thread preservation. */
+export function codexReconnectCommand(settings: Settings, threadId: string): string[] {
+  return [...agentCommand("codex", settings, threadId), "--remote", "unix://"];
 }
 
 export function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {

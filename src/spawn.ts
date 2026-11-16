@@ -4,12 +4,12 @@ import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
-import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
+import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, kill, kiln, panePid, start } from "./tmux";
+import { ended, endedPane, kiln, panePid, reapEnded, start } from "./tmux";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] -- <prompt>`;
 
@@ -165,9 +165,19 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   if (!record) return;
   const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
-  const agent = identity.slice(0, separator);
-  const id = identity.slice(separator + 1);
-  const ending = ended(name);
+  const ending = endedPane(name);
+  if (!ending) return;
+  let recipients: Awaited<ReturnType<typeof listSessions>> = [];
+  if (parent) {
+    try {
+      recipients = await listSessions({ kitty: false });
+    } catch {
+      // An unavailable discovery source must not prevent an offline mailbox report.
+    }
+  }
+  // Claim cleanup before posting. Only the reporter that removes this exact
+  // dead process owns its exit; a replacement during discovery belongs to another run.
+  if (!reapEnded(ending)) return;
   if (parent && separator > 0) {
     try {
       post(
@@ -178,18 +188,11 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
         undefined,
         `exit:${identity}`,
       );
-      await flush(await listSessions({ kitty: false }));
+      await flush(recipients);
     } catch {
       // A parent kiln cannot reach right now can still read the message from its mailbox.
     }
   }
-  if (agent === "opencode" && id) {
-    // A spawned OpenCode run is archived when it exits, so its row does not outlive the work it did.
-    try {
-      await archiveOpencodeSession(id);
-    } catch {
-      // A service that is down leaves the row to the next refresh.
-    }
-  }
-  kill(name);
+  // Provider conversations can be resumed independently of this pane. Exit hooks cannot
+  // bind a remote interrupt/archive to its generation, so only explicit close does that.
 }
