@@ -193,6 +193,7 @@ export function exists(name: string): boolean {
  * Start a detached session. With `keep`, its pane stays after the command exits, so `survives` can read why an agent
  * quit at launch; the option is set in the same tmux call that creates the session, before the command can exit.
  * `onExit` is a tmux hook command run from the kept pane after it dies, which is how a spawned child reports itself.
+ * `env` is set for the command alone, over what kiln's tmux server has.
  */
 export function start(
   name: string,
@@ -201,8 +202,10 @@ export function start(
   title: string,
   keep = false,
   onExit?: string,
+  env: Record<string, string> = {},
 ): boolean {
   const generation = crypto.randomUUID();
+  const environment = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
   // Commands after `new-session` in one call act on the new session; `=name` does not resolve it there yet.
   if (onExit) {
     // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
@@ -240,7 +243,7 @@ export function start(
       )
     )
       return false;
-    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, "--", ...argv)) return true;
+    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, ...environment, "--", ...argv)) return true;
     // The placeholder must not report an exit for an agent that never started.
     run("set-hook", "-u", "-w", "-t", `=${name}:`, "pane-died");
     kill(name);
@@ -256,6 +259,7 @@ export function start(
     name,
     "-c",
     cwd,
+    ...environment,
     ...argv,
     ...kept,
     ";",
@@ -331,13 +335,7 @@ export function endedPane(name: string): PaneExit | undefined {
     stdout: "pipe",
     stderr: "pipe",
   });
-  // tmux adds its own "Pane is dead" line below what the command printed.
-  const output = captured.stdout
-    .toString()
-    .split("\n")
-    .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
-    .slice(-20)
-    .join("\n");
+  const output = lastLines(captured.stdout.toString());
   const code = Number(status);
   return { status: status.trim() && Number.isFinite(code) ? code : undefined, output, pane, generation };
 }
@@ -374,38 +372,71 @@ type EarlyExit = { status: number; output: string };
  * usual when it exits; one that quit is reported with its last output, and its session is closed.
  */
 export async function survives(name: string, graceMs: number, pollMs = 250): Promise<true | EarlyExit> {
-  const target = `=${name}:`;
   const deadline = Date.now() + graceMs;
   for (;;) {
-    const shown = Bun.spawnSync(
-      [...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    if (shown.exitCode !== 0) return { status: -1, output: "" };
-    const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
-    if (dead === "1") {
-      const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      kill(name);
-      // tmux adds its own "Pane is dead" line below what the command printed.
-      const lines = captured.stdout
-        .toString()
-        .split("\n")
-        .filter((line) => line.trim() && !line.startsWith("Pane is dead"));
-      const output = lines.slice(-20).join("\n");
-      return { status: Number(status) || 0, output };
-    }
+    const exit = quit(name);
+    if (exit) return exit;
     if (Date.now() >= deadline) {
-      run("set-option", "-w", "-t", target, "remain-on-exit", "off");
+      run("set-option", "-w", "-t", `=${name}:`, "remain-on-exit", "off");
       return true;
     }
     await Bun.sleep(pollMs);
   }
+}
+
+/**
+ * Watch a session started by `start` with `keep` until `started` says its agent is running, or it quits, which is
+ * reported as by `survives`. `timeoutMs` only bounds a launch that hangs, such as one waiting on a question: its
+ * session is closed and reported with what it shows.
+ */
+export async function awaitStart(
+  name: string,
+  started: () => Promise<boolean>,
+  timeoutMs: number,
+  pollMs = 250,
+): Promise<true | EarlyExit | { hung: string }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const exit = quit(name);
+    if (exit) return exit;
+    if (await started()) {
+      run("set-option", "-w", "-t", `=${name}:`, "remain-on-exit", "off");
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      const shown = screen(name)?.text ?? "";
+      kill(name);
+      return { hung: lastLines(shown) };
+    }
+    await Bun.sleep(pollMs);
+  }
+}
+
+/** The last lines a pane printed, without blank lines or tmux's own "Pane is dead" line below them. */
+function lastLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("Pane is dead"))
+    .slice(-20)
+    .join("\n");
+}
+
+/** How a kept pane's command quit, closing its session; undefined while it runs. A session that is gone has status -1. */
+function quit(name: string): EarlyExit | undefined {
+  const target = `=${name}:`;
+  const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", target, "#{pane_dead}\t#{pane_dead_status}"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (shown.exitCode !== 0) return { status: -1, output: "" };
+  const [dead, status = ""] = shown.stdout.toString().trim().split("\t");
+  if (dead !== "1") return undefined;
+  const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  kill(name);
+  return { status: Number(status) || 0, output: lastLines(captured.stdout.toString()) };
 }
 
 /** The commands that rebind the way back, dropping whichever key held it before so a changed setting leaves no stray binding. */

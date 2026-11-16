@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln resume` reports a session that does not start.** A resume now counts only once kiln sees the conversation running in its pane, so an agent that quits during launch, however late, makes `kiln resume` exit non-zero with what it printed, and the session stays in the stopped list to try again.
+
+- **Claude sessions started in Code Mode resume.** Kiln reads Claude's record that a conversation started in Code Mode and resumes it with Code Mode on and without Remote Control, which Claude needs to resume it.
+
 ## [0.28.1] - 2026-11-16
 
 - **A spawned child's answer can be read after it exits.** `kiln msg view <name>` reads a session that is no longer running by the full name `kiln msg spawn` printed, from the transcript its provider keeps. A spawned Codex run is now named by its thread rather than its process, so its name leads to that transcript.

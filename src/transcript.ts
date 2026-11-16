@@ -12,10 +12,12 @@ const cache = new Map<
     title?: string;
     generated?: string;
     workdir?: string;
+    codeMode?: boolean;
   }
 >();
 
-export type TranscriptDetails = { title?: string; workdir?: string };
+/** `codeMode` is Claude's own record that the conversation started in Code Mode, which it can only resume with it on. */
+export type TranscriptDetails = { title?: string; workdir?: string; codeMode?: boolean };
 
 /**
  * Read only title and tool-call records, retaining the last complete line while a transcript is being appended.
@@ -46,13 +48,15 @@ export function readTranscript(path: string): TranscriptDetails {
         const lines = (saved.pending + saved.decoder.decode(bytes.subarray(0, count), { stream: true })).split("\n");
         saved.pending = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.includes('-title"') && !line.includes('"tool_use"')) continue;
+          if (!line.includes('-title"') && !line.includes('"tool_use"') && !line.includes('"repl-mode"')) continue;
           try {
             const record = JSON.parse(line);
             if (record.type === "custom-title" && typeof record.customTitle === "string")
               saved.title = record.customTitle.trim() || undefined;
             else if (record.type === "ai-title" && typeof record.aiTitle === "string")
               saved.generated = record.aiTitle.trim() || undefined;
+            else if (record.type === "repl-mode" && typeof record.replMode === "boolean")
+              saved.codeMode = record.replMode;
             else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
@@ -77,6 +81,11 @@ export function readTranscript(path: string): TranscriptDetails {
   }
 }
 
-function details(saved: { title?: string; generated?: string; workdir?: string }): TranscriptDetails {
-  return { title: saved.title ?? saved.generated, workdir: saved.workdir };
+function details(saved: {
+  title?: string;
+  generated?: string;
+  workdir?: string;
+  codeMode?: boolean;
+}): TranscriptDetails {
+  return { title: saved.title ?? saved.generated, workdir: saved.workdir, codeMode: saved.codeMode };
 }
