@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-11-16
+
 - **`kiln resume` reports a session that does not start.** A resume now counts only once kiln sees the conversation running in its pane, so an agent that quits during launch, however late, makes `kiln resume` exit non-zero with what it printed, and the session stays in the stopped list to try again.
 
 - **Claude sessions started in Code Mode resume.** Kiln reads Claude's record that a conversation started in Code Mode and resumes it with Code Mode on and without Remote Control, which Claude needs to resume it.
