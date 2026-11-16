@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type CodexThread, codexThreads } from "./codex";
@@ -77,6 +77,8 @@ type ClaudeAgent = {
   state?: string;
   kind?: string;
   id?: string;
+  /** The start of the process `pid` named when this row was listed, so a cached row never takes a later owner's. */
+  processStart?: number;
 };
 
 function startedAt(pid: number): number {
@@ -211,12 +213,17 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
 
 let lastClaude: ClaudeAgent[] = [];
 
-/** A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list. */
-export function claudeListing(source: string | undefined): ClaudeAgent[] {
+/**
+ * A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list.
+ * Each process is stamped with its start when it is listed, and a kept row keeps that stamp.
+ */
+export function claudeListing(source: string | undefined, start = processStartTicks): ClaudeAgent[] {
   try {
     const listed: unknown = source === undefined ? undefined : JSON.parse(source);
     if (Array.isArray(listed)) {
-      lastClaude = listed;
+      lastClaude = (listed as ClaudeAgent[]).map((item) =>
+        typeof item.pid === "number" ? { ...item, processStart: start(item.pid) } : item,
+      );
       return lastClaude;
     }
   } catch {
@@ -237,7 +244,11 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     .flatMap((item) =>
       typeof item.pid === "number" && typeof item.cwd === "string" ? [{ ...item, pid: item.pid }] : [],
     )
-    .filter((item) => existsSync(`/proc/${item.pid}`) && !isDaemon(item.pid))
+    // A kept row's pid can belong to another process by now; only the process it was listed with is this session.
+    .filter(
+      (item) =>
+        item.processStart !== undefined && processStartTicks(item.pid) === item.processStart && !isDaemon(item.pid),
+    )
     .flatMap((item) => {
       const transcript = claudeTranscript(item.cwd, item.sessionId);
       const { title, workdir } = transcript ? readTranscript(transcript) : {};
@@ -246,6 +257,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
       const status = item.status === "busy" && claudeSessionStatus(item.pid) === "shell" ? "shell" : item.status;
       const session = {
         pid: item.pid,
+        processStart: item.processStart,
         id: item.sessionId,
         title: title ?? item.name,
         agent: "claude" as const,
@@ -721,7 +733,7 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     return withCodexThreads(processes, threads);
   };
   const [claude, owned, windows, codex, codexExec, pi, opencode] = await Promise.all([
-    claudeSessions().then(({ processes, finished }) => ({ processes: processes.map(stamped), finished })),
+    claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
     readCodex(),

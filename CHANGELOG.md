@@ -13,6 +13,8 @@ verbatim.
 
 - **Claude sessions started in Code Mode resume.** Kiln reads Claude's record that a conversation started in Code Mode and resumes it with Code Mode on and without Remote Control, which Claude needs to resume it.
 
+- **A Claude session is not mistaken for the process that took its pid.** When `claude agents` fails, kiln keeps the rows from its last listing, and now drops one whose process has since exited and had its pid handed to another program, instead of listing that program as the session.
+
 ## [0.28.1] - 2026-11-16
 
 - **A spawned child's answer can be read after it exits.** `kiln msg view <name>` reads a session that is no longer running by the full name `kiln msg spawn` printed, from the transcript its provider keeps. A spawned Codex run is now named by its thread rather than its process, so its name leads to that transcript.

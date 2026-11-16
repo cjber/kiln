@@ -213,10 +213,23 @@ test("a Claude turn with a background shell or agent still running is working, a
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {
   const source = JSON.stringify([{ pid: 1, cwd: "/repo", name: "one", status: "busy" }]);
-  expect(claudeListing(source)).toEqual([{ pid: 1, cwd: "/repo", name: "one", status: "busy" }]);
-  expect(claudeListing(undefined)).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
-  expect(claudeListing('[{"pid": 1')).toEqual([{ pid: 1, cwd: "/repo", name: "one" }]);
-  expect(claudeListing("[]")).toEqual([]);
+  const start = () => 50;
+  expect(claudeListing(source, start)).toEqual([
+    { pid: 1, cwd: "/repo", name: "one", status: "busy", processStart: 50 },
+  ]);
+  expect(claudeListing(undefined, start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
+  expect(claudeListing('[{"pid": 1', start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
+  expect(claudeListing("[]", start)).toEqual([]);
+});
+
+test("a cached Claude row keeps the start of the process it was listed with, not the pid's next owner", () => {
+  let ticks = 100;
+  const start = () => ticks;
+  claudeListing(JSON.stringify([{ pid: 4242, cwd: "/repo", sessionId: "a" }]), start);
+  // The listed process exits and the kernel hands its pid to another process before a listing fails.
+  ticks = 900;
+  expect(claudeListing(undefined, start)).toEqual([{ pid: 4242, cwd: "/repo", sessionId: "a", processStart: 100 }]);
+  claudeListing("[]", start);
 });
 
 test("daemon execution IDs are explicit and validated", () => {
