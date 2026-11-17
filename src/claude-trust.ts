@@ -81,7 +81,9 @@ function mtime(path: string): number | undefined {
  * which mkdir creates atomically, owned by whoever set its current mtime. A writer that holds it reads the file fresh,
  * so neither side loses the other's change. `work` is synchronous and far shorter than the stale time, so the lock
  * needs no refresh while kiln holds it; a holder stalled past that time can still have been taken over, so `work`
- * asks `owned` before it commits, and kiln removes the lock only while it is still its own.
+ * asks `owned` before it commits, and kiln removes the lock only while it is still its own. A stall of the stale time
+ * between that check and the next call is still a takeover kiln cannot see: the protocol is advisory, so no holder of
+ * it, Claude Code included, can rule that out.
  */
 export async function withConfigLock<T>(path: string, work: (owned: () => boolean) => T): Promise<T> {
   const lock = `${path}.lock`;
@@ -122,7 +124,8 @@ export async function trustClaudeWorkspace(dir: string, path: string): Promise<b
   return withConfigLock(path, (owned) => writeTrust(path, key, owned));
 }
 
-function writeTrust(path: string, key: string, owned: () => boolean): boolean {
+/** Set the trust entry for `key` in `path` while holding its config lock, committing only while `owned` holds. */
+export function writeTrust(path: string, key: string, owned: () => boolean): boolean {
   // A symlinked config is updated where it points, so the link stays.
   const target = existsSync(path) ? realpathSync(path) : path;
   let config: Record<string, unknown> = {};

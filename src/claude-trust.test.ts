@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -19,6 +20,7 @@ import {
   settleLaunch,
   trustClaudeWorkspace,
   withConfigLock,
+  writeTrust,
 } from "./claude-trust";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "kiln-trust-")));
@@ -174,14 +176,17 @@ test("a writer whose lock was taken over leaves the file and the new owner's loc
   const lock = `${path}.lock`;
   writeFileSync(path, "{}");
   // As if kiln stalled past the stale time: another writer took the lock over and saved first.
-  const owned = await withConfigLock(path, (owned) => {
-    rmSync(lock, { recursive: true });
-    mkdirSync(lock);
-    utimesSync(lock, new Date(Date.now() + 5_000), new Date(Date.now() + 5_000));
-    return owned();
-  });
-  expect(owned).toBe(false);
-  expect(existsSync(lock)).toBe(true);
+  await expect(
+    withConfigLock(path, (owned) => {
+      rmSync(lock, { recursive: true });
+      mkdirSync(lock);
+      utimesSync(lock, new Date(Date.now() + 5_000), new Date(Date.now() + 5_000));
+      writeFileSync(path, JSON.stringify({ theme: "light" }));
+      return writeTrust(path, plain, owned);
+    }),
+  ).rejects.toThrow("lost");
+  expect(readFileSync(path, "utf8")).toBe(JSON.stringify({ theme: "light" }));
+  expect(readdirSync(config).sort()).toEqual([".claude.json", ".claude.json.lock"]);
   rmSync(lock, { recursive: true });
   expect(await withConfigLock(path, (owned) => owned())).toBe(true);
   expect(existsSync(lock)).toBe(false);
