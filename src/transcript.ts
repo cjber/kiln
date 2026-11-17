@@ -13,11 +13,15 @@ const cache = new Map<
     generated?: string;
     workdir?: string;
     codeMode?: boolean;
+    turnEnded?: boolean;
   }
 >();
 
-/** `codeMode` is Claude's own record that the conversation started in Code Mode, which it can only resume with it on. */
-export type TranscriptDetails = { title?: string; workdir?: string; codeMode?: boolean };
+/**
+ * `codeMode` is Claude's own record that the conversation started in Code Mode, which it can only resume with it on.
+ * `turnEnded` is true once Claude has finished a reply (`end_turn`) and nothing has been said to it since.
+ */
+export type TranscriptDetails = { title?: string; workdir?: string; codeMode?: boolean; turnEnded?: boolean };
 
 /**
  * Read only title and tool-call records, retaining the last complete line while a transcript is being appended.
@@ -48,7 +52,14 @@ export function readTranscript(path: string): TranscriptDetails {
         const lines = (saved.pending + saved.decoder.decode(bytes.subarray(0, count), { stream: true })).split("\n");
         saved.pending = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.includes('-title"') && !line.includes('"tool_use"') && !line.includes('"repl-mode"')) continue;
+          if (
+            !line.includes('-title"') &&
+            !line.includes('"tool_use"') &&
+            !line.includes('"repl-mode"') &&
+            !line.includes('"end_turn"') &&
+            !line.includes('"type":"user"')
+          )
+            continue;
           try {
             const record = JSON.parse(line);
             if (record.type === "custom-title" && typeof record.customTitle === "string")
@@ -57,12 +68,16 @@ export function readTranscript(path: string): TranscriptDetails {
               saved.generated = record.aiTitle.trim() || undefined;
             else if (record.type === "repl-mode" && typeof record.replMode === "boolean")
               saved.codeMode = record.replMode;
+            // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn.
+            else if (record.type === "user" && !record.isSidechain) saved.turnEnded = false;
             else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
                 const found = path && checkout(path);
                 if (found) saved.workdir = found;
               }
+            if (record.type === "assistant" && !record.isSidechain && record.message?.stop_reason === "end_turn")
+              saved.turnEnded = true;
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
           }
@@ -86,6 +101,12 @@ function details(saved: {
   generated?: string;
   workdir?: string;
   codeMode?: boolean;
+  turnEnded?: boolean;
 }): TranscriptDetails {
-  return { title: saved.title ?? saved.generated, workdir: saved.workdir, codeMode: saved.codeMode };
+  return {
+    title: saved.title ?? saved.generated,
+    workdir: saved.workdir,
+    codeMode: saved.codeMode,
+    turnEnded: saved.turnEnded,
+  };
 }

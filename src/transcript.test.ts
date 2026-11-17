@@ -54,3 +54,31 @@ test("the working checkout follows the latest edit or cd, not reads or directori
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a turn has ended once Claude finishes a reply, until a prompt or a tool result follows it", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-turn-"));
+  const path = join(root, "session.jsonl");
+  const reply = (stop: string, sidechain = false) =>
+    record({ type: "assistant", isSidechain: sidechain, message: { stop_reason: stop, content: [{ type: "text" }] } });
+  try {
+    writeFileSync(path, record({ type: "user", message: { role: "user", content: "start" } }));
+    expect(readTranscript(path).turnEnded).toBe(false);
+    appendFileSync(path, tool("Bash", { command: "sleep 900", run_in_background: true }));
+    appendFileSync(path, record({ type: "user", message: { content: [{ type: "tool_result" }] } }));
+    expect(readTranscript(path).turnEnded).toBe(false);
+    // Waiting on a background shell or a wakeup: the reply ended the turn, and metadata after it changes nothing.
+    appendFileSync(path, reply("end_turn"));
+    appendFileSync(path, record({ type: "system", subtype: "stop_hook_summary" }));
+    appendFileSync(path, record({ type: "pr-link", url: "https://github.com/o/r/pull/1" }));
+    expect(readTranscript(path).turnEnded).toBe(true);
+    appendFileSync(path, reply("end_turn", true));
+    appendFileSync(path, record({ type: "user", isSidechain: true, message: { content: "subagent" } }));
+    expect(readTranscript(path).turnEnded).toBe(true);
+    appendFileSync(path, record({ type: "user", message: { role: "user", content: "next" } }));
+    expect(readTranscript(path).turnEnded).toBe(false);
+    appendFileSync(path, reply("tool_use"));
+    expect(readTranscript(path).turnEnded).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

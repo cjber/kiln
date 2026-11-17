@@ -6,8 +6,8 @@ description: Message other running Claude, Codex, OpenCode and Pi sessions throu
 # Message other agents
 
 `kiln msg` reaches any running session kiln lists. A message is stored first, then delivered
-through the recipient's provider or typed into its terminal when safe. Working Codex daemon
-sessions receive input in their active turn; approvals still wait. A session without a push
+through the recipient's provider or typed into its terminal when safe. Working Claude sessions
+and Codex daemon sessions receive input in their active turn; approvals still wait. A session without a push
 transport reads its messages with `kiln msg inbox`.
 
 ## Resuming after a restart
