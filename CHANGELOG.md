@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-17
+
 - **`kiln msg interrupt <name>` stops another session's turn.** It presses Escape in a Claude session kiln started, and asks Codex's shared daemon or OpenCode's service to stop the turn in progress, so a session spending effort on the wrong task can be stopped and then redirected with `kiln msg send`. A session that is not working is left alone, and Pi sessions or Claude sessions kiln did not start report why they cannot be interrupted. The phone's Stop button uses the same path, so it now also stops OpenCode sessions and Codex threads on the shared daemon.
 
 ## [0.28.4] - 2026-11-17
