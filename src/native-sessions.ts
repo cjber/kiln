@@ -1,6 +1,6 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { type ClaudeRecord, claudeConfigDir, claudeInbox, claudeRecord, claudeShellRunning } from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
@@ -28,6 +28,25 @@ import {
 } from "./sessions";
 import { panes } from "./tmux";
 import { readTranscript } from "./transcript";
+
+/**
+ * A listed session's status. `claude agents` reports `shell` (a turn that ended with background shells running) as
+ * `busy`, so a busy session's own record tells them apart. Claude writes a print-mode (`claude -p`, entrypoint
+ * `sdk-cli`) record only as the process starts, so there the transcript says when a turn has ended, and the process then
+ * waits on its background shells (`shell`) or, with none running, only on a wakeup or a message (`idle`). A failed
+ * listing has no status, and stays unknown.
+ */
+export function claudeStatus(
+  listed: string | undefined,
+  record: ClaudeRecord,
+  turnEnded: boolean | undefined,
+  shellRunning: () => boolean,
+): string | undefined {
+  if (listed !== "busy") return listed;
+  if (record.entrypoint !== "sdk-cli") return record.status === "shell" ? "shell" : "busy";
+  if (!turnEnded) return "busy";
+  return shellRunning() ? "shell" : "idle";
+}
 
 /**
  * Claude's own statuses, grouped as its agent view groups them; anything newer than this list shows as
@@ -148,21 +167,6 @@ function isDaemon(pid: number): boolean {
   }
 }
 
-export const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-
-/**
- * `claude agents` reports `shell` as `busy`, so a busy session's raw status is read from its own record:
- * a `shell` session's turn has ended, and it takes a prompt.
- */
-export function claudeSessionStatus(pid: number, dir = claudeConfigDir()): string | undefined {
-  try {
-    const { status } = JSON.parse(readFileSync(join(dir, "sessions", `${pid}.json`), "utf8"));
-    return typeof status === "string" ? status : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /** Where Claude writes a session's transcript: under the directory it started in, named by its session id. */
 export function claudeTranscript(cwd: string, sessionId: string | undefined): string | undefined {
   if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
@@ -251,10 +255,8 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     )
     .flatMap((item) => {
       const transcript = claudeTranscript(item.cwd, item.sessionId);
-      const { title, workdir } = transcript ? readTranscript(transcript) : {};
-      // The record only tells `shell` apart from `busy`, so a stale one never makes a busy session idle.
-      // A failed listing has no status, and stays unknown.
-      const status = item.status === "busy" && claudeSessionStatus(item.pid) === "shell" ? "shell" : item.status;
+      const { title, workdir, turnEnded } = transcript ? readTranscript(transcript) : {};
+      const status = claudeStatus(item.status, claudeRecord(item.pid), turnEnded, () => claudeShellRunning(item.pid));
       const session = {
         pid: item.pid,
         processStart: item.processStart,
@@ -267,6 +269,7 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
         lastActiveAt: claudeTranscriptActivity(item),
         activity: claudeActivity(status),
         turnEnded: status === "shell" || undefined,
+        claudeInbox: claudeInbox(item.pid) !== undefined || undefined,
       };
       switch (item.kind ?? "interactive") {
         case "interactive":

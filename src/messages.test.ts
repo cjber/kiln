@@ -94,6 +94,11 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
     push: "opencode",
   });
   expect(route(session({ agent: "pi", pid: 7, activity: "working" }), (pid) => pid === 7)).toEqual({ push: "pi" });
+  // Claude's inbox queues a message mid-turn and reaches a session kiln did not start; only a question holds it.
+  const inbox = { claudeInbox: true, place: { kind: "elsewhere" } } as const;
+  expect(route(session({ ...inbox, activity: "working" }))).toEqual({ push: "claude" });
+  expect(route(session({ ...inbox, activity: undefined }))).toEqual({ push: "claude" });
+  expect(route(session({ ...inbox, activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });
   expect("inbox" in route(session({ agent: "pi", pid: 8 }), (pid) => pid === 7)).toBe(true);
 });
 

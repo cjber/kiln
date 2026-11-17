@@ -1,0 +1,104 @@
+import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { claudeInbox, claudeRecord, claudeShellRunning, InboxClosed, sendClaudeInbox } from "./claude-inbox";
+
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+function configDir(): string {
+  const root = mkdtempSync(join(tmpdir(), "kiln-claude-"));
+  roots.push(root);
+  mkdirSync(join(root, "sessions"));
+  return root;
+}
+
+const token = "0123456789abcdef0123456789abcdef";
+
+/** A session record as a print-mode Claude leaves it: `busy` from launch, with its inbox socket and key beside it. */
+function fakeSession(dir: string, pid: number, socket: string, procStart = "4242"): void {
+  writeFileSync(
+    join(dir, "sessions", `${pid}.json`),
+    JSON.stringify({ pid, status: "busy", entrypoint: "sdk-cli", messagingSocketPath: socket, procStart }),
+  );
+  const hash = createHash("sha256").update(socket).digest("hex");
+  writeFileSync(join(dir, "sessions", `${pid}.${hash}.key`), JSON.stringify({ peerToken: token, procStart }));
+}
+
+test("a session's record gives its status and inbox, and a key left under a reused pid is not its own", () => {
+  const dir = configDir();
+  fakeSession(dir, 7, "/run/user/1000/cc-socks/7.sock");
+  writeFileSync(join(dir, "sessions", "8.json"), "{");
+  writeFileSync(join(dir, "sessions", "9.json"), JSON.stringify({ pid: 9, status: "shell" }));
+  expect(claudeRecord(7, dir)).toEqual({
+    status: "busy",
+    entrypoint: "sdk-cli",
+    messagingSocketPath: "/run/user/1000/cc-socks/7.sock",
+  });
+  expect(claudeRecord(8, dir)).toEqual({});
+  expect(claudeRecord(9, dir).status).toBe("shell");
+  expect(claudeInbox(7, dir, () => 4242)).toEqual({ socket: "/run/user/1000/cc-socks/7.sock", token });
+  expect(claudeInbox(7, dir, () => 5000)).toBeUndefined();
+  // No socket, or no key for it: Claude's messaging is off for that session.
+  expect(claudeInbox(9, dir, () => 4242)).toBeUndefined();
+  fakeSession(dir, 10, "/run/user/1000/cc-socks/10.sock");
+  writeFileSync(join(dir, "sessions", "10.json"), JSON.stringify({ messagingSocketPath: "/elsewhere.sock" }));
+  expect(claudeInbox(10, dir, () => 4242)).toBeUndefined();
+});
+
+test("a Claude process runs a background shell while a child of it sources the session's shell snapshot", async () => {
+  const dir = configDir();
+  const other = Bun.spawn(["sh", "-c", "sleep 30; :"]);
+  try {
+    expect(claudeShellRunning(process.pid, dir)).toBe(false);
+    const shell = Bun.spawn(["sh", "-c", `sleep 30; : ${join(dir, "shell-snapshots", "snapshot-sh-1.sh")}`]);
+    expect(claudeShellRunning(process.pid, dir)).toBe(true);
+    shell.kill();
+    await shell.exited;
+    expect(claudeShellRunning(process.pid, dir)).toBe(false);
+  } finally {
+    other.kill();
+    await other.exited;
+  }
+  expect(claudeShellRunning(2 ** 22 + 1, dir)).toBe(false);
+});
+
+test("a message goes to the inbox as an authenticated prompt, and a closed inbox takes nothing", async () => {
+  const dir = configDir();
+  const socket = join(dir, "inbox.sock");
+  const received: string[] = [];
+  const server = createServer((connection) => {
+    let data = "";
+    connection.on("data", (chunk) => {
+      data += chunk;
+    });
+    connection.on("end", () => {
+      received.push(data);
+      connection.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socket, resolve));
+  try {
+    await sendClaudeInbox({ socket, token }, "[kiln message from terminal]\n\nhi");
+    expect(
+      received.map((data) =>
+        data
+          .trimEnd()
+          .split("\n")
+          .map((line) => JSON.parse(line)),
+      ),
+    ).toEqual([
+      [
+        { type: "auth", token },
+        { type: "user", message: { role: "user", content: "[kiln message from terminal]\n\nhi" } },
+      ],
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  await expect(sendClaudeInbox({ socket, token }, "hi")).rejects.toBeInstanceOf(InboxClosed);
+});
