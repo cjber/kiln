@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+- **A spawn's exit watcher stops when its session closes.** On tmux 3.8 the watcher every spawn starts kept running after its session was gone, one background process per spawn. It now stops once tmux no longer has the session.
+
+- **`kiln msg spawn claude --interactive` no longer stops at the folder trust question.** Claude asks whether to trust a folder before an interactive session reads its prompt, so a child spawned into a folder Claude had not trusted waited there and never started its work. Kiln now records the spawn's folder as trusted in the Claude config the child runs with, the way Claude saves that answer itself: the repository's main checkout, or the folder outside a repository, and never the home directory. When a launcher such as a multi-account wrapper starts Claude under another config, kiln trusts the folder there too and starts Claude again. Kiln writes under the same lock Claude takes for that file, never trusts the home directory or the filesystem root (an interactive spawn there now fails with the reason instead of waiting), and leaves a `.claude.json` it cannot parse as it is, failing the spawn with the reason.
+
 - **A spawned child's exit is reported even when tmux loses it.** A spawn's exit report waits for tmux's `pane-died` hook, and a tmux built with libutempter, as Debian and Ubuntu ship it, can miss the hook for a pane command that exits while tmux runs its utmp helper. Each spawn now starts a watcher that reads its pane, so tmux collects an exit it missed and the parent hears the real status instead of nothing.
 
 ## [0.28.3] - 2026-11-16

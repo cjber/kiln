@@ -263,6 +263,19 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
   }
 });
 
+test("an exit watcher stops once its session is closed", async () => {
+  const name = "watched-close";
+  expect(start(name, paneDir, ["sleep", "60"], "watched close", true)).toBe(true);
+  const watching = watchSpawnExit(name, "", "codex:close-parent", 20);
+  await Bun.sleep(100);
+  kill(name);
+  // tmux 3.8 answers a read of a missing session with empty formats and status 0 (#235).
+  expect(paneState("never-started")).toBe("gone");
+  expect(await Promise.race([watching.then(() => "stopped"), Bun.sleep(2_000).then(() => "still watching")])).toBe(
+    "stopped",
+  );
+});
+
 test("an exit watcher leaves a respawned pane to whoever respawned it", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "watched-respawn-state");
@@ -406,8 +419,19 @@ test("kiln's tmux server outlives its last session, so a start right after a rea
   }
 });
 
-test("an interactive Claude child runs its full terminal UI with the chosen id, title and model", () => {
+test("an interactive Claude child runs its full terminal UI with the chosen id, title, model and config dir", () => {
+  expect(interactiveClaudeCommand(["claude"], "id", "work", undefined, undefined, "/account").slice(0, 5)).toEqual([
+    "env",
+    "CLAUDE_CONFIG_DIR=/account",
+    "claude",
+    "--session-id",
+    "id",
+  ]);
+  // Without a config dir the child uses the home default, not one kiln's tmux server inherited.
   expect(interactiveClaudeCommand(["mclaude", "--chrome"], "id", "-start the sweep", "sweep", "opus")).toEqual([
+    "env",
+    "-u",
+    "CLAUDE_CONFIG_DIR",
     "mclaude",
     "--chrome",
     "--session-id",
