@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -64,7 +65,7 @@ test("the config file is in the config dir, or beside the home directory without
   expect(claudeJsonPath(undefined)).toBe(join(homedir(), ".claude.json"));
 });
 
-test("trust is added and every other key is kept", () => {
+test("trust is added and every other key is kept", async () => {
   const config = join(root, "config-kept");
   const plain = join(root, "kept");
   mkdirSync(plain);
@@ -75,52 +76,81 @@ test("trust is added and every other key is kept", () => {
     JSON.stringify({ oauthAccount: { id: "a" }, projects: { "/other": { allowedTools: ["x"] }, [plain]: { mcp: 1 } } }),
     { mode: 0o600 },
   );
-  expect(trustClaudeWorkspace(plain, config)).toBe(true);
+  expect(await trustClaudeWorkspace(plain, config)).toBe(true);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     oauthAccount: { id: "a" },
     projects: { "/other": { allowedTools: ["x"] }, [plain]: { mcp: 1, hasTrustDialogAccepted: true } },
   });
   expect(statSync(path).mode & 0o777).toBe(0o600);
   // Already trusted: nothing to write.
-  expect(trustClaudeWorkspace(plain, config)).toBe(false);
+  expect(await trustClaudeWorkspace(plain, config)).toBe(false);
 });
 
-test("a missing file or projects map is created", () => {
+test("a missing file or projects map is created", async () => {
   const plain = join(root, "fresh");
   mkdirSync(plain);
   const missing = join(root, "config-missing");
-  expect(trustClaudeWorkspace(plain, missing)).toBe(true);
+  expect(await trustClaudeWorkspace(plain, missing)).toBe(true);
   expect(JSON.parse(readFileSync(join(missing, ".claude.json"), "utf8"))).toEqual({
     projects: { [plain]: { hasTrustDialogAccepted: true } },
   });
   const empty = join(root, "config-empty");
   mkdirSync(empty);
   writeFileSync(join(empty, ".claude.json"), JSON.stringify({ theme: "dark" }));
-  expect(trustClaudeWorkspace(plain, empty)).toBe(true);
+  expect(await trustClaudeWorkspace(plain, empty)).toBe(true);
   expect(JSON.parse(readFileSync(join(empty, ".claude.json"), "utf8"))).toEqual({
     theme: "dark",
     projects: { [plain]: { hasTrustDialogAccepted: true } },
   });
 });
 
-test("an unparsable file is left untouched and the error is reported", () => {
+test("an unparsable file is left untouched and the error is reported", async () => {
   const plain = join(root, "broken");
   mkdirSync(plain);
   const config = join(root, "config-broken");
   mkdirSync(config);
   const path = join(config, ".claude.json");
   writeFileSync(path, '{"projects": {');
-  expect(() => trustClaudeWorkspace(plain, config)).toThrow("is not valid JSON");
+  await expect(trustClaudeWorkspace(plain, config)).rejects.toThrow("is not valid JSON");
   expect(readFileSync(path, "utf8")).toBe('{"projects": {');
   writeFileSync(path, "[]");
-  expect(() => trustClaudeWorkspace(plain, config)).toThrow("is not a JSON object");
+  await expect(trustClaudeWorkspace(plain, config)).rejects.toThrow("is not a JSON object");
   expect(readFileSync(path, "utf8")).toBe("[]");
 });
 
-test("the home directory is never written", () => {
+test("the home directory and the root are never written", async () => {
   const config = join(root, "config-home");
-  expect(trustClaudeWorkspace(homedir(), config)).toBe(false);
+  await expect(trustClaudeWorkspace(homedir(), config)).rejects.toThrow("never marks");
+  await expect(trustClaudeWorkspace("/", config)).rejects.toThrow("never marks");
   expect(existsSync(config)).toBe(false);
+});
+
+test("a write waits for Claude's config lock and takes over one its holder left behind", async () => {
+  const plain = join(root, "locked");
+  mkdirSync(plain);
+  const config = join(root, "config-locked");
+  mkdirSync(config);
+  const path = join(config, ".claude.json");
+  writeFileSync(path, "{}");
+  // Held by a live writer: the change waits for it and sees what that writer saved.
+  mkdirSync(`${path}.lock`);
+  setTimeout(() => {
+    writeFileSync(path, JSON.stringify({ theme: "light" }));
+    rmSync(`${path}.lock`, { recursive: true });
+  }, 200);
+  expect(await trustClaudeWorkspace(plain, config)).toBe(true);
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+    theme: "light",
+    projects: { [plain]: { hasTrustDialogAccepted: true } },
+  });
+  expect(existsSync(`${path}.lock`)).toBe(false);
+  // Left by a writer that died: stale after proper-lockfile's 10 seconds.
+  const other = join(root, "locked-stale");
+  mkdirSync(other);
+  mkdirSync(`${path}.lock`);
+  utimesSync(`${path}.lock`, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  expect(await trustClaudeWorkspace(other, config)).toBe(true);
+  expect(existsSync(`${path}.lock`)).toBe(false);
 });
 
 test("the running Claude's config dir is read from its own environment, under any launcher", async () => {

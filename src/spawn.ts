@@ -196,7 +196,7 @@ async function settleClaudeTrust(
     if (!claude) return pid;
     let wrote: boolean;
     try {
-      wrote = trustClaudeWorkspace(options.dir, claude.configDir);
+      wrote = await trustClaudeWorkspace(options.dir, claude.configDir);
     } catch (error) {
       kill(name);
       throw error;
@@ -306,9 +306,10 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
 
   const id = options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID();
   // An interactive Claude waits at its trust dialog, never reading the prompt, in a folder its config has not trusted.
-  // Only the directory the spawner named is trusted, in the config dir this spawn runs Claude with.
+  // Only the directory the spawner named is trusted, in the config dir this spawn runs Claude with. A headless Claude
+  // (`-p`) never asks, so this grants an interactive child what a headless one in the same folder already has.
   const configDir = Bun.env.CLAUDE_CONFIG_DIR || undefined;
-  if (options.interactive) trustClaudeWorkspace(options.dir, configDir);
+  if (options.interactive) await trustClaudeWorkspace(options.dir, configDir);
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
     ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model, configDir)

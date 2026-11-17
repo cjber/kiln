@@ -30,7 +30,7 @@ function git(dir: string, ...args: string[]): string | undefined {
 
 /**
  * The folder whose trust covers `dir`, as Claude Code keys it: the main checkout of its git repository, which a
- * worktree shares, or `dir` itself outside one. Undefined for the home directory, whose trust Claude never saves.
+ * worktree shares, or `dir` itself outside one. Undefined for the home directory and the filesystem root.
  */
 export function claudeTrustKey(dir: string): string | undefined {
   const real = realpathSync(dir);
@@ -39,7 +39,8 @@ export function claudeTrustKey(dir: string): string | undefined {
   const checkout =
     main?.startsWith("worktree ") && !details.includes("bare") ? main.slice("worktree ".length) : undefined;
   const key = checkout ?? git(real, "rev-parse", "--show-toplevel")?.trim() ?? real;
-  return key === realpathSync(homedir()) ? undefined : key;
+  // Claude never saves trust for the home directory, and trust for the root would cover every folder on the machine.
+  return key === realpathSync(homedir()) || key === "/" ? undefined : key;
 }
 
 function record(value: unknown, what: string, path: string): Record<string, unknown> {
@@ -47,16 +48,58 @@ function record(value: unknown, what: string, path: string): Record<string, unkn
   throw new Error(`${path}: ${what} is not a JSON object, so kiln leaves it alone`);
 }
 
+/** A lock older than this was left by a writer that died: proper-lockfile's default, which refreshes a held lock sooner. */
+const lockStaleMs = 10_000;
+
+/** How long kiln waits for another writer's lock on a Claude config. */
+const lockWaitMs = 15_000;
+
 /**
- * Mark the folder covering `dir` trusted in one Claude config dir's `.claude.json`, keeping every other key. Returns
- * true when it wrote, false when it was already trusted or is the home directory. A file that does not parse is never
- * replaced: that throws. The write goes to a temporary file renamed over the original, so a reader sees the whole old
- * file or the whole new one; running Claude sessions watch the file and load what another process wrote.
+ * Run `work` holding the lock Claude Code takes for each write of `path`: proper-lockfile's `<path>.lock` directory,
+ * which mkdir creates atomically. A writer that holds it reads the file fresh, so neither side loses the other's change.
  */
-export function trustClaudeWorkspace(dir: string, configDir: string | undefined): boolean {
+async function withConfigLock<T>(path: string, work: () => T): Promise<T> {
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  for (const deadline = Date.now() + lockWaitMs; ; await Bun.sleep(25)) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > lockStaleMs) rmSync(lock, { recursive: true, force: true });
+      } catch {
+        // Released meanwhile.
+      }
+      if (Date.now() >= deadline) throw new Error(`${lock} stayed held, so kiln did not change ${path}`);
+    }
+  }
+  try {
+    return work();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Mark the folder covering `dir` trusted in one Claude config dir's `.claude.json`, keeping every other key, under
+ * Claude's own config lock. Returns true when it wrote, false when it was already trusted. Throws for the home
+ * directory and the filesystem root, which kiln never trusts, and for a file that does not parse, which it never
+ * replaces. The write goes to a temporary file renamed over the original, so a reader sees the whole old file or the
+ * whole new one, and running Claude sessions load it.
+ */
+export async function trustClaudeWorkspace(dir: string, configDir: string | undefined): Promise<boolean> {
   const key = claudeTrustKey(dir);
-  if (!key) return false;
+  if (!key)
+    throw new Error(
+      `kiln never marks ${dir} trusted for Claude: an interactive Claude asks there each time. Use a folder below it`,
+    );
   const path = claudeJsonPath(configDir);
+  return withConfigLock(path, () => writeTrust(path, key));
+}
+
+function writeTrust(path: string, key: string): boolean {
   // A symlinked config is updated where it points, so the link stays.
   const target = existsSync(path) ? realpathSync(path) : path;
   let config: Record<string, unknown> = {};
