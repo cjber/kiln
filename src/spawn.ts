@@ -12,7 +12,7 @@ import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, endedPane, kill, kiln, panePid, paneState, reapEnded, start } from "./tmux";
+import { ended, kill, kiln, panePid, paneState, reapEnded, start } from "./tmux";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>`;
 
@@ -231,7 +231,13 @@ export async function watchSpawnExit(
   let generation: string | undefined;
   for (;;) {
     const seen = paneState(name);
-    if (seen === "gone") return;
+    // A pane's session can be gone before its exit is read: a person closed it, tmux restarted, or a tmux without
+    // remain-on-exit removed it as its command ended. The record still names the child and its parent, so the watcher
+    // reports it as ended instead of returning silently (#240).
+    if (seen === "gone") {
+      await reportSpawnExit(name, child, parent);
+      return;
+    }
     // A respawn drops the pane's hook and gives it a command that belongs to whoever respawned it, so it is left alone.
     generation ??= seen.generation;
     if (seen.generation !== generation) return;
@@ -344,10 +350,16 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   if (!record) return;
   const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
-  const ending = endedPane(name);
-  if (!ending) return;
+  const seen = paneState(name);
+  // A pane whose session is gone has no exit left to read, but the child still ended: report it as ended rather than
+  // dropping the notice (#240). A replaced pane belongs to another run, so it is not reported.
+  const ending = seen === "gone" || "waiting" in seen ? undefined : seen;
+  if (!ending && seen !== "gone") return;
+  // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
+  // ancestry is in the record, so an exit report still reaches the session that started the child.
+  const to = parent || record.parent || "";
   let recipients: Awaited<ReturnType<typeof listSessions>> = [];
-  if (parent) {
+  if (to) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
@@ -356,13 +368,14 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   }
   // Claim cleanup before posting. Only the reporter that removes this exact
   // dead process owns its exit; a replacement during discovery belongs to another run.
-  if (!reapEnded(ending)) return;
-  if (parent && separator > 0) {
+  // A pane whose session is gone has nothing to claim, and the message id makes a second reporter's post a no-op.
+  if (ending && !reapEnded(ending)) return;
+  if (to && separator > 0) {
     try {
       post(
         spawnReportSender(identity),
-        parent,
-        exitMessage(identity, record?.title, ending?.status, ending?.output),
+        to,
+        exitMessage(identity, record.title, ending?.status, ending?.output),
         undefined,
         undefined,
         `exit:${identity}`,

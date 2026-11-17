@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A spawned child's exit is still reported when its pane is gone before the status can be read.** The exit watcher stopped silently once tmux no longer had the pane, and a report needed a status to read, so a child whose session closed first (a person closed it, tmux restarted, or a tmux without remain-on-exit removed the pane as its command ended) produced no notice at all. The watcher now reports that child as ended, naming it from its spawn record, and the message id keeps a hook and a watcher from reporting one exit twice. A spawn that recorded no caller also reports to the parent found for it later, rather than to nobody.
+
 ## [0.29.0] - 2026-11-17
 
 - **`kiln msg interrupt <name>` stops another session's turn.** It presses Escape in a Claude session kiln started, and asks Codex's shared daemon or OpenCode's service to stop the turn in progress, so a session spending effort on the wrong task can be stopped and then redirected with `kiln msg send`. A session that is not working is left alone, and Pi sessions or Claude sessions kiln did not start report why they cannot be interrupted. The phone's Stop button uses the same path, so it now also stops OpenCode sessions and Codex threads on the shared daemon.

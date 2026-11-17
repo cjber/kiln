@@ -2,7 +2,7 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { takeUnread } from "./mailbox";
+import { peekUnread, takeUnread } from "./mailbox";
 import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
 import * as sessions from "./sessions";
@@ -402,6 +402,70 @@ test("a completed OpenCode exit reports and reaps locally without interrupting o
   } finally {
     discovery.mockRestore();
     archive.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a watcher reports a child whose pane is gone before its exit can be read", async () => {
+  // A pane's session can end before tmux has its status: a person closed it, tmux restarted, or a build without
+  // remain-on-exit removed it. The record still names the child, so the report is made rather than lost (#240).
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "gone-state");
+  const name = "gone-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "gone", true)).toBe(true);
+    recordSpawn({
+      agent: "claude",
+      id: "gone-session",
+      cwd: paneDir,
+      title: "gone work",
+      startedAt: Date.now(),
+      pane: name,
+    });
+    expect(kill(name)).toBe(true);
+    await watchSpawnExit(name, "claude:gone-session", "claude:gone-parent", 20);
+    const messages = peekUnread("claude:gone-parent");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.body).toContain('claude:gone-session ended while working on "gone work"');
+    // The hook and the watcher can both report one exit; the message id keeps that one message.
+    await reportSpawnExit(name, "claude:gone-session", "claude:gone-parent");
+    expect(peekUnread("claude:gone-parent")).toHaveLength(1);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a spawn with no caller reports its exit to the parent its record names", async () => {
+  // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
+  // ancestry is in the record, so its exit still reaches the session that started it (#240).
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "recorded-parent-state");
+  const name = "recorded-parent-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "echo recorded; exit 4"], "recorded", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "codex",
+      id: "recorded-thread",
+      cwd: paneDir,
+      title: "recorded",
+      parent: "codex:recorded-parent",
+      startedAt: Date.now(),
+      pane: name,
+    });
+    await reportSpawnExit(name, "", "");
+    const messages = peekUnread("codex:recorded-parent");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.body).toContain("codex:recorded-thread exited with status 4");
+  } finally {
+    discovery.mockRestore();
     kill(name);
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = state;
