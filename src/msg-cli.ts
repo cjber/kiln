@@ -12,7 +12,7 @@ import {
   sessionIdentity,
   sessionParents,
 } from "./sessions";
-import { reportSpawnExit, spawnAgent, spawnOptions, spawnUsage } from "./spawn";
+import { reportSpawnExit, spawnAgent, spawnOptions, spawnUsage, watchSpawnExit } from "./spawn";
 import { tilde } from "./tui";
 
 const usage = `usage: kiln msg list [--json]          the sessions you can message
@@ -86,6 +86,12 @@ export async function runMsgCli(args: string[]): Promise<void> {
   if (first === "exit") {
     const [, name, child, parent] = args;
     if (name) await reportSpawnExit(name, child ?? "", parent ?? "");
+    return;
+  }
+  // A watcher the spawn started reports the same exit when a tmux that lost the pane's SIGCHLD never fires that hook.
+  if (first === "watch") {
+    const [, name, child, parent] = args;
+    if (name) await watchSpawnExit(name, child ?? "", parent ?? "");
     return;
   }
   // Older versions wrapped a spawned OpenCode run with this; keep it working for one already running.

@@ -310,10 +310,10 @@ export function respawn(name: string, cwd: string, argv: string[]): boolean {
 }
 
 /** The pane a read saw: its id and the generation `start` or `respawn` gave it, which a respawn replaces. */
-type Pane = { pane: string; generation: string };
+export type Pane = { pane: string; generation: string };
 
 /** How a kept pane of a session started with `start` ended: its exit status and the output still on screen. */
-type PaneExit = Pane & { status: number; output: string };
+export type PaneExit = Pane & { status: number; output: string };
 
 /**
  * Read a kept pane's exit, or say its command still runs or its session is gone. tmux marks a pane dead once its terminal
@@ -386,6 +386,14 @@ export function endedPane(name: string): PaneExit | undefined {
   return exit === "gone" || "waiting" in exit ? undefined : exit;
 }
 
+/**
+ * Read a kept pane's state: its exit, why it has none yet, or `gone` once its session is no longer there. A watcher that
+ * must tell a running pane from one whose session has closed reads this, where `endedPane` answers only an exit.
+ */
+export function paneState(name: string): PaneExit | Watched | "gone" {
+  return readExit(name);
+}
+
 /** Read an exit without exposing tmux's process-generation fields to callers. */
 export function ended(name: string): { status: number; output: string } | undefined {
   const exit = endedPane(name);
@@ -434,10 +442,10 @@ function onObserved(seen: Pane, condition: string, commands: string): Observed {
 type EarlyExit = { status: number; output: string };
 
 /** Why a kept pane has no exit to read yet: its command runs, or its pane is dead without a status, as `readExit` says. */
-type Waiting = "running" | "closed" | "exiting" | "unknown";
+export type Waiting = "running" | "closed" | "exiting" | "unknown";
 
 /** A kept pane read without an exit, and why. */
-type Watched = Pane & { waiting: Waiting };
+export type Watched = Pane & { waiting: Waiting };
 
 /**
  * Watch a session started by `start` with `keep` for `graceMs`. A command still running then is left to close its session as

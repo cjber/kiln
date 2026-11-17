@@ -11,7 +11,7 @@ import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, endedPane, kiln, panePid, reapEnded, start } from "./tmux";
+import { ended, endedPane, kiln, panePid, paneState, reapEnded, start } from "./tmux";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>`;
 
@@ -164,6 +164,55 @@ export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs
   }
 }
 
+/** How often the exit watcher reads its pane. */
+const watchIntervalMs = 500;
+
+/**
+ * Report a spawned child's exit without its `pane-died` hook, which a tmux built with libutempter can miss: tmux runs
+ * its utmp helper with SIGCHLD reset to its default, so a command that exits then is never reaped, the pane stays dead
+ * without a status and the hook never fires. Reading the pane sends tmux the SIGCHLD it may have lost, so its exit is
+ * collected and reported with its real status. It stops once the session is gone, however it went, or a respawn
+ * replaces the command it watched.
+ */
+export async function watchSpawnExit(
+  name: string,
+  child: string,
+  parent: string,
+  intervalMs = watchIntervalMs,
+): Promise<void> {
+  let generation: string | undefined;
+  for (;;) {
+    const seen = paneState(name);
+    if (seen === "gone") return;
+    // A respawn drops the pane's hook and gives it a command that belongs to whoever respawned it, so it is left alone.
+    generation ??= seen.generation;
+    if (seen.generation !== generation) return;
+    if (!("waiting" in seen)) {
+      await reportSpawnExit(name, child, parent);
+      return;
+    }
+    await Bun.sleep(intervalMs);
+  }
+}
+
+/**
+ * Start that watcher as its own process, so it outlives the spawner and a person's shell. The hook stays the fast path;
+ * a watcher that cannot start only loses the fallback, and the hook still reports an exit it sees.
+ */
+function watchInBackground(name: string, child: string, parent: string): void {
+  try {
+    Bun.spawn([kiln, "msg", "watch", name, child, parent], {
+      // Its own session, so a hangup or a group kill that ends the spawner's shell or tool call leaves it running.
+      detached: true,
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    }).unref();
+  } catch {
+    // The hook still reports an exit on a tmux that fires it; nothing else is needed here.
+  }
+}
+
 /** Start a headless agent in kiln's tmux server and record the calling agent, if any, as its parent. Returns its kiln id. */
 export async function spawnAgent(options: SpawnOptions, parent?: string): Promise<string> {
   const command = loadSettings().agents[options.agent];
@@ -203,6 +252,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       pid,
       pane: name,
     });
+    watchInBackground(name, "", parent ?? "");
     if (ended(name)) await reportSpawnExit(name, "", parent ?? "");
     return `codex:${id}`;
   }
@@ -226,6 +276,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`could not start ${agentName(options.agent)}`);
   const pid = await panePid(name);
   recordSpawn({ agent: options.agent, id, cwd: options.dir, title, parent, startedAt, pid, pane: name });
+  watchInBackground(name, `${options.agent}:${id}`, parent ?? "");
   if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");
   return `${options.agent}:${id}`;
 }
