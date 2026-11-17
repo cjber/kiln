@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { claudeInbox, InboxClosed, sendClaudeInbox } from "./claude-inbox";
+import { claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
 import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
@@ -228,9 +228,10 @@ const askId = (session: Session, question: string) => `ask:${sessionIdentity(ses
 const transports: Transports = {
   claude: async (session, text) => {
     const inbox = session.pid === undefined ? undefined : claudeInbox(session.pid);
-    if (!inbox) throw new NotNow("its Claude inbox has closed");
+    const transcript = claudeTranscript(session.cwd, session.id);
+    if (!inbox || !transcript) throw new NotNow("its Claude inbox has closed");
     try {
-      await sendClaudeInbox(inbox, text);
+      await sendClaudeInbox(inbox, text, transcript);
     } catch (error) {
       if (error instanceof InboxClosed) throw new NotNow(error.message);
       throw error;

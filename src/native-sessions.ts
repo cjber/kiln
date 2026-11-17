@@ -1,6 +1,5 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { type ClaudeRecord, claudeConfigDir, claudeInbox, claudeRecord, claudeShellRunning } from "./claude-inbox";
+import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claudeTranscript } from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
@@ -165,12 +164,6 @@ function isDaemon(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-/** Where Claude writes a session's transcript: under the directory it started in, named by its session id. */
-export function claudeTranscript(cwd: string, sessionId: string | undefined): string | undefined {
-  if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
-  return join(claudeConfigDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
 }
 
 function claudeTranscriptActivity(item: ClaudeAgent): number | undefined {

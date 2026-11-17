@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { processStartTicks } from "./sessions";
 
 export const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+
+/** Where Claude writes a session's transcript: under the directory it started in, named by its session id. */
+export function claudeTranscript(cwd: string, sessionId: string | undefined): string | undefined {
+  if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
+  return join(claudeConfigDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
+}
 
 /** What kiln reads from the record Claude keeps for each running session, `sessions/<pid>.json`. */
 export type ClaudeRecord = { status?: string; entrypoint?: string; messagingSocketPath?: string };
@@ -78,8 +84,64 @@ export class InboxClosed extends Error {}
 /**
  * Put a prompt in a Claude session's inbox, as one session messages another. Claude queues it while a turn runs and
  * starts a turn with it otherwise, including in print mode while it waits on background work or a wakeup.
+ *
+ * Claude can also hold, refuse or drop a peer message, and sends that receipt only to the sender's own inbox, which
+ * kiln does not have. What it does write for every message it accepts is a `queue-operation` enqueue record in the
+ * session's transcript, so the message counts as delivered only once that record appears.
  */
-export function sendClaudeInbox(inbox: ClaudeInbox, text: string, timeoutMs = 5_000): Promise<void> {
+export async function sendClaudeInbox(
+  inbox: ClaudeInbox,
+  text: string,
+  transcript: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const offset = fileSize(transcript);
+  await writeInbox(inbox, text, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  while (!queued(transcript, offset, text)) {
+    if (Date.now() >= deadline) throw new Error("Claude did not queue it, so it held, refused or dropped it");
+    await Bun.sleep(100);
+  }
+}
+
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether the transcript, after `offset`, records Claude queueing `text`. */
+function queued(transcript: string, offset: number, text: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(transcript, "r");
+  } catch {
+    return false;
+  }
+  try {
+    const bytes = Buffer.alloc(Math.max(0, fstatSync(fd).size - offset));
+    const count = readSync(fd, bytes, 0, bytes.length, offset);
+    return bytes
+      .subarray(0, count)
+      .toString()
+      .split("\n")
+      .some((line) => {
+        if (!line.includes('"queue-operation"')) return false;
+        try {
+          const record = JSON.parse(line);
+          return record.type === "queue-operation" && record.operation === "enqueue" && record.content === text;
+        } catch {
+          return false;
+        }
+      });
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function writeInbox(inbox: ClaudeInbox, text: string, timeoutMs: number): Promise<void> {
   const lines = [
     { type: "auth", token: inbox.token },
     { type: "user", message: { role: "user", content: text } },

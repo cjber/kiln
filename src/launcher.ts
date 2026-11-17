@@ -1,9 +1,9 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
+import { claudeTranscript } from "./claude-inbox";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
-import { claudeTranscript } from "./native-sessions";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget, restoreRow, savedRow } from "./saved-sessions";

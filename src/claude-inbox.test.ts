@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,9 +67,12 @@ test("a Claude process runs a background shell while a child of it sources the s
   expect(claudeShellRunning(2 ** 22 + 1, dir)).toBe(false);
 });
 
-test("a message goes to the inbox as an authenticated prompt, and a closed inbox takes nothing", async () => {
+test("a message counts as delivered once Claude records queueing it, and a closed inbox takes nothing", async () => {
   const dir = configDir();
   const socket = join(dir, "inbox.sock");
+  const transcript = join(dir, "session.jsonl");
+  writeFileSync(transcript, `${JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "hi" })}\n`);
+  let record = true;
   const received: string[] = [];
   const server = createServer((connection) => {
     let data = "";
@@ -78,12 +81,16 @@ test("a message goes to the inbox as an authenticated prompt, and a closed inbox
     });
     connection.on("end", () => {
       received.push(data);
+      const content = JSON.parse(data.trimEnd().split("\n")[1] ?? "{}").message?.content;
+      // Claude writes this record only for a message it accepts; a held, refused or dropped one leaves none.
+      if (record)
+        appendFileSync(transcript, `${JSON.stringify({ type: "queue-operation", operation: "enqueue", content })}\n`);
       connection.end();
     });
   });
   await new Promise<void>((resolve) => server.listen(socket, resolve));
   try {
-    await sendClaudeInbox({ socket, token }, "[kiln message from terminal]\n\nhi");
+    await sendClaudeInbox({ socket, token }, "[kiln message from terminal]\n\nhi", transcript);
     expect(
       received.map((data) =>
         data
@@ -97,8 +104,13 @@ test("a message goes to the inbox as an authenticated prompt, and a closed inbox
         { type: "user", message: { role: "user", content: "[kiln message from terminal]\n\nhi" } },
       ],
     ]);
+    // An earlier record of the same text does not count for this send.
+    record = false;
+    const refused = sendClaudeInbox({ socket, token }, "hi", transcript, 300);
+    await expect(refused).rejects.toThrow("held, refused or dropped");
+    await expect(refused).rejects.not.toBeInstanceOf(InboxClosed);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
-  await expect(sendClaudeInbox({ socket, token }, "hi")).rejects.toBeInstanceOf(InboxClosed);
+  await expect(sendClaudeInbox({ socket, token }, "hi", transcript)).rejects.toBeInstanceOf(InboxClosed);
 });
