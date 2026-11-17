@@ -9,7 +9,16 @@ import { type PullRequest, pullRequests, stageOf } from "./dashboard";
 import { ledgers, turnSummaries } from "./edits";
 import { resumeStopped, startFromPhone } from "./launcher";
 import { pending, post } from "./mailbox";
-import { flush, flushInBackground, heldBecause, phoneSender, reachable, route } from "./messages";
+import {
+  flush,
+  flushInBackground,
+  heldBecause,
+  interrupt,
+  interruption,
+  phoneSender,
+  reachable,
+  route,
+} from "./messages";
 import { nativeNotifications } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
@@ -32,7 +41,7 @@ import {
 } from "./sessions";
 import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
-import { attachedClients, lastSeen, pick, screen, sendKey, submitText } from "./tmux";
+import { lastSeen, pick, screen, submitText } from "./tmux";
 import { saveUpload, UploadsFull, uploadLimit } from "./uploads";
 import { rankedDirectories } from "./zoxide";
 
@@ -111,9 +120,7 @@ export function sessionAbilities(session: Session): {
     // A reply the agent can never take is refused; a reachable session may still wait in the mailbox.
     reply: !reachable(session) ? "kiln can only write to a running session that reports its id" : undefined,
     inbox: "inbox" in way ? way.inbox : undefined,
-    // Only a turn kiln knows is running is stopped: Escape on a prompt or an unknown state could clear someone's typing.
-    // OpenCode's TUI wants Escape twice, so a single key could not stop it reliably.
-    stop: session.agent !== "opencode" && session.place.kind === "kiln" && session.activity === "working",
+    stop: session.activity === "working" && "via" in interruption(session),
   };
 }
 
@@ -411,13 +418,15 @@ export function startServer({
       throw error;
     }
   };
-  const stopTurn = (id: string) => {
+  const stopTurn = async (id: string) => {
     const session = listedSession(id);
-    if (!sessionAbilities(session).stop || session.place.kind !== "kiln")
-      throw new Refusal(409, "This session cannot be stopped from the phone");
-    // Escape is how Claude's own terminal ends a turn; it does nothing while Claude is idle.
-    if (attachedClients(session.place.name) === undefined || !sendKey(session.place.name, "Escape"))
-      throw new Refusal(409, "Its terminal has closed");
+    if (!sessionAbilities(session).stop) throw new Refusal(409, "This session cannot be stopped from the phone");
+    try {
+      if (!(await interrupt(session))) throw new Refusal(409, "It has no turn in progress");
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      throw new Refusal(409, error instanceof Error ? error.message : String(error));
+    }
     return { stopped: true };
   };
   let refreshing = false;
@@ -514,7 +523,7 @@ export function startServer({
         if (action?.[1] && action[2] === "view" && request.method === "GET")
           return response(viewSession(decodeURIComponent(action[1]), new URL(request.url).searchParams.get("cursor")));
         if (action?.[1] && action[2] === "interrupt" && request.method === "POST")
-          return response(stopTurn(decodeURIComponent(action[1])));
+          return response(await stopTurn(decodeURIComponent(action[1])));
         if (action?.[1] && action[2] === "prompt" && request.method === "POST")
           return response(await answerPrompt(decodeURIComponent(action[1]), request));
         if (action?.[1] && action[2] === "files" && request.method === "POST")

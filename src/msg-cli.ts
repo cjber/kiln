@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { conversationReader, endedConversationReader, type Page } from "./conversation";
 import { acknowledge, peekUnread, post, takeUnread } from "./mailbox";
-import { callerIdentity, findRecipient, flush, frame, reachable, route, terminal } from "./messages";
+import { callerIdentity, findRecipient, flush, frame, interrupt, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
 import {
   agentName,
@@ -22,6 +22,7 @@ const usage = `usage: kiln msg list [--json]          the sessions you can messa
                                    read the messages kiln could not deliver to you
        kiln msg ack <message-id...> [--as <@peer>]
                                    acknowledge messages after forwarding them
+       kiln msg interrupt <name> [--json]  stop the session's turn in progress; follow with send to redirect it
        kiln msg view <name> [--json] [--cursor <cursor>]
                                    read a session transcript page
        kiln msg whoami                 your own name
@@ -242,6 +243,24 @@ export async function runMsgCli(args: string[]): Promise<void> {
         break;
       if (!me) throw new Error("this shell does not belong to an agent session; name a peer with --as");
       console.log(acknowledge(me, rest));
+      return;
+    }
+    case "interrupt": {
+      if (
+        rest.length !== 1 ||
+        values.all ||
+        values.peek ||
+        values.wait !== undefined ||
+        values.cursor !== undefined ||
+        as
+      )
+        break;
+      const session = findRecipient(await sessions(), rest[0]);
+      const name = sessionIdentity(session);
+      if (name === me) throw new Error("you cannot interrupt yourself");
+      const stopped = await interrupt(session);
+      if (values.json) console.log(JSON.stringify({ name, interrupted: stopped }));
+      else console.log(stopped ? `${name}: interrupted` : `${name}: not working, nothing to interrupt`);
       return;
     }
     case "view": {

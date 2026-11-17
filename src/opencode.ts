@@ -400,6 +400,11 @@ export async function opencodeWorkdir(session: OpencodeSession, now = Date.now()
   return workdir;
 }
 
+/** Stop the session's turn in progress, if any; the conversation stays open. */
+export async function interruptOpencodeSession(id: string): Promise<void> {
+  await cli("session.interrupt", "--param", `sessionID=${id}`);
+}
+
 /** Stop any turn, then hide the conversation; a session that never took a prompt was never stored. */
 export async function archiveOpencodeSession(id: string): Promise<void> {
   try {
