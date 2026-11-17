@@ -69,6 +69,11 @@ question until your own turn ends.
    retried while the kiln list or phone server runs, or read the next time it checks its inbox.
    Sending retries only that send's recipients, so unrelated agents cannot delay it.
 
+To redirect a session mid-task, `kiln msg interrupt <name>` stops its turn in progress (Claude
+sessions kiln started, Codex on the shared daemon, OpenCode), then `kiln msg send` gives it the new
+instructions. Interrupt only when its user asked for it or the work is causing harm, such as
+spending a shared quota on the wrong task; otherwise send and let it finish its turn.
+
 A name starting with `@` is a peer rather than a session: a program outside kiln with a mailbox
 of its own, such as the `nebula-ai` CLI or a Nebula agent. Kiln never types into a peer, so the
 message waits until that program reads `kiln msg inbox --as <peer>`; `--as` on `send` sets your

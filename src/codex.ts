@@ -245,6 +245,22 @@ export async function codexRemoteHost(): Promise<{ id?: string; problem?: string
   }
 }
 
+/** Stop the thread's turn in progress. Returns false when it has none, so there was nothing to stop. */
+export async function interruptCodexSession(threadId: string): Promise<boolean> {
+  return rpc(controlSocket(), async (call) => {
+    const { data } = await call<{ data: { id: string; status: string }[] }>("thread/turns/list", {
+      threadId,
+      limit: 1,
+      sortDirection: "desc",
+      itemsView: "notLoaded",
+    });
+    const turn = data[0];
+    if (turn?.status !== "inProgress") return false;
+    await call("turn/interrupt", { threadId, turnId: turn.id });
+    return true;
+  });
+}
+
 /** Deliver to the current turn when working, or start one when idle. Never interrupt a turn or answer approvals. */
 export async function messageCodexSession(threadId: string, text: string): Promise<void> {
   let sending = false;

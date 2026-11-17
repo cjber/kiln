@@ -1,8 +1,8 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { CodexNotReady, messageCodexSession } from "./codex";
+import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
 import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
-import { messageOpencodeSession } from "./opencode";
+import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
 import {
@@ -14,7 +14,7 @@ import {
   sessionIdentity,
   sessionParents,
 } from "./sessions";
-import { attachedClients, kiln, rowsAndCursor, submitText } from "./tmux";
+import { attachedClients, kiln, rowsAndCursor, sendKey, submitText } from "./tmux";
 import { tilde } from "./tui";
 
 /** The name a message from a person at a shell, rather than an agent, carries. */
@@ -135,6 +135,48 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
       return session.place.kind === "kiln"
         ? (busy() ?? { push: "tmux" })
         : { inbox: "kiln can only type into Claude sessions it started" };
+  }
+}
+
+export type Interruption = { via: "codex" | "opencode" | "tmux" } | { unsupported: string };
+
+/** How kiln stops a session's turn in progress, or why it cannot. */
+export function interruption(session: Session): Interruption {
+  // Escape is how an agent's own terminal ends a turn. OpenCode's TUI wants it twice, so its service stops it instead.
+  if (session.place.kind === "kiln" && session.agent !== "opencode") return { via: "tmux" };
+  switch (session.agent) {
+    case "claude":
+      return { unsupported: "kiln can only press keys in Claude sessions it started" };
+    case "codex":
+      return session.activity === undefined ? { unsupported: "it is not on Codex's shared daemon" } : { via: "codex" };
+    case "opencode":
+      return session.opencodeService
+        ? { via: "opencode" }
+        : { unsupported: "OpenCode's background service holds no conversation for it" };
+    case "pi":
+      return { unsupported: "kiln can only press keys in Pi sessions it started" };
+  }
+}
+
+/**
+ * Stop a session's turn in progress. False when it is not working, so there is nothing to stop: Escape on an idle
+ * prompt or an unknown state could clear someone's typing.
+ */
+export async function interrupt(session: Session): Promise<boolean> {
+  const way = interruption(session);
+  if ("unsupported" in way) throw new Error(`cannot interrupt ${sessionIdentity(session)}: ${way.unsupported}`);
+  if (session.activity !== "working") return false;
+  switch (way.via) {
+    case "codex":
+      return interruptCodexSession(session.id ?? "");
+    case "opencode":
+      await interruptOpencodeSession(session.id ?? "");
+      return true;
+    case "tmux":
+      if (session.place.kind !== "kiln" || attachedClients(session.place.name) === undefined)
+        throw new Error("its terminal has closed");
+      if (!sendKey(session.place.name, "Escape")) throw new Error(`could not press Escape in ${session.place.name}`);
+      return true;
   }
 }
 
