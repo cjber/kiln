@@ -345,6 +345,8 @@ function readExit(name: string): PaneExit | Watched | "gone" {
     .toString()
     .trimEnd()
     .split("\t");
+  // tmux 3.8 exits 0 with empty formats for a session that is not there; every pane has an id.
+  if (!pane) return "gone";
   if (dead !== "1") return { waiting: "running", pane, generation };
   if (!status && !signal) {
     try {
