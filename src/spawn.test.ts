@@ -17,7 +17,7 @@ import {
   spawnUsage,
   watchSpawnExit,
 } from "./spawn";
-import { ended, exists, kill, respawn, start } from "./tmux";
+import { ended, exists, kill, paneState, respawn, start } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -27,6 +27,23 @@ afterAll(() => {
   killServer(`kiln-spawn-${process.pid}`);
   rmSync(paneDir, { recursive: true, force: true });
 });
+
+/**
+ * Wait for the `wait-for` channel a pane's exit hook signals, reading the pane meanwhile as a spawn's exit watcher does:
+ * a tmux built with libutempter can lose the pane's SIGCHLD and run the hook only once a read sends it one (#230).
+ */
+async function hookSignalled(name: string, channel: string): Promise<number> {
+  const waiting = Bun.spawn(["tmux", "-L", `kiln-spawn-${process.pid}`, "wait-for", channel]);
+  let done = false;
+  const exited = waiting.exited.finally(() => {
+    done = true;
+  });
+  while (!done) {
+    paneState(name);
+    await Bun.sleep(20);
+  }
+  return exited;
+}
 
 test("spawn takes the agent, an optional directory and title, and the prompt after --", () => {
   const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
@@ -172,7 +189,11 @@ test("a spawned pane's exit hook runs, and its kept pane reports the status and 
       exitHook(["/usr/bin/touch", marker]),
     ),
   ).toBe(true);
-  for (let waited = 0; !existsSync(marker) && waited < 2_000; waited += 50) await Bun.sleep(50);
+  // The read the watcher makes lets a tmux that lost the pane's SIGCHLD collect it and run the hook.
+  for (let waited = 0; !existsSync(marker) && waited < 2_000; waited += 50) {
+    paneState("limit-child");
+    await Bun.sleep(50);
+  }
   expect(existsSync(marker)).toBe(true);
   expect(ended("limit-child")).toEqual({ status: 3, output: "you hit the limit" });
   expect(kill("limit-child")).toBe(true);
@@ -242,6 +263,29 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
   }
 });
 
+test("an exit watcher leaves a respawned pane to whoever respawned it", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "watched-respawn-state");
+  const name = "watched-respawn";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "watched respawn", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "watched-respawn", cwd: paneDir, startedAt: Date.now(), pane: name });
+    const watching = watchSpawnExit(name, "", "codex:respawn-parent", 20);
+    await Bun.sleep(100);
+    expect(respawn(name, paneDir, ["sh", "-c", "exit 6"])).toBe(true);
+    await watching;
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    expect(ended(name)?.status).toBe(6);
+    expect(takeUnread("codex:respawn-parent")).toHaveLength(0);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
 test("an offline child exit reaches its parent mailbox without a provider call", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "mailbox-state");
@@ -294,7 +338,7 @@ test("replacement during paused discovery prevents cleanup, reporting and archiv
         exitHook(["tmux", "-L", server, "wait-for", "-S", channel]),
       ),
     ).toBe(true);
-    expect(await Bun.spawn(["tmux", "-L", server, "wait-for", channel]).exited).toBe(0);
+    expect(await hookSignalled(name, channel)).toBe(0);
     expect(ended(name)?.status).toBe(7);
     recordSpawn({ agent: "opencode", id: "ses_old", cwd: paneDir, startedAt: Date.now(), pane: name });
     reporting = reportSpawnExit(name, "", "codex:race-parent");
@@ -336,7 +380,7 @@ test("a completed OpenCode exit reports and reaps locally without interrupting o
         exitHook(["tmux", "-L", server, "wait-for", "-S", channel]),
       ),
     ).toBe(true);
-    expect(await Bun.spawn(["tmux", "-L", server, "wait-for", channel]).exited).toBe(0);
+    expect(await hookSignalled(name, channel)).toBe(0);
     recordSpawn({ agent: "opencode", id: "ses_done", cwd: paneDir, startedAt: Date.now(), pane: name });
     await reportSpawnExit(name, "", "codex:completed-parent");
     expect(exists(name)).toBe(false);

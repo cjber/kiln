@@ -171,7 +171,8 @@ const watchIntervalMs = 500;
  * Report a spawned child's exit without its `pane-died` hook, which a tmux built with libutempter can miss: tmux runs
  * its utmp helper with SIGCHLD reset to its default, so a command that exits then is never reaped, the pane stays dead
  * without a status and the hook never fires. Reading the pane sends tmux the SIGCHLD it may have lost, so its exit is
- * collected and reported with its real status. It stops once the session is gone, however it went.
+ * collected and reported with its real status. It stops once the session is gone, however it went, or a respawn
+ * replaces the command it watched.
  */
 export async function watchSpawnExit(
   name: string,
@@ -179,9 +180,13 @@ export async function watchSpawnExit(
   parent: string,
   intervalMs = watchIntervalMs,
 ): Promise<void> {
+  let generation: string | undefined;
   for (;;) {
     const seen = paneState(name);
     if (seen === "gone") return;
+    // A respawn drops the pane's hook and gives it a command that belongs to whoever respawned it, so it is left alone.
+    generation ??= seen.generation;
+    if (seen.generation !== generation) return;
     if (!("waiting" in seen)) {
       await reportSpawnExit(name, child, parent);
       return;
@@ -197,6 +202,8 @@ export async function watchSpawnExit(
 function watchInBackground(name: string, child: string, parent: string): void {
   try {
     Bun.spawn([kiln, "msg", "watch", name, child, parent], {
+      // Its own session, so a hangup or a group kill that ends the spawner's shell or tool call leaves it running.
+      detached: true,
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
