@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { startedClaude, trustClaudeWorkspace } from "./claude-trust";
+import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
@@ -169,7 +169,7 @@ export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs
   }
 }
 
-/** How long a spawn waits for an interactive Claude to start under its launcher. */
+/** How long a spawn waits for an interactive Claude to start under its launcher and register its session. */
 const claudeStartWaitMs = 30_000;
 
 /** How many times a spawn starts an interactive Claude that lands on a config dir that had not trusted its folder. */
@@ -178,12 +178,13 @@ const claudeLaunches = 3;
 /**
  * Make sure the interactive Claude a spawn started reads a config that trusts its folder, so it reads its prompt
  * instead of waiting at the trust dialog. Kiln trusted the folder in the config dir it passed, but a launcher such as a
- * multi-account wrapper can choose another one after it starts. This reads the dir the running Claude has and, when
- * that one had not trusted the folder, trusts it there and starts Claude again, because Claude reads trust only as it
- * starts. Returns the pane's process; throws, closing the session, when every launch lands on an untrusted config.
+ * multi-account wrapper can choose another one after it starts. When the launch reaches a config that had not trusted
+ * the folder, kiln trusts it there and starts Claude again, because Claude reads trust only as it starts. Returns the
+ * pane's process; throws, closing the session, when every launch lands on an untrusted config.
  */
 async function settleClaudeTrust(
   name: string,
+  id: string,
   options: SpawnOptions,
   argv: string[],
   title: string,
@@ -191,17 +192,17 @@ async function settleClaudeTrust(
 ): Promise<number | undefined> {
   for (let launch = 1; ; launch++) {
     const pid = await panePid(name);
-    // No Claude process to read (it exited, or its executable has another name): the trust kiln wrote is what it has.
-    const claude = pid && (await startedClaude(pid, claudeStartWaitMs));
-    if (!claude) return pid;
-    let wrote: boolean;
+    if (!pid) return pid;
+    let outcome: LaunchOutcome;
     try {
-      wrote = await trustClaudeWorkspace(options.dir, claude.configDir);
+      outcome = await settleLaunch(pid, id, options.dir, claudeStartWaitMs);
     } catch (error) {
       kill(name);
       throw error;
     }
-    if (!wrote) return pid;
+    // Registered, ended or still starting: every config the launch reached trusts the folder, so the dialog is not
+    // what holds it.
+    if (outcome !== "untrusted") return pid;
     kill(name);
     if (launch === claudeLaunches)
       throw new Error(
@@ -309,7 +310,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // Only the directory the spawner named is trusted, in the config dir this spawn runs Claude with. A headless Claude
   // (`-p`) never asks, so this grants an interactive child what a headless one in the same folder already has.
   const configDir = Bun.env.CLAUDE_CONFIG_DIR || undefined;
-  if (options.interactive) await trustClaudeWorkspace(options.dir, configDir);
+  if (options.interactive) await trustClaudeWorkspace(options.dir, claudeConfig(Bun.env).json);
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
     ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model, configDir)
@@ -326,7 +327,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const startedAt = Date.now();
   if (!start(name, options.dir, argv, title, false, hook))
     throw new Error(`could not start ${agentName(options.agent)}`);
-  const pid = options.interactive ? await settleClaudeTrust(name, options, argv, title, hook) : await panePid(name);
+  const pid = options.interactive ? await settleClaudeTrust(name, id, options, argv, title, hook) : await panePid(name);
   recordSpawn({ agent: options.agent, id, cwd: options.dir, title, parent, startedAt, pid, pane: name });
   watchInBackground(name, `${options.agent}:${id}`, parent ?? "");
   if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");

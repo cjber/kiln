@@ -18,9 +18,20 @@ import { dirname, join } from "node:path";
  * way to trust a folder without the dialog: https://code.claude.com/docs/en/permissions#project-allow-rules-and-workspace-trust
  */
 
-/** The global config file of a Claude config dir: inside it when one is set, otherwise beside the home directory. */
-export function claudeJsonPath(configDir: string | undefined): string {
-  return configDir ? join(configDir, ".claude.json") : join(homedir(), ".claude.json");
+/** The files a Claude Code process reads and writes, by its own environment, as Claude Code finds them. */
+export interface ClaudeConfig {
+  /** The global config file, which holds folder trust. */
+  json: string;
+  /** The session registry, where Claude records each running session as `<pid>.json`. */
+  sessions: string;
+}
+
+/** The config a Claude Code process with `env` uses: `CLAUDE_CONFIG_DIR` when set, otherwise its home directory. */
+export function claudeConfig(env: Readonly<Record<string, string | undefined>>): ClaudeConfig {
+  const dir = env.CLAUDE_CONFIG_DIR || undefined;
+  if (dir) return { json: join(dir, ".claude.json"), sessions: join(dir, "sessions") };
+  const home = env.HOME || homedir();
+  return { json: join(home, ".claude.json"), sessions: join(home, ".claude", "sessions") };
 }
 
 function git(dir: string, ...args: string[]): string | undefined {
@@ -48,58 +59,70 @@ function record(value: unknown, what: string, path: string): Record<string, unkn
   throw new Error(`${path}: ${what} is not a JSON object, so kiln leaves it alone`);
 }
 
-/** A lock older than this was left by a writer that died: proper-lockfile's default, which refreshes a held lock sooner. */
+/**
+ * A lock whose mtime is older than this was left by a writer that died, and the next writer takes it over:
+ * proper-lockfile's default, which Claude Code keeps for this lock.
+ */
 const lockStaleMs = 10_000;
 
 /** How long kiln waits for another writer's lock on a Claude config. */
 const lockWaitMs = 15_000;
 
-/**
- * Run `work` holding the lock Claude Code takes for each write of `path`: proper-lockfile's `<path>.lock` directory,
- * which mkdir creates atomically. A writer that holds it reads the file fresh, so neither side loses the other's change.
- */
-async function withConfigLock<T>(path: string, work: () => T): Promise<T> {
-  const lock = `${path}.lock`;
-  mkdirSync(dirname(path), { recursive: true });
-  for (const deadline = Date.now() + lockWaitMs; ; await Bun.sleep(25)) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > lockStaleMs) rmSync(lock, { recursive: true, force: true });
-      } catch {
-        // Released meanwhile.
-      }
-      if (Date.now() >= deadline) throw new Error(`${lock} stayed held, so kiln did not change ${path}`);
-    }
-  }
+function mtime(path: string): number | undefined {
   try {
-    return work();
-  } finally {
-    rmSync(lock, { recursive: true, force: true });
+    return statSync(path).mtimeMs;
+  } catch {
+    return undefined;
   }
 }
 
 /**
- * Mark the folder covering `dir` trusted in one Claude config dir's `.claude.json`, keeping every other key, under
+ * Run `work` holding the lock Claude Code takes for each write of `path`: proper-lockfile's `<path>.lock` directory,
+ * which mkdir creates atomically, owned by whoever set its current mtime. A writer that holds it reads the file fresh,
+ * so neither side loses the other's change. `work` is synchronous and far shorter than the stale time, so the lock
+ * needs no refresh while kiln holds it; a holder stalled past that time can still have been taken over, so `work`
+ * asks `owned` before it commits, and kiln removes the lock only while it is still its own.
+ */
+export async function withConfigLock<T>(path: string, work: (owned: () => boolean) => T): Promise<T> {
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  let held: number | undefined;
+  for (const deadline = Date.now() + lockWaitMs; held === undefined; await Bun.sleep(25)) {
+    try {
+      mkdirSync(lock);
+      held = mtime(lock);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const seen = mtime(lock);
+      if (seen !== undefined && Date.now() - seen > lockStaleMs) rmSync(lock, { recursive: true, force: true });
+      if (Date.now() >= deadline) throw new Error(`${lock} stayed held, so kiln did not change ${path}`);
+    }
+  }
+  const owned = () => mtime(lock) === held;
+  try {
+    return work(owned);
+  } finally {
+    if (owned()) rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Mark the folder covering `dir` trusted in the Claude config file at `path`, keeping every other key, under
  * Claude's own config lock. Returns true when it wrote, false when it was already trusted. Throws for the home
  * directory and the filesystem root, which kiln never trusts, and for a file that does not parse, which it never
  * replaces. The write goes to a temporary file renamed over the original, so a reader sees the whole old file or the
  * whole new one, and running Claude sessions load it.
  */
-export async function trustClaudeWorkspace(dir: string, configDir: string | undefined): Promise<boolean> {
+export async function trustClaudeWorkspace(dir: string, path: string): Promise<boolean> {
   const key = claudeTrustKey(dir);
   if (!key)
     throw new Error(
       `kiln never marks ${dir} trusted for Claude: an interactive Claude asks there each time. Use a folder below it`,
     );
-  const path = claudeJsonPath(configDir);
-  return withConfigLock(path, () => writeTrust(path, key));
+  return withConfigLock(path, (owned) => writeTrust(path, key, owned));
 }
 
-function writeTrust(path: string, key: string): boolean {
+function writeTrust(path: string, key: string, owned: () => boolean): boolean {
   // A symlinked config is updated where it points, so the link stays.
   const target = existsSync(path) ? realpathSync(path) : path;
   let config: Record<string, unknown> = {};
@@ -124,6 +147,8 @@ function writeTrust(path: string, key: string): boolean {
   const temporary = `${target}.kiln-${process.pid}-${crypto.randomUUID()}`;
   try {
     writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode });
+    // Another writer took the lock over, so the file read above may be stale: replacing it could lose that change.
+    if (!owned()) throw new Error(`kiln lost ${path}.lock while it wrote, so it left ${path} alone`);
     renameSync(temporary, target);
   } finally {
     rmSync(temporary, { force: true });
@@ -147,39 +172,80 @@ function children(): Map<number, number[]> {
   return tree;
 }
 
+function environment(pid: number): Record<string, string> {
+  return Object.fromEntries(
+    readFileSync(`/proc/${pid}/environ`, "utf8")
+      .split("\0")
+      .filter((entry) => entry.includes("="))
+      .map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]),
+  );
+}
+
+/** A process of a Claude launch, with the config Claude Code would use under its environment. */
+export interface LaunchProcess {
+  pid: number;
+  config: ClaudeConfig;
+}
+
 /**
- * The config dir the Claude Code process under `root` runs with, from its own environment, or undefined (the home
- * default) when it has none. A launcher such as a multi-account wrapper can choose it after kiln starts the command, so
- * only the running process says which `.claude.json` it reads. Claude Code's native executable names its process
- * `claude`; the deepest one is the program itself rather than a wrapper of the same name. Undefined when none runs.
+ * The processes under `root` (itself included) that carry `sessionId`, the id kiln passed with `--session-id`: a
+ * launcher hands it on down to Claude Code, which keeps it. Matching that id, not a program name, finds Claude under
+ * any launcher or executable name, and leaves out anything else a launcher runs, such as a helper on another account.
  */
-export function runningClaude(root: number): { configDir?: string } | undefined {
+export function launchProcesses(root: number, sessionId: string): LaunchProcess[] {
   const tree = children();
-  let found: number | undefined;
+  const found: LaunchProcess[] = [];
   for (let level = [root]; level.length; level = level.flatMap((pid) => tree.get(pid) ?? [])) {
     for (const pid of level) {
       try {
-        if (readFileSync(`/proc/${pid}/comm`, "utf8").trim() === "claude") found = pid;
+        if (readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").includes(sessionId))
+          found.push({ pid, config: claudeConfig(environment(pid)) });
       } catch {
         // Gone already.
       }
     }
   }
-  if (found === undefined) return undefined;
+  return found;
+}
+
+/**
+ * Whether Claude Code runs `sessionId` as `pid` past its trust dialog: it records a running session in its session
+ * registry, `<pid>.json`, only once its folder is trusted.
+ */
+export function claudeRegistered({ pid, config }: LaunchProcess, sessionId: string): boolean {
   try {
-    const variable = readFileSync(`/proc/${found}/environ`, "utf8")
-      .split("\0")
-      .find((entry) => entry.startsWith("CLAUDE_CONFIG_DIR="));
-    return { configDir: variable?.slice("CLAUDE_CONFIG_DIR=".length) || undefined };
+    return JSON.parse(readFileSync(join(config.sessions, `${pid}.json`), "utf8")).sessionId === sessionId;
   } catch {
-    return undefined;
+    return false;
   }
 }
 
-/** Wait for the Claude Code process under `root` to start, while `root` runs and for at most `waitMs`. */
-export async function startedClaude(root: number, waitMs: number): Promise<{ configDir?: string } | undefined> {
+/** How a Claude launch settled: running past its trust dialog, ended, still unregistered at the wait's end, or found
+ * reading a config that had not trusted its folder (now trusted there), so it has to start again to read it. */
+export type LaunchOutcome = "registered" | "ended" | "unregistered" | "untrusted";
+
+/**
+ * Follow a Claude launch under `root` until Claude Code registers `sessionId`, trusting `dir` in the config of every
+ * process the session id reaches. A launcher such as a multi-account wrapper can give Claude another config dir than
+ * the one kiln trusted before it started, and Claude reads trust only as it starts, so a config that had not trusted
+ * the folder means this launch waits at the dialog.
+ */
+export async function settleLaunch(
+  root: number,
+  sessionId: string,
+  dir: string,
+  waitMs: number,
+): Promise<LaunchOutcome> {
+  const trusted = new Set<string>();
   for (const deadline = Date.now() + waitMs; ; await Bun.sleep(50)) {
-    const claude = runningClaude(root);
-    if (claude || !existsSync(`/proc/${root}`) || Date.now() >= deadline) return claude;
+    const launch = launchProcesses(root, sessionId);
+    if (launch.some((process) => claudeRegistered(process, sessionId))) return "registered";
+    for (const { config } of launch) {
+      if (trusted.has(config.json)) continue;
+      if (await trustClaudeWorkspace(dir, config.json)) return "untrusted";
+      trusted.add(config.json);
+    }
+    if (!existsSync(`/proc/${root}`)) return "ended";
+    if (Date.now() >= deadline) return "unregistered";
   }
 }
