@@ -15,6 +15,7 @@ import {
   spawnedCodexThread,
   spawnOptions,
   spawnUsage,
+  watchSpawnExit,
 } from "./spawn";
 import { ended, exists, kill, respawn, start } from "./tmux";
 import { killServer } from "./tmux-server";
@@ -206,6 +207,35 @@ test("a delayed exit report does not kill a live replacement pane", async () => 
     await reportSpawnExit(name, "", "");
     expect(ended(name)).toBeUndefined();
   } finally {
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a spawned child's exit is reported when tmux never runs its pane-died hook", async () => {
+  // A tmux built with libutempter can lose a pane command's SIGCHLD, so its pane-died hook never fires (#230).
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "watched-state");
+  const name = "watched-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "echo missed hook; exit 5"], "watched", true)).toBe(true);
+    recordSpawn({
+      agent: "codex",
+      id: "watched-thread",
+      cwd: paneDir,
+      title: "watched",
+      startedAt: Date.now(),
+      pane: name,
+    });
+    await watchSpawnExit(name, "", "codex:parent", 20);
+    const messages = takeUnread("codex:parent");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.body).toContain("codex:watched-thread exited with status 5");
+    expect(ended(name)).toBeUndefined();
+  } finally {
+    discovery.mockRestore();
     kill(name);
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
     else Bun.env.XDG_STATE_HOME = state;

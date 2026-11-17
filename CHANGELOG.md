@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A spawned child's exit is reported even when tmux loses it.** A spawn's exit report waits for tmux's `pane-died` hook, and a tmux built with libutempter, as Debian and Ubuntu ship it, can miss the hook for a pane command that exits while tmux runs its utmp helper. Each spawn now starts a watcher that reads its pane, so tmux collects an exit it missed and the parent hears the real status instead of nothing.
+
 ## [0.28.3] - 2026-11-16
 
 This release also includes the changes from 0.28.2, which was tagged but never published: `kiln resume` reports a session that does not start, Claude sessions started in Code Mode resume, and a Claude session is no longer mistaken for the process that took its pid.
