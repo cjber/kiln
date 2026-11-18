@@ -1044,14 +1044,16 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
       { from: "codex:outbox-thread", body: "review done" },
     ]);
     // A name that finds no one, or the child's own, comes back to the child with the reason, since it was told "queued".
-    expect(peekUnread("codex:outbox-thread").map(({ from, body }) => ({ from, body }))).toEqual([
-      {
-        from: "kiln-spawn:codex:outbox-thread",
-        body: "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlost?",
-      },
+    // Sends in one millisecond have no order between them, so these are compared sorted.
+    const notices = peekUnread("codex:outbox-thread").map(({ from, body }) => ({ from, body }));
+    expect(notices.sort((a, b) => a.body.localeCompare(b.body))).toEqual([
       {
         from: "kiln-spawn:codex:outbox-thread",
         body: "Your message to codex:outbox-thread was not delivered: you cannot message yourself\n\nme",
+      },
+      {
+        from: "kiln-spawn:codex:outbox-thread",
+        body: "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlost?",
       },
     ]);
     // Codex's sandbox leaves an empty mount point for each name it protects; the exit report clears them and the outbox.
