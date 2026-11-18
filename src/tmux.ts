@@ -203,6 +203,43 @@ export function exists(name: string): boolean {
 }
 
 /**
+ * A shell script that runs its arguments as a kept pane's command and exits with the command's status once tmux has read
+ * all the output the command wrote. tmux before 3.7 marks a pane dead as soon as its process exits, closing its terminal
+ * with output still unread in it, so an exit read from the pane could miss the lines that say why the command stopped.
+ * tmux answers a status report (`ESC [ 5 n`) only after it has read everything written before it, so the reply is the
+ * exact point the pane holds the command's whole output. Two string terminators (`ESC \`) first end any escape sequence
+ * the command left unfinished: one ends a device control string, whose body would otherwise take the request as data,
+ * and the second covers a command that stopped on the escape that begins a terminator.
+ *
+ * The command gets INT and QUIT with their default action, while the script, which traps them, waits for it. The
+ * script's own messages, such as dash's `Terminated` for a command killed by a signal, go nowhere; the command keeps
+ * the terminal as its stderr.
+ */
+const drained = [
+  "trap : INT QUIT",
+  "exec 3>&2 2>/dev/null",
+  '(exec "$@" 2>&3 3>&-)',
+  "status=$?",
+  "stty -echo -icanon min 1 time 0 2>/dev/null",
+  "printf '\\033\\\\\\033\\\\\\033[5n'",
+  // Each byte read is followed by a dot, so a newline byte survives command substitution and stays apart from the end of
+  // input. The reply is matched in the same form.
+  "reply=$(printf '\\033.[.0.n.')",
+  "seen=",
+  'until case $seen in *"$reply") true ;; *) false ;; esac; do',
+  "  byte=$(dd bs=1 count=1 2>/dev/null; echo .)",
+  '  [ "$byte" != . ] || exit "$status"',
+  "  seen=$seen$byte",
+  "done",
+  'exit "$status"',
+].join("\n");
+
+/** A kept pane's command, wrapped so its exit is read only once its output is. */
+function kept(argv: string[]): string[] {
+  return ["sh", "-c", drained, "kiln", ...argv];
+}
+
+/**
  * Start a detached session. With `keep`, its pane stays after the command exits, so `survives` can read why an agent
  * quit at launch; the option is set in the same tmux call that creates the session, before the command can exit.
  * `onExit` is a tmux hook command run from the kept pane after it dies, which is how a spawned child reports itself.
@@ -256,13 +293,13 @@ export function start(
       )
     )
       return false;
-    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, ...environment, "--", ...argv)) return true;
+    if (run("respawn-pane", "-k", "-t", `=${name}:`, "-c", cwd, ...environment, "--", ...kept(argv))) return true;
     // The placeholder must not report an exit for an agent that never started.
     run("set-hook", "-u", "-w", "-t", `=${name}:`, "pane-died");
     kill(name);
     return false;
   }
-  const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
+  const remain = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
   return run(
     "-f",
     configPath(),
@@ -273,8 +310,8 @@ export function start(
     "-c",
     cwd,
     ...environment,
-    ...argv,
-    ...kept,
+    ...(keep ? kept(argv) : argv),
+    ...remain,
     ";",
     "set-option",
     "-p",
@@ -318,7 +355,7 @@ export function respawn(name: string, cwd: string, argv: string[]): boolean {
     "-c",
     cwd,
     "--",
-    ...argv,
+    ...kept(argv),
   );
 }
 

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { claudeConfigDir } from "./claude-inbox";
-import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
+import { claudeConfig, type LaunchOutcome, processTree, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { claudeCommand, promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
@@ -227,11 +227,13 @@ const codexThreadWaitMs = 30_000;
 
 /**
  * The thread a spawned Codex run works in. Codex chooses the id itself as it starts and holds that thread's writer
- * lock until it exits, so the lock names the thread exactly. Undefined when the process exits, or hangs, first.
+ * lock until it exits, so the lock names the thread exactly. `pid` is the pane's process, which runs Codex under the
+ * shell that keeps the pane's output, so the nearest process under it that holds a lock is Codex. Undefined when the
+ * process exits, or hangs, first.
  */
 export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs): Promise<string | undefined> {
   for (const deadline = Date.now() + waitMs; ; await Bun.sleep(25)) {
-    const thread = codexThreadId(pid);
+    const thread = processTree(pid).map(codexThreadId).find(Boolean);
     if (thread || !existsSync(`/proc/${pid}`) || Date.now() >= deadline) return thread;
   }
 }

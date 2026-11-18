@@ -176,6 +176,14 @@ function children(): Map<number, number[]> {
   return tree;
 }
 
+/** `root` and the processes under it, nearest first. */
+export function processTree(root: number): number[] {
+  const tree = children();
+  const found: number[] = [];
+  for (let level = [root]; level.length; level = level.flatMap((pid) => tree.get(pid) ?? [])) found.push(...level);
+  return found;
+}
+
 function environment(pid: number): Record<string, string> {
   return Object.fromEntries(
     readFileSync(`/proc/${pid}/environ`, "utf8")
@@ -197,16 +205,13 @@ export interface LaunchProcess {
  * any launcher or executable name, and leaves out anything else a launcher runs, such as a helper on another account.
  */
 export function launchProcesses(root: number, sessionId: string): LaunchProcess[] {
-  const tree = children();
   const found: LaunchProcess[] = [];
-  for (let level = [root]; level.length; level = level.flatMap((pid) => tree.get(pid) ?? [])) {
-    for (const pid of level) {
-      try {
-        if (readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").includes(sessionId))
-          found.push({ pid, config: claudeConfig(environment(pid)) });
-      } catch {
-        // Gone already.
-      }
+  for (const pid of processTree(root)) {
+    try {
+      if (readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").includes(sessionId))
+        found.push({ pid, config: claudeConfig(environment(pid)) });
+    } catch {
+      // Gone already.
     }
   }
   return found;

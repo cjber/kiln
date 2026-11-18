@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A spawned child's exit report keeps its last output on tmux before 3.7.** Those versions close a pane's terminal as soon as its command exits, so tmux could drop the final lines a child printed, and an exit report could carry the status without the output that said why it stopped. kiln now runs a kept pane's command under a small shell that holds the pane open until tmux confirms it has read everything the command wrote, so the report and `kiln msg send` to an exited child see the whole of it.
+
 ## [0.29.2] - 2026-11-18
 
 - **`kiln msg spawn claude --resume <name>` carries on a Claude child that has exited.** It restarts the conversation by the id spawn printed, in the directory it began in and with its title, and records the caller as its parent, so a child cut off by a network outage or a usage limit picks up where it stopped and still reports its exit.

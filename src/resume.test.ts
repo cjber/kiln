@@ -56,6 +56,19 @@ test("a command that closes its terminal before it exits is reported with its ow
   expect(await survives("killed", 2_000, 50)).toEqual({ status: 143, output: "stopped" });
 });
 
+test("a kept pane reports a command that leaves an escape sequence unfinished", async () => {
+  expect(
+    start(
+      "unfinished",
+      dir,
+      ["sh", "-c", "echo last words; printf '\\033Pqunfinished\\033'; exit 4"],
+      "unfinished",
+      true,
+    ),
+  ).toBe(true);
+  expect(await survives("unfinished", 2_000, 50)).toEqual({ status: 4, output: "last words" });
+});
+
 test("a command that closes its terminal and runs on counts as running once its grace period ends", async () => {
   const pidFile = join(dir, "runs-on.pid");
   const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
