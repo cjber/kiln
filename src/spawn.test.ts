@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as mailbox from "./mailbox";
@@ -1059,6 +1059,32 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
     kill(name);
     await watching;
     expect(existsSync(outboxPath(name))).toBe(false);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("an exit without discovery relays what the child named in full and keeps the rest for a resumed run (#264)", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-offline-state");
+  const name = "outbox-offline";
+  const discovery = spyOn(sessions, "listSessions").mockRejectedValue(new Error("discovery down"));
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "offline-thread", cwd: paneDir, startedAt: Date.now(), pane: name });
+    mkdirSync(outboxPath(name), { recursive: true });
+    writeOutbox(outboxPath(name), "claude:offline-parent", "done");
+    writeOutbox(outboxPath(name), "reviewer", "later");
+    kill(name);
+    await reportSpawnExit(name, "", "claude:offline-parent");
+    expect(peekUnread("claude:offline-parent").map(({ from, body }) => ({ from, body }))[0]).toEqual({
+      from: "codex:offline-thread",
+      body: "done",
+    });
+    expect(readdirSync(outboxPath(name)).filter((file) => file.endsWith(".json"))).toHaveLength(1);
   } finally {
     discovery.mockRestore();
     kill(name);

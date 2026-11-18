@@ -76,7 +76,8 @@ A child usually runs in its agent's sandbox, which hides the other sessions from
 `kiln msg send` then leaves the message in an outbox kiln grants it, and kiln delivers it from
 outside the sandbox. Elsewhere, a sandboxed `send` that names its recipient in full (`claude:<id>`)
 waits in the mailbox until kiln's list or phone server delivers it. A Codex child in a git
-worktree may also write that worktree's git metadata, so it can commit there.
+worktree may also write that worktree's git metadata, so it can commit there; like a Claude child
+in a worktree, it can then move any branch of the repository.
 A Codex child runs as `codex exec`, which works through one turn and exits: it is listed as
 `working` while its process runs and leaves the list when it exits. It is not on Codex's shared
 daemon, so messages to it wait in its mailbox and it cannot be interrupted.

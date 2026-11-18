@@ -198,7 +198,9 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 /**
  * The git metadata of the linked worktree `dir` is in, which lies outside it: the worktree's own git directory and the
  * main repository's objects, refs and logs, which a commit writes. The rest of the shared directory, its `hooks/` and
- * `config`, stays out, since a write there runs code in every checkout of the repository. The worktree's own directory
+ * `config`, stays out, since a write there runs code in every checkout of the repository. The refs and objects are
+ * shared, so the child can move or delete any branch, as Claude's sandbox lets a child in a worktree do already, and as
+ * a commit from a worktree needs: git writes a branch through a lock file beside its siblings. The worktree's own directory
  * holds `commondir`, so a child could point git in that worktree at a config it wrote; that reaches only git run in the
  * worktree, where the child already writes the files a person or a gate will run. A plain checkout has none.
  */
@@ -236,9 +238,9 @@ export function spawnGrants(agent: Agent, dir: string, outbox: string): string[]
 }
 
 /** The messages a child left in its outbox, oldest first. */
-function outboxFiles(pane: string): string[] {
+function outboxFiles(box: string): string[] {
   try {
-    return readdirSync(outboxPath(pane))
+    return readdirSync(outboxPath(box))
       .filter((file) => file.endsWith(".json"))
       .sort();
   } catch {
@@ -251,12 +253,10 @@ function outboxFiles(pane: string): string[] {
  * is resolved here, against `sessions`; one that finds no session now waits under the name as given. Each file posts
  * under its own id, so the watcher and the exit hook relaying it together post it once.
  */
-function drainOutbox(pane: string, from: string, sessions: readonly Session[] | undefined): number {
-  // Without discovery no name can be resolved, so the messages wait for a pass that has it.
-  if (!sessions) return 0;
+function drainOutbox(box: string, from: string, sessions: readonly Session[] | undefined): number {
   let posted = 0;
-  for (const file of outboxFiles(pane)) {
-    const path = join(outboxPath(pane), file);
+  for (const file of outboxFiles(box)) {
+    const path = join(outboxPath(box), file);
     let message: { to?: unknown; body?: unknown } = {};
     try {
       message = JSON.parse(readFileSync(path, "utf8"));
@@ -265,23 +265,27 @@ function drainOutbox(pane: string, from: string, sessions: readonly Session[] | 
     }
     if (typeof message.to === "string" && typeof message.body === "string") {
       let [sender, to, body] = [from, message.to, message.body];
-      try {
-        to = sessionIdentity(findRecipient(sessions, message.to));
-      } catch (error) {
-        // A full name waits in the mailbox for a session that is not running now. Any other name finds no one, and the
-        // child was told only that it was queued, so it hears back why the message went nowhere.
-        if (!isFullName(message.to))
-          [sender, to, body] = notice(
-            from,
-            message.to,
-            error instanceof Error ? error.message : String(error),
-            message.body,
-          );
-      }
+      // Without discovery only a full name can be addressed; any other waits in the outbox for a pass that has it.
+      if (!sessions) {
+        if (!isFullName(message.to)) continue;
+      } else
+        try {
+          to = sessionIdentity(findRecipient(sessions, message.to));
+        } catch (error) {
+          // A full name waits in the mailbox for a session that is not running now. Any other name finds no one, and the
+          // child was told only that it was queued, so it hears back why the message went nowhere.
+          if (!isFullName(message.to))
+            [sender, to, body] = notice(
+              from,
+              message.to,
+              error instanceof Error ? error.message : String(error),
+              message.body,
+            );
+        }
       // Its sandbox hid the child's own name from it, so it is checked here.
       if (sender === from && to === from) [sender, to, body] = notice(from, to, "you cannot message yourself", body);
       try {
-        post(sender, to, body, undefined, undefined, `outbox:${pane}:${file}`);
+        post(sender, to, body, undefined, undefined, `outbox:${box}:${file}`);
       } catch {
         // A send limit or a locked mailbox leaves it, and the rest after it, for the next pass.
         return posted;
@@ -302,20 +306,20 @@ function notice(child: string, to: string, reason: string, body: string): [strin
  * Relay a child's outbox and deliver what it sent. Returns whether anything still waits: a message the mailbox refused,
  * or one to a parent that is answering a question, so the watcher tries again later.
  */
-async function relayOutbox(pane: string, from: string): Promise<boolean> {
+async function relayOutbox(box: string, from: string): Promise<boolean> {
   let sessions: Session[] | undefined;
   try {
     sessions = await listSessions({ kitty: false });
   } catch {
     // The messages stay in the outbox for the next pass.
   }
-  drainOutbox(pane, from, sessions);
+  drainOutbox(box, from, sessions);
   const ours = (message: { from: string }) => message.from === from || message.from === spawnReportSender(from);
   const waiting = pending().filter(ours);
-  if (!sessions || !waiting.length) return outboxFiles(pane).length > 0 || waiting.length > 0;
+  if (!sessions || !waiting.length) return outboxFiles(box).length > 0 || waiting.length > 0;
   try {
     const outcomes = await flush(sessions, { recipients: new Set(waiting.map((message) => message.to)) });
-    return outboxFiles(pane).length > 0 || outcomes.some((outcome) => !outcome.delivered && ours(outcome.message));
+    return outboxFiles(box).length > 0 || outcomes.some((outcome) => !outcome.delivered && ours(outcome.message));
   } catch {
     return true;
   }
@@ -344,6 +348,12 @@ function clearMountPoints(dirs: readonly string[]): void {
       }
   }
 }
+
+/**
+ * The outbox a run sends from. A resumed child keeps its pane name, so the outbox is named for the run too: the
+ * previous run's reporter, clearing its own, must not remove the one the new run's sandbox was granted.
+ */
+const outboxKey = (pane: string, run: string) => (run ? `${pane}.${run}` : pane);
 
 /** How long the exit watcher waits before trying again to deliver a message its child sent that could not go yet. */
 const relayRetryMs = 5_000;
@@ -489,6 +499,7 @@ export async function watchSpawnExit(
   // A Codex child's hooks name no child, since its thread did not exist yet; its record does.
   const record = runRecord(name, run);
   const from = child || (record ? `${record.agent}:${record.id}` : "");
+  const box = outboxKey(name, run);
   let retryAt: number | undefined;
   for (;;) {
     const seen = paneState(name);
@@ -508,8 +519,8 @@ export async function watchSpawnExit(
     }
     // The child runs in its agent's sandbox, which hides the sessions, so this watcher, outside it, delivers for it.
     // A failed pass waits out its retry delay rather than running discovery on every tick.
-    if (from && (retryAt === undefined ? outboxFiles(name).length > 0 : Date.now() >= retryAt))
-      retryAt = (await relayOutbox(name, from)) ? Date.now() + relayRetryMs : undefined;
+    if (from && (retryAt === undefined ? outboxFiles(box).length > 0 : Date.now() >= retryAt))
+      retryAt = (await relayOutbox(box, from)) ? Date.now() + relayRetryMs : undefined;
     await Bun.sleep(intervalMs);
   }
 }
@@ -539,11 +550,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
   // A child in its agent's sandbox cannot see the sessions, so what it sends waits in an outbox its spawn relays.
-  const outbox = (name: string) => {
-    mkdirSync(outboxPath(name), { recursive: true, mode: 0o700 });
+  const outbox = (box: string) => {
+    mkdirSync(outboxPath(box), { recursive: true, mode: 0o700 });
     return {
-      env: { KILN_OUTBOX: outboxPath(name) },
-      writable: spawnGrants(options.agent, options.dir, outboxPath(name)),
+      env: { KILN_OUTBOX: outboxPath(box) },
+      writable: spawnGrants(options.agent, options.dir, outboxPath(box)),
     };
   };
 
@@ -595,7 +606,8 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A conversation already running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
-  const { env, writable } = outbox(name);
+  const startedAt = Date.now();
+  const { env, writable } = outbox(outboxKey(name, String(startedAt)));
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
     ? interactiveClaudeCommand(
@@ -624,7 +636,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     cwd: options.dir,
     title,
     parent,
-    startedAt: Date.now(),
+    startedAt,
     pane: name,
     runBound: true,
   };
@@ -677,7 +689,8 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
   let recipients: Session[] | undefined = [];
-  if (parent || reported.parent || outboxFiles(name).length) {
+  const box = outboxKey(name, run);
+  if (parent || reported.parent || outboxFiles(box).length) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
@@ -695,7 +708,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   const seen = paneState(name);
   if (seen !== "gone" && "waiting" in seen) return;
   // What the child sent before it exited goes ahead of its exit report.
-  const relayed = drainOutbox(name, identity, recipients);
+  const relayed = drainOutbox(box, identity, recipients);
   // A pane whose session is gone has no exit left to read: a person closed it, tmux restarted, or a tmux without
   // remain-on-exit removed it (#240). Reporters close a pane only once its report is posted, or when it has nobody to
   // report to, so a pane they closed had its status reported already, and this report, under the same id, is not posted.
@@ -719,9 +732,9 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   }
   if (ending) reapEnded(ending);
   if (record.agent === "codex") clearMountPoints(worktreeMetadata(record.cwd));
-  clearMountPoints([outboxPath(name)]);
+  clearMountPoints([outboxPath(box)]);
   try {
-    rmdirSync(outboxPath(name));
+    rmdirSync(outboxPath(box));
   } catch {
     // Gone already, or holding a message kiln could not relay yet, which a resumed run relays.
   }
