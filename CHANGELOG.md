@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-11-18
+
 - **`kiln msg send` says when Claude holds a message at its approval prompt.** Claude can hold a message from another session until a person picks `Deliver this message to Claude` in the recipient's terminal, as it does for a session that is not prompting for permissions. kiln reported that as `Claude did not queue it, so it held, refused or dropped it`, the same as a lost message, so the sender waited on a reply that could not come. When the recipient runs in a kiln pane that shows the prompt, kiln now says `held at Claude's message approval prompt in <session>; approve it there`.
 
 ## [0.30.1] - 2026-11-18
