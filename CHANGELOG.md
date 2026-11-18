@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.5] - 2026-11-18
+
+- **A spawned child can message its parent and commit from inside its sandbox.** A Codex or Claude child started with `kiln msg spawn` runs its commands in its agent's sandbox, which hides the other sessions, so `kiln msg send <parent>` exited with `cannot see the sessions running outside it`, and a Codex child in a git worktree could not commit because Codex kept the worktree's git metadata read-only. The child's `send` now leaves the message in an outbox kiln grants it, and kiln delivers it from outside the sandbox, as from that child. A Codex child is also granted its worktree's git directory and the repository's objects, refs and logs, but not its hooks or config. Outside a spawn, a sandboxed `send` that names its recipient in full waits in the mailbox for kiln's list or phone server to deliver it. A message to a name kiln cannot resolve comes back to the child with the reason, and an interactive Claude child is granted the outbox through its sandbox settings, so it never stops at a prompt to trust the folder.
+
 ## [0.30.4] - 2026-11-18
 
 - **A spawned child that fails reports its exit status and error to its parent.** `kiln msg spawn` run from an agent inside kiln's tmux set the child's exit hook and `remain-on-exit` on the parent's own window, because tmux took the target of those commands from the caller's `$TMUX_PANE`. The child's pane then closed as it exited, and the parent heard only `ended while working on ...`, without the status or the error, such as a Muse usage limit. The child's pane now gets its own options, so the report carries the exit status and the last output.

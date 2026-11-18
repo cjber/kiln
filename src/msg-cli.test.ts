@@ -1,8 +1,11 @@
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isPeer, peerName } from "./msg-cli";
+import { peekUnread } from "./mailbox";
+import { isPeer, peerName, runMsgCli } from "./msg-cli";
+import * as sessions from "./sessions";
+import * as tmux from "./tmux";
 
 describe("peer identities", () => {
   test("a peer is an @name that cannot be read as a session", () => {
@@ -46,6 +49,48 @@ test("JSON inbox and peer sends work without session discovery", async () => {
     expect(viewOutput).toContain("Read notes.md");
     expect(viewOutput).toContain('"text": "ended answer"');
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a sandboxed child addresses its parent by full name without seeing the sessions (#264)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-msg-outbox-"));
+  const outbox = Bun.env.KILN_OUTBOX;
+  Bun.env.KILN_OUTBOX = root;
+  const hidden = spyOn(tmux, "sessionsHidden").mockResolvedValue("kiln runs in a process namespace of its own");
+  const discovery = spyOn(sessions, "discovery").mockImplementation(() => {
+    throw new Error("a hidden caller must not discover sessions");
+  });
+  const printed = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await runMsgCli(["send", "claude:parent-1", "done"]);
+    const files = readdirSync(root).filter((file) => file.endsWith(".json"));
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(root, files[0] ?? ""), "utf8"))).toEqual({
+      to: "claude:parent-1",
+      body: "done",
+    });
+    expect(printed.mock.calls[0]?.[0]).toContain("claude:parent-1: queued");
+    // Every other session is found only by discovery, so a broadcast still says why it cannot.
+    await expect(runMsgCli(["send", "--all", "done"])).rejects.toThrow("name the recipient");
+    // Without an outbox the message goes straight to the mailbox, where only a full name reaches anyone.
+    delete Bun.env.KILN_OUTBOX;
+    const state = Bun.env.XDG_STATE_HOME;
+    Bun.env.XDG_STATE_HOME = root;
+    try {
+      await expect(runMsgCli(["send", "parent", "done"])).rejects.toThrow("name the recipient in full");
+      await runMsgCli(["send", "claude:parent-1", "again"]);
+      expect(peekUnread("claude:parent-1").map(({ body }) => body)).toEqual(["again"]);
+    } finally {
+      if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+      else Bun.env.XDG_STATE_HOME = state;
+    }
+  } finally {
+    hidden.mockRestore();
+    discovery.mockRestore();
+    printed.mockRestore();
+    if (outbox === undefined) delete Bun.env.KILN_OUTBOX;
+    else Bun.env.KILN_OUTBOX = outbox;
     rmSync(root, { recursive: true, force: true });
   }
 });

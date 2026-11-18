@@ -72,6 +72,12 @@ and prints the child's kiln id. The child nests under its parent in the list, th
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command. When a child's process exits, kiln messages its parent with
 the exit status and the last output, so a child that stops on a usage limit is not lost.
+A child usually runs in its agent's sandbox, which hides the other sessions from it. Its
+`kiln msg send` then leaves the message in an outbox kiln grants it, and kiln delivers it from
+outside the sandbox. Elsewhere, a sandboxed `send` that names its recipient in full (`claude:<id>`)
+waits in the mailbox until kiln's list or phone server delivers it. A Codex child in a git
+worktree may also write that worktree's git metadata, so it can commit there; like a Claude child
+in a worktree, it can then move any branch of the repository.
 A Codex child runs as `codex exec`, which works through one turn and exits: it is listed as
 `working` while its process runs and leaves the list when it exits. It is not on Codex's shared
 daemon, so messages to it wait in its mailbox and it cannot be interrupted.

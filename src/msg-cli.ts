@@ -1,11 +1,12 @@
 import { parseArgs } from "node:util";
 import { conversationReader, endedConversationReader, type Page } from "./conversation";
-import { acknowledge, peekUnread, post, takeUnread } from "./mailbox";
+import { acknowledge, peekUnread, post, takeUnread, writeOutbox } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, interrupt, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
 import {
   agentName,
   discovery,
+  isFullName,
   type Session,
   sessionAliases,
   sessionDirectory,
@@ -58,6 +59,27 @@ async function sessions(): Promise<Session[]> {
   if (hidden) throw new Error(hidden);
   // Kitty windows are only for focusing; a message never goes through one.
   return (await discovery()({ kitty: false })).sessions.filter(reachable);
+}
+
+/**
+ * A send from a process that cannot see the sessions, such as a spawned child in its agent's sandbox. Delivery needs
+ * discovery, which only kiln outside the sandbox can do, so the message waits on disk for it. A spawned child leaves it
+ * in the outbox its spawn granted, where its exit watcher resolves the name and relays it as from that child. Any other
+ * caller posts to the mailbox, which kiln's list and phone server deliver from, and there only a full name finds anyone.
+ */
+function queueUnseen(
+  hidden: string,
+  name: string | undefined,
+  body: string,
+  me: string | undefined,
+  outbox = Bun.env.KILN_OUTBOX,
+): { to: string; delivered: false; reason: string } {
+  if (name === undefined) throw new Error(`${hidden}; name the recipient, and kiln delivers it from outside`);
+  if (name === me) throw new Error("you cannot message yourself");
+  if (outbox) writeOutbox(outbox, name, body);
+  else if (isFullName(name)) post(me ?? terminal, name, body);
+  else throw new Error(`${hidden}; name the recipient in full, as agent:id, and kiln delivers it from outside`);
+  return { to: name, delivered: false, reason: "this sandbox hides the sessions, so kiln delivers it from outside" };
 }
 
 function delivery(session: Session): string {
@@ -182,6 +204,12 @@ export async function runMsgCli(args: string[]): Promise<void> {
       // A peer is not in the roster, so it is never typed into: the message waits in its mailbox.
       const peer = name !== undefined && isPeer(name) ? peerName(name) : undefined;
       if (peer !== undefined && peer === me) throw new Error("you cannot message yourself");
+      const hidden = peer === undefined ? await sessionsHidden() : undefined;
+      if (hidden) {
+        const result = queueUnseen(hidden, name, body, me);
+        console.log(values.json ? JSON.stringify([result], null, 2) : `${result.to}: queued; ${result.reason}.`);
+        return;
+      }
       const found = peer === undefined ? await sessions() : [];
       const recipients =
         peer !== undefined

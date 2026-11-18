@@ -1,14 +1,15 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as mailbox from "./mailbox";
-import { peekUnread, takeUnread } from "./mailbox";
+import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
 import { findRecipient } from "./messages";
 import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
 import * as sessions from "./sessions";
 import {
+  claudeGrants,
   exitHook,
   exitMessage,
   exitReporter,
@@ -19,6 +20,7 @@ import {
   settleClaudeTrust,
   spawnAgent,
   spawnedCodexThread,
+  spawnGrants,
   spawnOptions,
   spawnUsage,
   watchSpawnExit,
@@ -1019,4 +1021,154 @@ test("a spawned Codex run is named by the thread whose writer lock it holds", as
   const started = Date.now();
   expect(await spawnedCodexThread(quit.pid, 10_000)).toBeUndefined();
   expect(Date.now() - started).toBeLessThan(1_000);
+});
+
+test("an exit watcher relays what a sandboxed child left in its outbox, as from that child (#264)", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-state");
+  const name = "outbox-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "outbox-thread", cwd: paneDir, startedAt: Date.now(), pane: name });
+    const watching = watchSpawnExit(name, "", "claude:outbox-parent", "", 20);
+    mkdirSync(outboxPath(name), { recursive: true });
+    writeOutbox(outboxPath(name), "claude:outbox-parent", "review done");
+    writeOutbox(outboxPath(name), "reviewer", "lost?");
+    writeOutbox(outboxPath(name), "codex:outbox-thread", "me");
+    let messages: mailbox.Message[] = [];
+    for (let waited = 0; !messages.length && waited < 2_000; waited += 20) {
+      await Bun.sleep(20);
+      messages = peekUnread("claude:outbox-parent");
+    }
+    expect(messages.map(({ from, body }) => ({ from, body }))).toEqual([
+      { from: "codex:outbox-thread", body: "review done" },
+    ]);
+    // A name that finds no one, or the child's own, comes back to the child with the reason, since it was told "queued".
+    // Sends in one millisecond have no order between them, so these are compared sorted.
+    const notices = peekUnread("codex:outbox-thread").map(({ from, body }) => ({ from, body }));
+    expect(notices.sort((a, b) => a.body.localeCompare(b.body))).toEqual([
+      {
+        from: "kiln-spawn:codex:outbox-thread",
+        body: "Your message to codex:outbox-thread was not delivered: you cannot message yourself\n\nme",
+      },
+      {
+        from: "kiln-spawn:codex:outbox-thread",
+        body: "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlost?",
+      },
+    ]);
+    // Codex's sandbox leaves an empty mount point for each name it protects; the exit report clears them and the outbox.
+    mkdirSync(join(outboxPath(name), ".codex"));
+    kill(name);
+    await watching;
+    expect(existsSync(outboxPath(name))).toBe(false);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("an exit without discovery relays full names, and the resumed run relays the rest (#264)", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-offline-state");
+  const name = "outbox-offline";
+  const child = "claude:offline-child";
+  const discovery = spyOn(sessions, "listSessions").mockRejectedValue(new Error("discovery down"));
+  const first = { agent: "claude" as const, id: "offline-child", cwd: paneDir, pane: name, runBound: true };
+  const box = (run: number) => outboxPath(`${name}.${run}`);
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ ...first, startedAt: 1_000 });
+    mkdirSync(box(1_000), { recursive: true });
+    writeOutbox(box(1_000), "claude:offline-parent", "done");
+    writeOutbox(box(1_000), "reviewer", "later");
+    kill(name);
+    await reportSpawnExit(name, child, "claude:offline-parent", "1000");
+    expect(peekUnread("claude:offline-parent").map(({ from, body }) => ({ from, body }))[0]).toEqual({
+      from: child,
+      body: "done",
+    });
+    expect(readdirSync(box(1_000)).filter((file) => file.endsWith(".json"))).toHaveLength(1);
+
+    // The resumed run has its own outbox, and relays what the first one left once discovery is back.
+    discovery.mockResolvedValue([]);
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ ...first, startedAt: 2_000 });
+    mkdirSync(box(2_000), { recursive: true });
+    kill(name);
+    await reportSpawnExit(name, child, "claude:offline-parent", "2000");
+    expect(peekUnread(child).map(({ body }) => body)).toEqual([
+      "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlater",
+    ]);
+    expect(existsSync(box(1_000))).toBe(false);
+    expect(existsSync(box(2_000))).toBe(false);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a Codex child in a linked worktree may write that worktree's git metadata (#264)", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-grants-"));
+  try {
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect(git("init", "-q", "main").exitCode).toBe(0);
+    expect(
+      git("-C", "main", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        .exitCode,
+    ).toBe(0);
+    expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
+    const common = join(realpathSync(root), "main", ".git");
+    expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
+      "/outbox",
+      join(common, "worktrees", "tree"),
+      join(common, "objects"),
+      join(common, "refs"),
+      join(common, "logs"),
+    ]);
+    // A plain checkout keeps Codex's own rule for its .git, and Claude's sandbox already opens a worktree's metadata.
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
+    expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
+      "codex",
+      "exec",
+      "--add-dir",
+      "/a",
+      "--add-dir",
+      "/b",
+      "go",
+    ]);
+    // Claude grants its sandbox the outbox: --add-dir would first ask whether to trust it, and hold the child there.
+    const grant = (allowWrite: string[], more = {}) =>
+      JSON.stringify({ ...more, sandbox: { filesystem: { allowWrite } } });
+    expect(claudeGrants(["claude"], root, ["/outbox"])).toEqual(["claude", "--settings", grant(["/outbox"])]);
+    // Claude reads only the last --settings, so the one the configured command passes carries the grant.
+    const inline = JSON.stringify({ model: "opus", sandbox: { filesystem: { allowWrite: ["/mine"] } } });
+    expect(claudeGrants(["claude", "--settings", "{}", "--settings", inline, "--chrome"], root, ["/outbox"])).toEqual([
+      "claude",
+      "--settings",
+      "{}",
+      "--settings",
+      grant(["/mine", "/outbox"], { model: "opus" }),
+      "--chrome",
+    ]);
+    writeFileSync(join(root, "team.json"), JSON.stringify({ env: { A: "1" } }));
+    expect(claudeGrants(["claude", "--settings=team.json"], root, ["/outbox"])).toEqual([
+      "claude",
+      "--settings",
+      grant(["/outbox"], { env: { A: "1" } }),
+    ]);
+    expect(() => claudeGrants(["claude", "--settings", '{"sandbox": []}'], root, ["/outbox"])).toThrow(
+      "is not a JSON object",
+    );
+    const interactive = interactiveClaudeCommand(claudeGrants(["claude"], root, ["/outbox"]), "id", "go");
+    expect(interactive).not.toContain("--add-dir");
+    expect(interactive).toContain(grant(["/outbox"]));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
