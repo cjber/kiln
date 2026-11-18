@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.4] - 2026-11-18
+
+- **A spawned child that fails reports its exit status and error to its parent.** `kiln msg spawn` run from an agent inside kiln's tmux set the child's exit hook and `remain-on-exit` on the parent's own window, because tmux took the target of those commands from the caller's `$TMUX_PANE`. The child's pane then closed as it exited, and the parent heard only `ended while working on ...`, without the status or the error, such as a Muse usage limit. The child's pane now gets its own options, so the report carries the exit status and the last output.
+
 ## [0.30.3] - 2026-11-18
 
 - **`kiln msg` says when a sandbox hides the sessions.** Run inside a sandbox with a process namespace of its own, such as Claude Code's Bash sandbox, `kiln msg list` printed nothing and `kiln msg send` said `no running session`, so an agent concluded its peers were gone. kiln now exits with `kiln runs in a process namespace of its own (sandboxed?), so it cannot see the sessions running outside it`, and names the socket when the sandbox refuses kiln's tmux server.

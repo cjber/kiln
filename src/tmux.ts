@@ -79,6 +79,16 @@ function run(...args: string[]): boolean {
   return Bun.spawnSync([...tmux(), ...args], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
 }
 
+/**
+ * Run a tmux call whose commands after `new-session` act on that new session. tmux takes the target of a command that
+ * names none from `$TMUX_PANE` before the session the call just made, so a call from inside a tmux pane, as a spawn
+ * from an agent in kiln's tmux is, would set the new session's options and hooks on the caller's own window instead.
+ */
+function runNew(...args: string[]): boolean {
+  const { TMUX: _client, TMUX_PANE: _pane, ...env } = Bun.env;
+  return Bun.spawnSync([...tmux(), ...args], { stdout: "pipe", stderr: "pipe", env }).exitCode === 0;
+}
+
 /** The PID of a session's pane command, when tmux can say. */
 export async function panePid(name: string): Promise<number | undefined> {
   const shown = Bun.spawnSync([...tmux(), "display-message", "-p", "-t", `=${name}:`, "#{pane_pid}"], {
@@ -261,7 +271,7 @@ export function start(
   if (onExit) {
     // The hook has to exist before the command can exit, so start a placeholder, set it up, then replace the command.
     if (
-      !run(
+      !runNew(
         "-f",
         configPath(),
         "new-session",
@@ -301,7 +311,7 @@ export function start(
     return false;
   }
   const kept = keep ? [";", "set-option", "-w", "remain-on-exit", "on"] : [];
-  return run(
+  return runNew(
     "-f",
     configPath(),
     "new-session",
