@@ -460,5 +460,8 @@ export function endedConversationReader(name: string): ((cursor?: string) => Pag
       const session: Session = { agent, id, cwd: "", startedAt: 0, place: { kind: "saved" } };
       return transcriptFile(session) ? conversationReader(session) : undefined;
     }
+    case "muse":
+      // Muse keeps trajectory records, not messages kiln can page through.
+      return undefined;
   }
 }

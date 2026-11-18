@@ -4,13 +4,13 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import type { Question } from "./opencode";
 
-export type Agent = "claude" | "codex" | "opencode" | "pi";
+export type Agent = "claude" | "codex" | "opencode" | "pi" | "muse";
 
-export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi"];
+export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi", "muse"];
 
 /** The name shown to people; ids stay lowercase for matching, filtering and sorting. */
 export function agentName(agent: Agent): string {
-  return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi" }[agent];
+  return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi", muse: "Muse" }[agent];
 }
 
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
@@ -64,6 +64,8 @@ export type Session = {
   claudeInbox?: boolean;
   /** A headless `codex exec` run: its own process holds the turn, so Codex's shared daemon cannot reach it. */
   codexExec?: boolean;
+  /** A headless `muse exec` run: it holds no live session host, so Muse's session messaging cannot reach it. */
+  museExec?: boolean;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
   /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */

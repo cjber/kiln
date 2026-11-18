@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { claudeTranscript, findClaudeTranscript } from "./claude-inbox";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
+import { afterMuseWord } from "./muse";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget, restoreRow, savedRow } from "./saved-sessions";
@@ -109,6 +110,7 @@ export function promptArguments(agent: Agent, prompt: string | undefined): strin
       return ["--", /\s/.test(prompt) ? prompt : `${prompt}\n`];
     case "codex":
     case "pi":
+    case "muse":
       return ["--", prompt];
     case "opencode":
       return [`--prompt=${prompt}`];
@@ -155,6 +157,13 @@ export function agentCommand(
       return [...command, "--session", resume ?? newOpencodeSessionId(), ...first];
     case "pi":
       return [...command, "-e", piExtensionPath(), ...(resume ? ["--session", resume] : []), ...first];
+    case "muse": {
+      if (!resume) return [...command, ...first];
+      // `resume <id>` directly follows the muse word, after any wrapper: root options before it would start a new run.
+      // Muse's resume takes no prompt at all; `resumeStopped` refuses one rather than dropping it here.
+      const at = afterMuseWord(command);
+      return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
+    }
   }
 }
 
@@ -230,6 +239,9 @@ export async function resumeStopped(
   { started = (name) => runsIn(session, name), timeoutMs = 120_000, pollMs = 1_000 }: StartWatch = {},
 ): Promise<{ name: string } | { problem: string }> {
   if (session.place.kind !== "saved" || !session.id) return { problem: "this session is not stopped" };
+  // Muse's resume command takes no prompt; sending it afterwards reaches the session instead.
+  if (session.agent === "muse" && prompt)
+    return { problem: "Muse cannot take a prompt on resume; resume it, then send the prompt with kiln msg send" };
   const name = sessionName(session.agent, session.id);
   if (exists(name)) return { name };
   // Claude would exit at once with no reason given; there is no conversation to carry on.

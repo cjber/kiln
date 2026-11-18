@@ -24,6 +24,14 @@ class PushTest {
     }
 
     @Test
+    fun parsesMuseAlerts() {
+        assertEquals(
+            Agent.MUSE,
+            parsePushAlert(body.replace("claude\",\"cwd", "muse\",\"cwd"))!!.alert.agent,
+        )
+    }
+
+    @Test
     fun anAlertIsReadOnceItsSessionWorksOrIsLookedAtAfterIt() {
         fun row(activity: String, seen: String = "") =
             parseSnapshot(

@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-18
+
+- **Muse is a fifth agent kiln opens, lists and messages.** Sessions from Muse (`muse`) join Claude, Codex, OpenCode and Pi in the list, the dashboard, the phone and `kiln msg`: `n` starts one in a directory, a restart-stopped one resumes with `muse resume`, and `kiln msg spawn muse` runs a headless `muse exec` child that shows as working while it runs and reports its exit to its parent. Messages reach a running Muse session at once through Muse's own session messaging, including from a Muse session itself, whose `kiln msg whoami` now resolves. Muse publishes no session status, so an interactive Muse session shows its activity as unknown rather than guessed, and kiln cannot read a Muse transcript, so `kiln msg view` shows nothing for Muse and a Muse child answers by messaging its parent.
+
 - **One `kiln` skill replaces `kiln-agents`, `kiln-config` and `kiln-skills`.** Messaging other sessions, changing kiln's TOML settings and repairing shared skills are one skill with one entry in an agent's skill list; the settings and skill-repair detail load only when needed. kiln removes the three skills it bundled before, with their Claude and Pi links, the next time it syncs. A copy you edited is kept under the shared store's `.kiln-backups`, and a same-name skill kiln did not install is left alone. `npx skills add cjber/kiln` and the Claude Code plugin install the new skill.
 
 ## [0.29.2] - 2026-11-18

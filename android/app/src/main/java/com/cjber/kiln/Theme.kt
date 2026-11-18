@@ -109,6 +109,7 @@ fun agentColor(agent: Agent): Color =
         Agent.CODEX -> Tui.teal
         Agent.OPENCODE -> Tui.fgBright
         Agent.PI -> Tui.purple
+        Agent.MUSE -> Tui.yellow
     }
 
 fun agentName(agent: Agent): String =
@@ -117,6 +118,7 @@ fun agentName(agent: Agent): String =
         Agent.CODEX -> "Codex"
         Agent.OPENCODE -> "OpenCode"
         Agent.PI -> "Pi"
+        Agent.MUSE -> "Muse"
     }
 
 fun activityName(activity: Activity): String =

@@ -3,6 +3,7 @@ import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claud
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
+import { museProcesses } from "./muse";
 import {
   archiveOpencodeSession,
   type HeadlessProcess,
@@ -744,7 +745,7 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
     return withCodexThreads(processes, threads);
   };
-  const [claude, owned, windows, codex, codexExec, pi, opencode] = await Promise.all([
+  const [claude, owned, windows, codex, codexExec, pi, opencode, muse] = await Promise.all([
     claudeSessions(),
     panes(),
     kitty ? kittyWindows() : [],
@@ -752,8 +753,9 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     codexExecProcesses().then((processes) => processes.map(stamped)),
     piProcesses().then((processes) => processes.map(stamped)),
     readOpencode(),
+    museProcesses().then((processes) => processes.map(stamped)),
   ]);
-  const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi];
+  const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi, ...muse];
   const headless = [...codex.headless, ...opencode.headless, ...claude.finished];
 
   const places = new Map<number, Place>();

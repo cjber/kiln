@@ -211,7 +211,16 @@ test("a first prompt is the agent's own argument and never reads as an option or
   expect(agentCommand("codex", settings, undefined, "--help")).toEqual(["codex", "--", "--help"]);
   expect(agentCommand("opencode", settings, undefined, "-x").at(-1)).toBe("--prompt=-x");
   expect(agentCommand("pi", settings, undefined, "go").slice(-2)).toEqual(["--", "go"]);
+  expect(agentCommand("muse", settings, undefined, "go")).toEqual(["muse", "--", "go"]);
   expect(agentCommand("codex", settings)).toEqual(["codex"]);
+});
+
+test("a muse resume follows the muse word, after any wrapper, and takes no prompt", () => {
+  const id = "01a1ee06-1787-71c3-b858-29eb0cd46d25";
+  // Muse's resume command rejects any prompt positional; resumeStopped refuses one instead.
+  expect(agentCommand("muse", defaults, id, "carry on")).toEqual(["muse", "resume", id]);
+  const wrapped = { ...defaults, agents: { ...defaults.agents, muse: ["wrapper", "muse", "--provider", "meta"] } };
+  expect(agentCommand("muse", wrapped, id)).toEqual(["wrapper", "muse", "resume", id, "--provider", "meta"]);
 });
 
 test("reconnect preserves an authoritative UUID and refuses process aliases or known activity", async () => {

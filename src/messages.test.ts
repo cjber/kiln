@@ -46,6 +46,10 @@ test("the caller's own session id wins over one it inherited from the agent that
   expect(callerIdentity({ OPENCODE_SESSION_ID: "ses_1" }, null)).toBe("opencode:ses_1");
   expect(callerIdentity({}, "claude")).toBeUndefined();
   expect(processAgent(["/home/u/.local/bin/claude", "--resume", "x"])).toBe("claude");
+  expect(processAgent(["/home/u/.local/bin/muse", "exec"])).toBe("muse");
+  expect(processAgent(["/home/u/.local/bin/muse-bin-1.4.23", "resume", "x"])).toBe("muse");
+  expect(callerIdentity({ MUSE_SESSION_ID: "m1" }, "muse")).toBe("muse:m1");
+  expect(callerIdentity({ MUSE_SESSION_ID: "m1", CLAUDE_CODE_SESSION_ID: "c1" }, null)).toBeUndefined();
   expect(processAgent(["/opt/codex/bin/codex", "app-server"])).toBe("codex");
   expect(processAgent(["node", "/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"])).toBe("pi");
   expect(processAgent(["zsh", "-c", "claude"])).toBeUndefined();
@@ -117,6 +121,11 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
   expect(route(session({ ...inbox, activity: undefined }))).toEqual({ push: "claude" });
   expect(route(session({ ...inbox, activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });
   expect("inbox" in route(session({ agent: "pi", pid: 8 }), (pid) => pid === 7)).toBe(true);
+  // Muse's session messaging takes a message at once; an exec run has no live session to take one.
+  expect(route(session({ agent: "muse", activity: undefined }))).toEqual({ push: "muse" });
+  expect(route(session({ agent: "muse", activity: "working" }))).toEqual({ push: "muse" });
+  expect("inbox" in route(session({ agent: "muse", activity: "working", museExec: true }))).toBe(true);
+  expect("inbox" in route(session({ agent: "muse", id: undefined }))).toBe(true);
 });
 
 test("flush types each deliverable message once, framed with its sender, and keeps the rest", async () => {

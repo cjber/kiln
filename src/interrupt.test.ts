@@ -27,6 +27,8 @@ const session = (overrides: Partial<Session>): Session => ({
 test("a kiln pane takes Escape; elsewhere each agent is stopped through its own interface, or says why not", () => {
   expect(interruption(session({}))).toEqual({ via: "tmux" });
   expect(interruption(session({ agent: "pi" }))).toEqual({ via: "tmux" });
+  // Muse never reports working, so kiln cannot tell a turn from an idle prompt in its pane.
+  expect("unsupported" in interruption(session({ agent: "muse" }))).toBe(true);
   expect(interruption(session({ agent: "codex", place: { kind: "elsewhere" } }))).toEqual({ via: "codex" });
   expect(interruption(session({ agent: "opencode", opencodeService: true }))).toEqual({ via: "opencode" });
   for (const unsupported of [
@@ -34,6 +36,8 @@ test("a kiln pane takes Escape; elsewhere each agent is stopped through its own 
     session({ agent: "codex", activity: undefined, place: { kind: "elsewhere" } }),
     // A working exec run in a kiln pane has no input for Escape to reach.
     session({ agent: "codex", codexExec: true }),
+    session({ agent: "muse", museExec: true }),
+    session({ agent: "muse", place: { kind: "elsewhere" } }),
     session({ agent: "opencode" }),
     session({ agent: "pi", place: { kind: "elsewhere" } }),
   ])
