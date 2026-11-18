@@ -12,6 +12,7 @@ import {
   headlessCommand,
   interactiveClaudeCommand,
   reportSpawnExit,
+  settleClaudeTrust,
   spawnedCodexThread,
   spawnOptions,
   spawnUsage,
@@ -197,6 +198,20 @@ test("a spawned pane's exit hook runs, and its kept pane reports the status and 
   expect(existsSync(marker)).toBe(true);
   expect(ended("limit-child")).toEqual({ status: 3, output: "you hit the limit" });
   expect(kill("limit-child")).toBe(true);
+});
+
+test("an interactive Claude held at a startup dialog fails the spawn and closes its session", async () => {
+  const name = "dialog-child";
+  const argv = ["sh", "-c", "echo 'Allow external CLAUDE.md file imports?'; sleep 30"];
+  expect(start(name, paneDir, argv, "dialog", false, "")).toBe(true);
+  try {
+    await expect(
+      settleClaudeTrust(name, crypto.randomUUID(), { dir: paneDir }, argv, "dialog", "", 300),
+    ).rejects.toThrow("Its screen showed:\nAllow external CLAUDE.md file imports?");
+    expect(exists(name)).toBe(false);
+  } finally {
+    kill(name);
+  }
 });
 
 test("an exit before registration keeps the pane until the spawn is recorded", async () => {
