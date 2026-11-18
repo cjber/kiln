@@ -66,4 +66,5 @@ test("a suggestion Claude draws faint in an empty prompt box is not a draft", ()
   // Truecolour arguments carry 2s that are not the faint attribute.
   expect(withoutFaint("\x1b[38;2;2;2;2mtyped\x1b[22m")).toBe("typed");
   expect(withoutFaint("\x1b[2mfaint\x1b[22m kept")).toBe(" kept");
+  expect(withoutFaint("\x1b]8;;https://a.b\x1b\\link\x1b]8;;\x07")).toBe("link");
 });

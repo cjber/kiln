@@ -96,7 +96,8 @@ export function moves(prompt: Prompt, number: number): string[] {
 }
 
 const esc = "\u001b";
-const controlSequence = new RegExp(`(${esc}\\[[0-9;:]*[A-Za-z])`);
+// CSI sequences, and OSC ones such as the hyperlinks `capture-pane -e` writes.
+const controlSequence = new RegExp(`(${esc}\\[[0-9;:]*[A-Za-z]|${esc}\\][^\u0007${esc}]*(?:\u0007|${esc}\\\\))`);
 const graphicRendition = new RegExp(`^${esc}\\[([0-9;:]*)m$`);
 
 /**
