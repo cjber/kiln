@@ -68,8 +68,9 @@ export function readTranscript(path: string): TranscriptDetails {
               saved.generated = record.aiTitle.trim() || undefined;
             else if (record.type === "repl-mode" && typeof record.replMode === "boolean")
               saved.codeMode = record.replMode;
-            // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn.
-            else if (record.type === "user" && !record.isSidechain) saved.turnEnded = false;
+            // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn, and
+            // the summary Claude writes when it compacts the conversation, as it does while idle, is not a prompt.
+            else if (record.type === "user" && !record.isSidechain && !record.isCompactSummary) saved.turnEnded = false;
             else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;

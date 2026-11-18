@@ -74,6 +74,13 @@ test("a turn has ended once Claude finishes a reply, until a prompt or a tool re
     appendFileSync(path, reply("end_turn", true));
     appendFileSync(path, record({ type: "user", isSidechain: true, message: { content: "subagent" } }));
     expect(readTranscript(path).turnEnded).toBe(true);
+    // Compacting an idle conversation writes its summary as a user record, which is no prompt.
+    appendFileSync(path, record({ type: "system", subtype: "compact_boundary", content: "Conversation compacted" }));
+    appendFileSync(
+      path,
+      record({ type: "user", isCompactSummary: true, message: { role: "user", content: "summary" } }),
+    );
+    expect(readTranscript(path).turnEnded).toBe(true);
     appendFileSync(path, record({ type: "user", message: { role: "user", content: "next" } }));
     expect(readTranscript(path).turnEnded).toBe(false);
     appendFileSync(path, reply("tool_use"));

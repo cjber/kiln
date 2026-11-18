@@ -7,6 +7,7 @@ import {
   claudeActivity,
   claudeListing,
   claudeStatus,
+  claudeTurnShown,
   codexExecProcess,
   codexExecThread,
   deduplicateSessions,
@@ -217,11 +218,29 @@ test("a busy Claude session's status comes from its own record, or for print mod
   expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells)).toBe("busy");
   expect(claudeStatus("busy", { ...interactive, status: "shell" }, true, none)).toBe("shell");
   expect(claudeStatus("busy", {}, true, shells)).toBe("busy");
+  // Its pane settles a busy status with no turn running, as while Claude compacts an idle conversation.
+  const idlePane = () => false;
+  expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells, idlePane)).toBe("idle");
+  expect(claudeStatus("busy", { ...interactive, status: "busy" }, false, shells, idlePane)).toBe("busy");
+  expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells, () => true)).toBe("busy");
+  expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells, () => undefined)).toBe("busy");
   // A print-mode record stays busy for the life of the process.
   expect(claudeStatus("busy", print, false, shells)).toBe("busy");
   expect(claudeStatus("busy", print, undefined, none)).toBe("busy");
   expect(claudeStatus("busy", print, true, shells)).toBe("shell");
   expect(claudeStatus("busy", print, true, none)).toBe("idle");
+});
+
+test("a Claude pane shows a turn running only while its footer offers to interrupt it", () => {
+  const prompt = "─────\n❯ \n─────\n  [Opus 5.5] · ~/drive/proj/wow · main · ctx 9%…\n";
+  expect(
+    claudeTurnShown(`${prompt}  ⏵⏵ bypass permissions on · 1 background task · esc to interrupt · ↓ to mana…\n\n`),
+  ).toBe(true);
+  expect(claudeTurnShown(`${prompt}  ⏵⏵ auto mode on (shift+tab to cycle)\n`)).toBe(false);
+  expect(claudeTurnShown(`${prompt}  ⏵⏵ auto mode on · 1 shell · ↓ to manage\n`)).toBe(false);
+  // A footer cut short may have lost the words.
+  expect(claudeTurnShown(`${prompt}  ⏵⏵ bypass permissions on · 3 background tasks · es…\n`)).toBeUndefined();
+  expect(claudeTurnShown("\n\n")).toBeUndefined();
 });
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {
