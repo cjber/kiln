@@ -51,7 +51,8 @@ A child messages its parent with `kiln msg send <parent>` when the work is done,
 changed and what it could not finish. `--model M` passes the model to the provider's headless
 command. When the child's process exits, kiln sends you the exit status and its last output, even
 if the child did not message first, so a child that stops on a usage limit is reported rather than
-lost. Start it again with a model whose limit is not spent.
+lost. Start it again with a model whose limit is not spent. A Codex child shows as `working` in
+`kiln msg list` while its process runs and leaves the list when it exits.
 
 When an OpenCode child stops to ask a question, kiln sends you the question as a message from the
 child, since nobody else can see it. Your `kiln msg send <child>` reply answers it, so answer it

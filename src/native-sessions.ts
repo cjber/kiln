@@ -340,8 +340,24 @@ async function codexExecProcesses(): Promise<AgentProcess[]> {
     const cwd = processCwd(pid);
     const args = processArgs(pid);
     if (!cwd || !args || args[1] !== "exec" || isDaemon(pid)) return [];
-    return [{ pid, agent: "codex" as const, id: codexExecThread(openFiles(pid)), cwd, startedAt: startedAt(pid) }];
+    return [codexExecProcess(pid, cwd, startedAt(pid), openFiles(pid))];
   });
+}
+
+/**
+ * A running `codex exec` process. It runs a single turn non-interactively, with nobody to ask anything, and exits as
+ * that turn ends: while the process runs, it is working. It runs on its own app server, not Codex's shared daemon.
+ */
+export function codexExecProcess(pid: number, cwd: string, started: number, files: readonly string[]): AgentProcess {
+  return {
+    pid,
+    agent: "codex",
+    id: codexExecThread(files),
+    cwd,
+    startedAt: started,
+    activity: "working",
+    codexExec: true,
+  };
 }
 
 function openFiles(pid: number): string[] {
