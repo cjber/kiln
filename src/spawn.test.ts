@@ -1069,24 +1069,40 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
   }
 });
 
-test("an exit without discovery relays what the child named in full and keeps the rest for a resumed run (#264)", async () => {
+test("an exit without discovery relays full names, and the resumed run relays the rest (#264)", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-offline-state");
   const name = "outbox-offline";
+  const child = "claude:offline-child";
   const discovery = spyOn(sessions, "listSessions").mockRejectedValue(new Error("discovery down"));
+  const first = { agent: "claude" as const, id: "offline-child", cwd: paneDir, pane: name, runBound: true };
+  const box = (run: number) => outboxPath(`${name}.${run}`);
   try {
     expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
-    recordSpawn({ agent: "codex", id: "offline-thread", cwd: paneDir, startedAt: Date.now(), pane: name });
-    mkdirSync(outboxPath(name), { recursive: true });
-    writeOutbox(outboxPath(name), "claude:offline-parent", "done");
-    writeOutbox(outboxPath(name), "reviewer", "later");
+    recordSpawn({ ...first, startedAt: 1_000 });
+    mkdirSync(box(1_000), { recursive: true });
+    writeOutbox(box(1_000), "claude:offline-parent", "done");
+    writeOutbox(box(1_000), "reviewer", "later");
     kill(name);
-    await reportSpawnExit(name, "", "claude:offline-parent");
+    await reportSpawnExit(name, child, "claude:offline-parent", "1000");
     expect(peekUnread("claude:offline-parent").map(({ from, body }) => ({ from, body }))[0]).toEqual({
-      from: "codex:offline-thread",
+      from: child,
       body: "done",
     });
-    expect(readdirSync(outboxPath(name)).filter((file) => file.endsWith(".json"))).toHaveLength(1);
+    expect(readdirSync(box(1_000)).filter((file) => file.endsWith(".json"))).toHaveLength(1);
+
+    // The resumed run has its own outbox, and relays what the first one left once discovery is back.
+    discovery.mockResolvedValue([]);
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ ...first, startedAt: 2_000 });
+    mkdirSync(box(2_000), { recursive: true });
+    kill(name);
+    await reportSpawnExit(name, child, "claude:offline-parent", "2000");
+    expect(peekUnread(child).map(({ body }) => body)).toEqual([
+      "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlater",
+    ]);
+    expect(existsSync(box(1_000))).toBe(false);
+    expect(existsSync(box(2_000))).toBe(false);
   } finally {
     discovery.mockRestore();
     kill(name);

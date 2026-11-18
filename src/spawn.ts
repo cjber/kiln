@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
@@ -306,22 +306,35 @@ function notice(child: string, to: string, reason: string, body: string): [strin
  * Relay a child's outbox and deliver what it sent. Returns whether anything still waits: a message the mailbox refused,
  * or one to a parent that is answering a question, so the watcher tries again later.
  */
-async function relayOutbox(box: string, from: string): Promise<boolean> {
+async function relayOutbox(boxes: readonly string[], from: string): Promise<boolean> {
   let sessions: Session[] | undefined;
   try {
     sessions = await listSessions({ kitty: false });
   } catch {
     // The messages stay in the outbox for the next pass.
   }
-  drainOutbox(box, from, sessions);
-  const ours = (message: { from: string }) => message.from === from || message.from === spawnReportSender(from);
+  for (const box of boxes) drainOutbox(box, from, sessions);
+  for (const box of boxes.slice(1)) releaseOutbox(box);
+  // Only what these outboxes posted: an earlier run's exit report to a parent that is gone is not this watcher's to retry.
+  const ours = (message: { id: string }) => boxes.some((box) => message.id.startsWith(`outbox:${box}:`));
   const waiting = pending().filter(ours);
-  if (!sessions || !waiting.length) return outboxFiles(box).length > 0 || waiting.length > 0;
+  const left = () => boxes.some((box) => outboxFiles(box).length > 0);
+  if (!sessions || !waiting.length) return left() || waiting.length > 0;
   try {
     const outcomes = await flush(sessions, { recipients: new Set(waiting.map((message) => message.to)) });
-    return outboxFiles(box).length > 0 || outcomes.some((outcome) => !outcome.delivered && ours(outcome.message));
+    return left() || outcomes.some((outcome) => !outcome.delivered && ours(outcome.message));
   } catch {
     return true;
+  }
+}
+
+/** Remove an outbox once it holds no message, with the mount points Codex's sandbox left in it. */
+function releaseOutbox(box: string): void {
+  clearMountPoints([outboxPath(box)]);
+  try {
+    rmdirSync(outboxPath(box));
+  } catch {
+    // Gone already, or holding a message kiln could not relay yet, which a resumed run relays.
   }
 }
 
@@ -354,6 +367,22 @@ function clearMountPoints(dirs: readonly string[]): void {
  * previous run's reporter, clearing its own, must not remove the one the new run's sandbox was granted.
  */
 const outboxKey = (pane: string, run: string) => (run ? `${pane}.${run}` : pane);
+
+/**
+ * The outboxes a run relays: its own, then any an earlier run in the pane left holding a message it could not relay.
+ * A resumed child is the same conversation, so it relays those as the same sender. A pane name has no dot.
+ */
+function paneOutboxes(pane: string, run: string): string[] {
+  const box = outboxKey(pane, run);
+  try {
+    return [
+      box,
+      ...readdirSync(dirname(outboxPath(box))).filter((entry) => entry !== box && entry.startsWith(`${pane}.`)),
+    ];
+  } catch {
+    return [box];
+  }
+}
 
 /** How long the exit watcher waits before trying again to deliver a message its child sent that could not go yet. */
 const relayRetryMs = 5_000;
@@ -499,7 +528,7 @@ export async function watchSpawnExit(
   // A Codex child's hooks name no child, since its thread did not exist yet; its record does.
   const record = runRecord(name, run);
   const from = child || (record ? `${record.agent}:${record.id}` : "");
-  const box = outboxKey(name, run);
+  const boxes = paneOutboxes(name, run);
   let retryAt: number | undefined;
   for (;;) {
     const seen = paneState(name);
@@ -519,8 +548,8 @@ export async function watchSpawnExit(
     }
     // The child runs in its agent's sandbox, which hides the sessions, so this watcher, outside it, delivers for it.
     // A failed pass waits out its retry delay rather than running discovery on every tick.
-    if (from && (retryAt === undefined ? outboxFiles(box).length > 0 : Date.now() >= retryAt))
-      retryAt = (await relayOutbox(box, from)) ? Date.now() + relayRetryMs : undefined;
+    if (from && (retryAt === undefined ? boxes.some((box) => outboxFiles(box).length > 0) : Date.now() >= retryAt))
+      retryAt = (await relayOutbox(boxes, from)) ? Date.now() + relayRetryMs : undefined;
     await Bun.sleep(intervalMs);
   }
 }
@@ -689,8 +718,8 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
   let recipients: Session[] | undefined = [];
-  const box = outboxKey(name, run);
-  if (parent || reported.parent || outboxFiles(box).length) {
+  const boxes = paneOutboxes(name, run);
+  if (parent || reported.parent || boxes.some((box) => outboxFiles(box).length > 0)) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
@@ -708,7 +737,8 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   const seen = paneState(name);
   if (seen !== "gone" && "waiting" in seen) return;
   // What the child sent before it exited goes ahead of its exit report.
-  const relayed = drainOutbox(box, identity, recipients);
+  let relayed = 0;
+  for (const box of boxes) relayed += drainOutbox(box, identity, recipients);
   // A pane whose session is gone has no exit left to read: a person closed it, tmux restarted, or a tmux without
   // remain-on-exit removed it (#240). Reporters close a pane only once its report is posted, or when it has nobody to
   // report to, so a pane they closed had its status reported already, and this report, under the same id, is not posted.
@@ -732,12 +762,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   }
   if (ending) reapEnded(ending);
   if (record.agent === "codex") clearMountPoints(worktreeMetadata(record.cwd));
-  clearMountPoints([outboxPath(box)]);
-  try {
-    rmdirSync(outboxPath(box));
-  } catch {
-    // Gone already, or holding a message kiln could not relay yet, which a resumed run relays.
-  }
+  for (const box of boxes) releaseOutbox(box);
   if (to || relayed) {
     try {
       await flush(recipients ?? []);
