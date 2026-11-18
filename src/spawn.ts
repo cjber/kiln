@@ -406,7 +406,16 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A conversation already running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
-  const run = { agent: options.agent, id, cwd: options.dir, title, parent, startedAt: Date.now(), pane: name };
+  const run = {
+    agent: options.agent,
+    id,
+    cwd: options.dir,
+    title,
+    parent,
+    startedAt: Date.now(),
+    pane: name,
+    runBound: true,
+  };
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
   // record is still this run's: a previous run's late hook must not reap this pane or report it to that run's parent.
   const token = String(run.startedAt);
@@ -440,8 +449,9 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   const record = spawnRecord(name);
   // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
   if (!record) return;
-  // A later run of the conversation owns this pane now; this reporter's run was reported, or failed to start.
-  if (run && Number(run) !== record.startedAt) return;
+  // A later run of the conversation owns this pane now; this reporter's run was reported, or failed to start. A
+  // reporter naming no run acts only on a record whose hooks name none either, from a Codex spawn or an older kiln.
+  if (run ? Number(run) !== record.startedAt : record.runBound) return;
   const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
   const ending = endedPane(name);
