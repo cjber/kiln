@@ -112,7 +112,10 @@ export function shellCommand(argv: readonly string[]): string {
   return argv.map(quote).join(" ");
 }
 
-/** The provider's headless command for a conversation whose id kiln already chose. */
+/**
+ * The provider's headless command for a conversation whose id kiln already chose. `writable` is granted to Codex with
+ * `--add-dir`; a Claude command carries its grant already, from {@link claudeGrants}.
+ */
 export function headlessCommand(
   command: readonly string[],
   agent: Agent,
@@ -136,7 +139,6 @@ export function headlessCommand(
         "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
         ...claudeCodeMode(resume),
         ...claudeCommand(command, resume?.codeMode === true),
-        ...claudeGrants(writable),
         "-p",
         ...claudeSession(id, resume),
         ...(title ? ["--name", title] : []),
@@ -168,14 +170,12 @@ export function interactiveClaudeCommand(
   model?: string,
   configDir?: string,
   resume?: SpawnOptions["resume"],
-  writable: readonly string[] = [],
 ): string[] {
   return [
     "env",
     ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : ["-u", "CLAUDE_CONFIG_DIR"]),
     ...claudeCodeMode(resume),
     ...claudeCommand(command, resume?.codeMode === true),
-    ...claudeGrants(writable),
     ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
@@ -184,13 +184,39 @@ export function interactiveClaudeCommand(
 }
 
 /**
- * Claude's grant of `writable` to the sandbox its commands run in. `--add-dir` would also give the session the folder,
- * and asks first whether to trust it whenever the folder is inside something Claude takes for a repository (any parent
- * holding a `.git`), which holds an interactive child at that prompt. The sandbox's `allowWrite` is merged with the
- * user's own and asks nothing: https://code.claude.com/docs/en/sandboxing#configure-sandboxing
+ * `command`, Claude's configured command, granting `writable` to the sandbox its commands run in. `--add-dir` would
+ * also give the session the folder, and asks first whether to trust it whenever the folder is inside something Claude
+ * takes for a repository (any parent holding a `.git`), which holds an interactive child at that prompt. The sandbox's
+ * `allowWrite` asks nothing: https://code.claude.com/docs/en/sandboxing#configure-sandboxing. Claude reads only the last
+ * `--settings`, so one the command already passes, inline or a file Claude would read from `dir`, carries the grant.
  */
-function claudeGrants(writable: readonly string[]): string[] {
-  return writable.length ? ["--settings", JSON.stringify({ sandbox: { filesystem: { allowWrite: writable } } })] : [];
+export function claudeGrants(command: readonly string[], dir: string, writable: readonly string[]): string[] {
+  if (!writable.length) return [...command];
+  const at = command.findLastIndex((word) => word === "--settings" || word.startsWith("--settings="));
+  const joined = at >= 0 && command[at] !== "--settings";
+  const given = at < 0 ? "{}" : joined ? command[at]?.slice("--settings=".length) : command[at + 1];
+  if (given === undefined) throw new Error("the Claude command in kiln's config ends with --settings and no value");
+  const text = given.trimStart().startsWith("{") ? given : readFileSync(resolve(dir, given), "utf8");
+  const object = (value: unknown): Record<string, unknown> => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+    if (value === undefined) return {};
+    throw new Error(`the --settings given to Claude, ${given}, is not a JSON object where kiln adds its sandbox grant`);
+  };
+  const settings = object(JSON.parse(text));
+  const sandbox = object(settings.sandbox);
+  const filesystem = object(sandbox.filesystem);
+  const allowed = Array.isArray(filesystem.allowWrite) ? filesystem.allowWrite : [];
+  const granted = {
+    ...settings,
+    sandbox: { ...sandbox, filesystem: { ...filesystem, allowWrite: [...allowed, ...writable] } },
+  };
+  const rest = at < 0 ? command.length : at + (joined ? 1 : 2);
+  return [
+    ...command.slice(0, at < 0 ? command.length : at),
+    "--settings",
+    JSON.stringify(granted),
+    ...command.slice(rest),
+  ];
 }
 
 /** Claude starts a conversation under the id kiln chose, or carries one on under its own id. */
@@ -588,8 +614,10 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
   // A child in its agent's sandbox cannot see the sessions, so what it sends waits in an outbox its spawn relays.
   const outbox = (box: string) => {
-    mkdirSync(outboxPath(box), { recursive: true, mode: 0o700 });
+    // A box this spawn did not make is another run's, which a failed start must leave alone.
+    const made = mkdirSync(outboxPath(box), { recursive: true, mode: 0o700 }) !== undefined;
     return {
+      release: () => made && releaseOutbox(box),
       env: { KILN_OUTBOX: outboxPath(box) },
       writable: spawnGrants(options.agent, options.dir, outboxPath(box)),
     };
@@ -598,7 +626,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   if (options.agent === "codex") {
     // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
     const name = `codex-${crypto.randomUUID()}`;
-    const { env, writable } = outbox(name);
+    const { env, writable, release } = outbox(name);
     // The exit hook names the pane; the record made below supplies the id once the thread exists.
     const hook = exitHook(exitReporter("exit", name, "", parent ?? ""));
     if (
@@ -612,11 +640,14 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
         env,
       )
     ) {
-      releaseOutbox(name);
+      release();
       throw new Error(`could not start ${agentName("codex")}`);
     }
     const pid = await panePid(name);
-    if (!pid) throw new Error("could not find the Codex process kiln started");
+    if (!pid) {
+      release();
+      throw new Error("could not find the Codex process kiln started");
+    }
     const startedAt = processStartedAt(pid);
     // The thread id names the rollout, which stays readable after the process exits. A run that ends or hangs before
     // starting its thread has no rollout, and keeps the name of its process.
@@ -646,28 +677,19 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // A conversation already running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const startedAt = Date.now();
-  const { env, writable } = outbox(outboxKey(name, String(startedAt)));
+  const { env, writable, release } = outbox(outboxKey(name, String(startedAt)));
+  const launch = options.agent === "claude" ? claudeGrants(command, options.dir, writable) : command;
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
-    ? interactiveClaudeCommand(
-        command,
-        id,
-        options.prompt,
-        options.title,
-        options.model,
-        configDir,
-        options.resume,
-        writable,
-      )
+    ? interactiveClaudeCommand(launch, id, options.prompt, options.title, options.model, configDir, options.resume)
     : headlessCommand(
-        command,
+        launch,
         options.agent,
         id,
         options.prompt,
         options.agent === "claude" ? options.title : title,
         options.model,
         options.resume,
-        writable,
       );
   const run = {
     agent: options.agent,
@@ -698,7 +720,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     if (previous) restoreRow(previous);
     else forget(run);
     // Nothing ran there long enough to leave a message, so the outbox would only be left behind.
-    releaseOutbox(outboxKey(name, token));
+    release();
     throw error;
   }
   recordSpawn({ ...run, pid });

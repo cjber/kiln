@@ -9,6 +9,7 @@ import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
 import * as sessions from "./sessions";
 import {
+  claudeGrants,
   exitHook,
   exitMessage,
   exitReporter,
@@ -1142,15 +1143,31 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
       "go",
     ]);
     // Claude grants its sandbox the outbox: --add-dir would first ask whether to trust it, and hold the child there.
-    const sandbox = ["--settings", JSON.stringify({ sandbox: { filesystem: { allowWrite: ["/outbox"] } } })];
-    const interactive = interactiveClaudeCommand(["claude"], "id", "go", undefined, undefined, undefined, undefined, [
-      "/outbox",
+    const grant = (allowWrite: string[], more = {}) =>
+      JSON.stringify({ ...more, sandbox: { filesystem: { allowWrite } } });
+    expect(claudeGrants(["claude"], root, ["/outbox"])).toEqual(["claude", "--settings", grant(["/outbox"])]);
+    // Claude reads only the last --settings, so the one the configured command passes carries the grant.
+    const inline = JSON.stringify({ model: "opus", sandbox: { filesystem: { allowWrite: ["/mine"] } } });
+    expect(claudeGrants(["claude", "--settings", "{}", "--settings", inline, "--chrome"], root, ["/outbox"])).toEqual([
+      "claude",
+      "--settings",
+      "{}",
+      "--settings",
+      grant(["/mine", "/outbox"], { model: "opus" }),
+      "--chrome",
     ]);
-    const headless = headlessCommand(["claude"], "claude", "id", "go", undefined, undefined, undefined, ["/outbox"]);
-    for (const command of [interactive, headless]) {
-      expect(command).not.toContain("--add-dir");
-      expect(command.join("\n")).toContain(sandbox.join("\n"));
-    }
+    writeFileSync(join(root, "team.json"), JSON.stringify({ env: { A: "1" } }));
+    expect(claudeGrants(["claude", "--settings=team.json"], root, ["/outbox"])).toEqual([
+      "claude",
+      "--settings",
+      grant(["/outbox"], { env: { A: "1" } }),
+    ]);
+    expect(() => claudeGrants(["claude", "--settings", '{"sandbox": []}'], root, ["/outbox"])).toThrow(
+      "is not a JSON object",
+    );
+    const interactive = interactiveClaudeCommand(claudeGrants(["claude"], root, ["/outbox"]), "id", "go");
+    expect(interactive).not.toContain("--add-dir");
+    expect(interactive).toContain(grant(["/outbox"]));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
