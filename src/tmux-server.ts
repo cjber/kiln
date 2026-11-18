@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { tmuxSocket } from "./tmux";
 
 /**
  * Stops a private tmux server started with `-L name` and removes its socket file, which tmux leaves in
@@ -7,5 +7,5 @@ import { join } from "node:path";
  */
 export function killServer(name: string): void {
   Bun.spawnSync(["tmux", "-L", name, "kill-server"], { stdout: "ignore", stderr: "ignore" });
-  rmSync(join(Bun.env.TMUX_TMPDIR || "/tmp", `tmux-${process.getuid?.()}`, name), { force: true });
+  rmSync(tmuxSocket(name), { force: true });
 }

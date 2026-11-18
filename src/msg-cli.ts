@@ -13,6 +13,7 @@ import {
   sessionParents,
 } from "./sessions";
 import { reportSpawnExit, spawnAgent, spawnOptions, spawnUsage, watchSpawnExit } from "./spawn";
+import { sessionsHidden } from "./tmux";
 import { tilde } from "./tui";
 
 const usage = `usage: kiln msg list [--json]          the sessions you can message
@@ -52,6 +53,9 @@ export function isPeer(name: string): boolean {
 }
 
 async function sessions(): Promise<Session[]> {
+  // A process that cannot see the sessions would list none and call each one gone, so it says why instead.
+  const hidden = await sessionsHidden();
+  if (hidden) throw new Error(hidden);
   // Kitty windows are only for focusing; a message never goes through one.
   return (await discovery()({ kitty: false })).sessions.filter(reachable);
 }
