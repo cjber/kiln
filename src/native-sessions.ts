@@ -26,7 +26,7 @@ import {
   type Session,
   sessionIdentity,
 } from "./sessions";
-import { panes } from "./tmux";
+import { panes, screen } from "./tmux";
 import { readTranscript } from "./transcript";
 
 /**
@@ -35,17 +35,40 @@ import { readTranscript } from "./transcript";
  * `sdk-cli`) record only as the process starts, so there the transcript says when a turn has ended, and the process then
  * waits on its background shells (`shell`) or, with none running, only on a wakeup or a message (`idle`). A failed
  * listing has no status, and stays unknown.
+ *
+ * An interactive Claude can stay `busy` with no turn running, as it does while it compacts an idle conversation. Its
+ * pane says whether a turn runs (`turnShown`), so a session whose transcript ended its turn and whose pane shows none
+ * running is idle; with no pane to read, Claude's own status stands.
  */
 export function claudeStatus(
   listed: string | undefined,
   record: ClaudeRecord,
   turnEnded: boolean | undefined,
   shellRunning: () => boolean,
+  turnShown: () => boolean | undefined = () => undefined,
 ): string | undefined {
   if (listed !== "busy") return listed;
-  if (record.entrypoint !== "sdk-cli") return record.status === "shell" ? "shell" : "busy";
+  if (record.entrypoint !== "sdk-cli") {
+    if (record.status === "shell") return "shell";
+    return turnEnded && turnShown() === false ? "idle" : "busy";
+  }
   if (!turnEnded) return "busy";
   return shellRunning() ? "shell" : "idle";
+}
+
+/**
+ * Whether a Claude pane shows a turn running: the last row of Claude's footer reads `esc to interrupt` for as long as
+ * a turn runs, and never at a prompt waiting for input. A footer cut short with `…` may have lost those words, so it
+ * says nothing.
+ */
+export function claudeTurnShown(text: string): boolean | undefined {
+  const footer = text
+    .split("\n")
+    .map((row) => row.trimEnd())
+    .findLast(Boolean);
+  if (footer === undefined) return undefined;
+  if (footer.includes("esc to interrupt")) return true;
+  return footer.endsWith("…") ? undefined : false;
 }
 
 /**
@@ -231,13 +254,26 @@ export function claudeListing(source: string | undefined, start = processStartTi
   return lastClaude;
 }
 
-async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: Session[] }> {
+async function claudeSessions(
+  owned: Promise<{ name: string; pid: number }[]>,
+): Promise<{ processes: AgentProcess[]; finished: Session[] }> {
   if (!Bun.which("claude")) return { processes: [], finished: [] };
   const process = Bun.spawn(["claude", "agents", "--json", "--all"], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   clearTimeout(timeout);
   const listed = claudeListing(code ? undefined : source);
+  const kilnPanes = new Map((await owned).map((pane) => [pane.pid, pane.name]));
+  const claudePids = new Set(listed.map((item) => item.pid));
+  // The kiln pane a Claude runs in, as its own process or under a wrapper; never the pane of another session above it.
+  const paneOf = (pid: number) => {
+    for (let current: number | undefined = pid; current; current = parentPid(current)) {
+      const name = kilnPanes.get(current);
+      if (name !== undefined) return name;
+      if (current !== pid && claudePids.has(current)) return undefined;
+    }
+    return undefined;
+  };
   const processes = listed
     .flatMap((item) =>
       typeof item.pid === "number" && typeof item.cwd === "string" ? [{ ...item, pid: item.pid }] : [],
@@ -250,7 +286,17 @@ async function claudeSessions(): Promise<{ processes: AgentProcess[]; finished: 
     .flatMap((item) => {
       const transcript = claudeTranscript(item.cwd, item.sessionId);
       const { title, workdir, turnEnded } = transcript ? readTranscript(transcript) : {};
-      const status = claudeStatus(item.status, claudeRecord(item.pid), turnEnded, () => claudeShellRunning(item.pid));
+      const status = claudeStatus(
+        item.status,
+        claudeRecord(item.pid),
+        turnEnded,
+        () => claudeShellRunning(item.pid),
+        () => {
+          const pane = paneOf(item.pid);
+          const shown = pane === undefined ? undefined : screen(pane);
+          return shown && claudeTurnShown(shown.text);
+        },
+      );
       const session = {
         pid: item.pid,
         processStart: item.processStart,
@@ -745,9 +791,10 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     const threads = await codexThreads(processes.flatMap((process) => (process.threadId ? [process.threadId] : [])));
     return withCodexThreads(processes, threads);
   };
+  const ownedPanes = panes();
   const [claude, owned, windows, codex, codexExec, pi, opencode, muse] = await Promise.all([
-    claudeSessions(),
-    panes(),
+    claudeSessions(ownedPanes),
+    ownedPanes,
     kitty ? kittyWindows() : [],
     readCodex(),
     codexExecProcesses().then((processes) => processes.map(stamped)),
