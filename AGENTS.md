@@ -71,7 +71,7 @@ Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its
 - `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
 - `src/session-prs.ts`, `src/autopilot.ts` - the pull requests a session opened, from `gh pr create` results in its transcript, and
   `pr_messages`: `kiln serve` posting check failures, conflicts, reviews and merges to the owning session's mailbox once per event.
-- `src/mailbox.ts`, `src/messages.ts`, `src/msg-cli.ts`, `skills/kiln-agents/` - `kiln msg`: a SQLite mailbox, the caller's name from its agent's
+- `src/mailbox.ts`, `src/messages.ts`, `src/msg-cli.ts`, `skills/kiln/` - `kiln msg`: a SQLite mailbox, the caller's name from its agent's
   session id variable, and delivery as a prompt (OpenCode service, Pi extension inbox, Codex `turn/start`, Claude's peer inbox socket from
   `src/claude-inbox.ts`, confirmed by the `queue-operation` enqueue record in its transcript, else tmux paste for kiln Claude). Typing waits for `idle` or `turnEnded`; the list and phone server flush
   pending messages on refresh.

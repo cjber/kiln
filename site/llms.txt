@@ -6,11 +6,9 @@ Install on Arch: `paru -S kiln-agents-bin` (standalone binary) or `paru -S kiln-
 
 ## Agent skills
 
-kiln syncs three skills into the shared skill store each time it starts. Install them first with `npx skills add cjber/kiln`, or in Claude Code with `/plugin marketplace add cjber/kiln` then `/plugin install kiln@kiln`.
+kiln syncs one skill into the shared skill store each time it starts. Install it first with `npx skills add cjber/kiln`, or in Claude Code with `/plugin marketplace add cjber/kiln` then `/plugin install kiln@kiln`.
 
-- [kiln-agents](https://github.com/cjber/kiln/blob/main/skills/kiln-agents/SKILL.md): list the other running agent sessions and message them with `kiln msg`, or read and answer their messages
-- [kiln-config](https://github.com/cjber/kiln/blob/main/skills/kiln-config/SKILL.md): change the session list, native agent commands, cloud discovery and tmux settings in kiln's TOML config
-- [kiln-skills](https://github.com/cjber/kiln/blob/main/skills/kiln-skills/SKILL.md): inspect and repair shared user or project skills, including missing links and conflicting Claude or Pi copies
+- [kiln](https://github.com/cjber/kiln/blob/main/skills/kiln/SKILL.md): list the other running agent sessions and message them with `kiln msg`, or read and answer their messages; change the session list, native agent commands, cloud discovery and tmux settings in kiln's TOML config; inspect and repair shared user or project skills
 
 ## Commands
 

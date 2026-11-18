@@ -1,8 +1,3 @@
----
-name: kiln-config
-description: Change kiln's session list, native agent commands, cloud discovery and tmux settings using its strict TOML configuration.
----
-
 # Configure kiln
 
 Settings live at `${XDG_CONFIG_HOME:-~/.config}/kiln/config.toml`. Read the existing
@@ -36,7 +31,7 @@ Use `--origin HTTPS_ORIGIN` with another tunnel or `--local` for localhost only.
 Use `kiln devices` and `kiln revoke DEVICE_ID` to manage phone access. Never put
 credentials into config files, URLs or issue comments.
 
-The bundled skill is maintained by kiln. `kiln skills sync` refreshes it from the
+The bundled `kiln` skill is maintained by kiln. `kiln skills sync` refreshes it from the
 installed executable; TUI startup does the same. To customise these instructions,
 copy them into a separately named user or project skill.
 

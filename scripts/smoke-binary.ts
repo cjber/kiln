@@ -71,13 +71,14 @@ for line in sys.stdin:
   run([executable, "status"]);
   run([executable, "skills", "sync"]);
   const installedSkills = JSON.parse(run([executable, "skills", "list"])).skills;
-  for (const name of ["kiln-agents", "kiln-config", "kiln-skills"]) {
-    const skill = installedSkills.find((entry: { name: string }) => entry.name === name);
-    if (skill?.claude !== "shared" || skill.pi !== "shared")
-      throw new Error(`bundled ${name} was not installed and shared`);
-    if (!readFileSync(join(skill.directory, "SKILL.md"), "utf8").includes(`name: ${name}`))
-      throw new Error(`bundled ${name} instructions are missing`);
-  }
+  const kilnSkill = installedSkills.find((entry: { name: string }) => entry.name === "kiln");
+  if (kilnSkill?.claude !== "shared" || kilnSkill.pi !== "shared")
+    throw new Error("bundled kiln skill was not installed and shared");
+  if (!readFileSync(join(kilnSkill.directory, "SKILL.md"), "utf8").includes("name: kiln"))
+    throw new Error("bundled kiln skill instructions are missing");
+  for (const reference of ["config", "skills"])
+    if (!readFileSync(join(kilnSkill.directory, "references", `${reference}.md`), "utf8").trim())
+      throw new Error(`bundled kiln skill reference ${reference} is missing`);
   run([
     tmux,
     "-L",

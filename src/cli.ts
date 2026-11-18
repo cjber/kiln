@@ -26,7 +26,7 @@ const usage = `usage: kiln            open the session list
        kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>
                                    start a headless agent in kiln's tmux, as a child of the calling session if any;
                                    --interactive (claude) starts its terminal UI so you can attach and watch
-       agents: npx skills add cjber/kiln installs the kiln-config, kiln-skills and kiln-agents skills
+       agents: npx skills add cjber/kiln installs the kiln skill
        kiln --version`;
 
 /** Anything but the bare TUI is handled here; an unknown argument is an error, never a silent TUI launch. */
