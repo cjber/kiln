@@ -1,6 +1,6 @@
 ---
 name: kiln
-description: Messages other running Claude, Codex, OpenCode and Pi sessions through kiln, changes kiln's TOML config, and repairs its shared skills. Use to hand work to or ask another agent session, when a prompt starts with "[kiln message from", to change kiln settings, or to fix missing skill links.
+description: Messages other running Claude, Codex, OpenCode, Pi and Muse sessions through kiln, changes kiln's TOML config, and repairs its shared skills. Use to hand work to or ask another agent session, when a prompt starts with "[kiln message from", to change kiln settings, or to fix missing skill links.
 ---
 
 # kiln
@@ -13,7 +13,8 @@ shared skills and their Claude or Pi links. Messaging other sessions is below.
 
 `kiln msg` reaches any running session kiln lists. A message is stored first, then delivered
 through the recipient's provider or typed into its terminal when safe. Working Claude sessions
-and Codex daemon sessions receive input in their active turn; approvals still wait. A session without a push
+and Codex daemon sessions receive input in their active turn; a Muse session takes a message
+through Muse's own session messaging; approvals still wait. A session without a push
 transport reads its messages with `kiln msg inbox`.
 
 ### Resuming after a restart
@@ -34,7 +35,7 @@ server (`case "$TMUX" in */kiln,*) echo kiln;; esac` prints `kiln`). Anywhere el
 the way you normally would; kiln still nests it under you while it is listed.
 
 In a kiln session, start work that should run as its own session with `kiln msg spawn`, never with a
-raw `opencode run`, `claude -p`, `codex exec` or `pi -p` in Bash:
+raw `opencode run`, `claude -p`, `codex exec`, `pi -p` or `muse exec` in Bash:
 
 ```sh
 kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "run the API tests and fix what fails"
@@ -59,6 +60,12 @@ command. When the child's process exits, kiln sends you the exit status and its 
 if the child did not message first, so a child that stops on a usage limit is reported rather than
 lost. Start it again with a model whose limit is not spent. A Codex child shows as `working` in
 `kiln msg list` while its process runs and leaves the list when it exits.
+
+Reach for a Muse child (`kiln msg spawn muse`) when a slice or a review wants the Muse model:
+a second implementation opinion beside your own, or the reviewer a Claude or Codex coordinator
+is not. It runs one headless turn and shows as `working` like a Codex child. Kiln cannot read a
+Muse transcript, so a Muse child's brief always ends by having it message its answer back with
+`kiln msg send`; its exit report is the fallback, not the answer.
 
 `--resume <id>` (Claude only) carries on a child's conversation after it has exited, by the id spawn
 printed: `kiln msg spawn claude --resume claude:<id> -- "carry on from where you stopped"`. It runs
@@ -115,5 +122,7 @@ Forward each returned message using its id for deduplication, then run
 `kiln msg ack <message-id...> --as @peer`. A crash before acknowledgement leaves it available
 for retry. `--wait` accepts 0 to 300 seconds. `kiln msg view <name> --json` reads a transcript
 page; pass its `cursor` back with `--cursor` to continue. It also reads a spawned child after it
-exits, by the full name `kiln msg spawn` printed, so read a finished child's answer there. Nebula uses its local device daemon
+exits, by the full name `kiln msg spawn` printed, so read a finished child's answer there (a Muse
+child is the exception: kiln cannot read its transcript, so its own message and exit report are
+its answer). Nebula uses its local device daemon
 as the bridge to these commands; kiln opens no extra network endpoint for peers.

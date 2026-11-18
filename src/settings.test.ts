@@ -17,6 +17,12 @@ test("a partial file overrides only what it names", () => {
   expect(settings.agents.claude).toEqual(["claude", "--model"]);
   expect(settings.agents.codex).toEqual(defaults.agents.codex);
   expect(settings.agents.pi).toEqual([]);
+  expect(settings.agents.muse).toEqual(["muse"]);
+  expect(parseSettings(`[agents]\nmuse = ["muse", "--provider", "echo"]\n`, "config.toml").agents.muse).toEqual([
+    "muse",
+    "--provider",
+    "echo",
+  ]);
 });
 
 test("a typo is an error naming the file and key, not a silent default", () => {

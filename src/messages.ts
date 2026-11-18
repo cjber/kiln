@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import { claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
 import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
+import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
@@ -39,12 +40,14 @@ const sessionVariables: Record<Agent, string> = {
   codex: "CODEX_THREAD_ID",
   opencode: "OPENCODE_SESSION_ID",
   pi: "PI_SESSION_ID",
+  muse: "MUSE_SESSION_ID",
 };
 
 /** Which agent a process is, from its argv; Pi is a Node script. */
 export function processAgent(args: readonly string[]): Agent | undefined {
   const name = basename(args[0] ?? "");
   if (name === "claude" || name === "codex" || name === "opencode") return name;
+  if (name === "muse" || name.startsWith("muse-bin-")) return "muse";
   if (name === "pi" || args.slice(0, 2).some((arg) => arg.includes("/pi-coding-agent/"))) return "pi";
   return undefined;
 }
@@ -113,7 +116,7 @@ export function findRecipient(
 
 export type Route =
   /** Kiln can put the message in front of the agent now. */
-  | { push: "claude" | "codex" | "opencode" | "pi" | "tmux" }
+  | { push: "claude" | "codex" | "opencode" | "pi" | "muse" | "tmux" }
   /** It can, once the agent stops working or asking. */
   | { wait: string }
   /** The agent has to read it with `kiln msg inbox`. */
@@ -153,6 +156,10 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
       return session.place.kind === "kiln"
         ? (busy() ?? { push: "tmux" })
         : { inbox: "it has no Claude inbox, and kiln can only type into Claude sessions it started" };
+    case "muse":
+      // Muse's own session messaging queues a message with its live session, as Claude's inbox does.
+      if (session.museExec) return { inbox: "it is a headless muse exec run, with no live session to message" };
+      return session.id !== undefined ? { push: "muse" } : { inbox: "kiln does not know its Muse session id" };
   }
 }
 
@@ -162,6 +169,10 @@ export type Interruption = { via: "codex" | "opencode" | "tmux" } | { unsupporte
 export function interruption(session: Session): Interruption {
   // An exec run has no terminal input, even in a kiln pane, and is not on the shared daemon.
   if (session.codexExec) return { unsupported: "a codex exec run takes no input" };
+  if (session.museExec) return { unsupported: "a muse exec run takes no input" };
+  // Muse never reports whether it is working, so Escape could land on an idle prompt and clear a draft.
+  if (session.agent === "muse")
+    return { unsupported: "Muse does not report when it is working, so kiln cannot tell a turn from an idle prompt" };
   // Escape is how an agent's own terminal ends a turn. OpenCode's TUI wants it twice, so its service stops it instead.
   if (session.place.kind === "kiln" && session.agent !== "opencode") return { via: "tmux" };
   switch (session.agent) {
@@ -232,7 +243,7 @@ export function frame(message: Message, sender: Session | undefined, command = k
 export class NotNow extends Error {}
 
 export type Transports = Record<
-  "claude" | "codex" | "opencode" | "pi" | "tmux",
+  "claude" | "codex" | "opencode" | "pi" | "muse" | "tmux",
   (session: Session, text: string, message: Message) => Promise<void>
 >;
 
@@ -264,6 +275,14 @@ const transports: Transports = {
     messageOpencodeSession(session.id ?? "", text, (form) =>
       posted(askId(session, form))?.to === message.from ? message.body : undefined,
     ),
+  muse: async (session, text) => {
+    try {
+      await messageMuseSession(session.id ?? "", text);
+    } catch (error) {
+      if (error instanceof MuseNotReady) throw new NotNow(error.message);
+      throw error;
+    }
+  },
   pi: async (session, text) => {
     const directory = piInbox(session.pid ?? 0);
     const name = `${Date.now()}-${crypto.randomUUID()}`;

@@ -25,6 +25,7 @@ class ProtocolTest {
                 "https://chatgpt.com/codex/tasks/../settings",
             )) assertNull(safeLink(Agent.CODEX, url))
         assertNull(safeLink(Agent.PI, "https://chatgpt.com/codex"))
+        assertNull(safeLink(Agent.MUSE, "https://chatgpt.com/codex"))
     }
 
     @Test
@@ -118,6 +119,19 @@ class ProtocolTest {
         assertEquals(Activity.UNKNOWN, row.activity)
         assertTrue(isCurrentSession(row, 2 * 86_400_000L))
         assertThrows(NoSuchElementException::class.java) { snapshot("gemini") }
+    }
+
+    @Test
+    fun parsesMuseSnapshotRows() {
+        val row =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":1,"problem":"","sessions":[
+                    {"id":"muse:1","agent":"muse","title":"t","cwd":"/w","where":"kiln",
+                    "startedAt":1,"handoff":{"reason":"r"}}]}"""
+                )
+                .rows
+                .single()
+        assertEquals(Agent.MUSE, row.agent)
     }
 
     @Test

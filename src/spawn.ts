@@ -7,6 +7,7 @@ import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } 
 import { claudeCommand, promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
+import { afterMuseWord } from "./muse";
 import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
@@ -143,6 +144,11 @@ export function headlessCommand(
       return [...command, "exec", ...chosen, prompt];
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
+    case "muse": {
+      // `exec` directly follows the muse word, after any wrapper: root options before it never start a session.
+      const at = afterMuseWord(command);
+      return [...command.slice(0, at), "exec", ...command.slice(at), "--session-id", id, ...chosen, prompt];
+    }
   }
 }
 

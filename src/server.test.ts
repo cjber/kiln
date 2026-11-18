@@ -396,7 +396,7 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
     current = { ...current, phoneWrite: true };
     expect(await (await call("/v1/directories")).json()).toEqual({
       directories: [project],
-      agents: ["claude", "codex", "opencode", "pi"],
+      agents: ["claude", "codex", "opencode", "pi", "muse"],
     });
     expect((await call("/v1/sessions", { ...request, directory: "/etc" })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, directory: join(project, "..") })).status).toBe(400);

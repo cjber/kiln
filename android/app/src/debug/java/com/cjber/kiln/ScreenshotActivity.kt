@@ -140,13 +140,15 @@ private fun demo(
             Agent.CODEX -> chatgpt
             Agent.CLAUDE -> claude
             Agent.OPENCODE,
-            Agent.PI -> null
+            Agent.PI,
+            Agent.MUSE -> null
         },
         when (agent) {
             Agent.CODEX -> "Open ChatGPT, then choose this thread"
             Agent.CLAUDE -> "Open in Claude"
             Agent.OPENCODE -> "Open this OpenCode session in kiln on your computer"
             Agent.PI -> "Open this Pi session in kiln on your computer"
+            Agent.MUSE -> "Open this Muse session in kiln on your computer"
         },
         agent != Agent.CODEX,
         parent,

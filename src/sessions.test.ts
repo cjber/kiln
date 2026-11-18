@@ -89,8 +89,8 @@ test("cross-provider parents use the parent's provider and keep grandchildren ne
 });
 
 test("every provider pair nests by process or explicit provider identity", () => {
-  for (const parentAgent of ["claude", "codex", "pi"] as const) {
-    for (const childAgent of ["claude", "codex", "pi"] as const) {
+  for (const parentAgent of ["claude", "codex", "pi", "muse"] as const) {
+    for (const childAgent of ["claude", "codex", "pi", "muse"] as const) {
       const parent: Session = {
         agent: parentAgent,
         id: "parent",

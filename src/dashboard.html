@@ -120,7 +120,7 @@ header b { font-size: 22px; color: var(--strong); margin-right: auto; }
 "use strict";
 const esc = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const stageName = { working: "working", failing: "PR failing", checks: "checks running", green: "PR green", done: "merged" };
-const agentColor = { claude: "var(--failing)", codex: "var(--waiting)", opencode: "var(--green)", pi: "var(--done)" };
+const agentColor = { claude: "var(--failing)", codex: "var(--waiting)", opencode: "var(--green)", pi: "var(--done)", muse: "var(--checks)" };
 const ageMinutes = 30;
 const expanded = new Set();
 const shownStages = new Map();

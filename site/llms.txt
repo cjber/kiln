@@ -1,6 +1,6 @@
 # kiln
 
-> kiln opens native Claude Code, Codex, OpenCode and Pi terminal sessions from one vim-keyed list, reads each provider's own status, and pairs with an Android phone. It also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+> kiln opens native Claude Code, Codex, OpenCode, Pi and Muse terminal sessions from one vim-keyed list, reads each provider's own status, and pairs with an Android phone. It also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 
 Install on Arch: `paru -S kiln-agents-bin` (standalone binary) or `paru -S kiln-agents` (Bun source package). It needs fzf and tmux.
 

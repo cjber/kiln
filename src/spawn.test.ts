@@ -166,6 +166,25 @@ test("a chosen model is passed to every provider's headless command", () => {
     expect.any(String),
     "work",
   ]);
+  expect(headlessCommand(["muse"], "muse", "id", "work", undefined, "model")).toEqual([
+    "muse",
+    "exec",
+    "--session-id",
+    "id",
+    "--model",
+    "model",
+    "work",
+  ]);
+  // `exec` follows the muse word, not the whole configured command: options before it never start a session.
+  expect(headlessCommand(["muse", "--provider", "echo"], "muse", "id", "work")).toEqual([
+    "muse",
+    "exec",
+    "--provider",
+    "echo",
+    "--session-id",
+    "id",
+    "work",
+  ]);
 });
 
 test("an exit hook quotes its command for tmux and a report names the reason", () => {

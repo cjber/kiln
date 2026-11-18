@@ -10,6 +10,7 @@ enum class Agent(val id: String) {
     CODEX("codex"),
     OPENCODE("opencode"),
     PI("pi"),
+    MUSE("muse"),
 }
 
 /** OTHER is a place kind this version does not know; it renders as a native terminal. */
@@ -268,7 +269,8 @@ fun safeLink(agent: Agent, value: String, origin: String? = null): String? {
                             ) == true))
             }
         Agent.OPENCODE,
-        Agent.PI -> null
+        Agent.PI,
+        Agent.MUSE -> null
     }
 }
 

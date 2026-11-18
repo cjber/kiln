@@ -589,6 +589,11 @@ async function shootDashboard(): Promise<void> {
       lastActiveAt: minutesAgo(74),
       startedAt: minutesAgo(96),
     }),
+    row("muse:audit", "Audit the session list", "Muse", undefined, "kiln", "cb/muse-agent", {
+      changes: 4,
+      lastActiveAt: minutesAgo(3),
+      startedAt: minutesAgo(31),
+    }),
   );
 
   const history = Array.from({ length: 73 }, (_, index) => {
