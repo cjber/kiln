@@ -22,6 +22,8 @@ export type Saved = {
   goneAt?: number;
   /** The tmux session `kiln msg spawn` started it in, so its exit hook can name it. */
   pane?: string;
+  /** Its spawn bound the exit hook and watcher to this run's start time; an older kiln's hooks name no run. */
+  runBound?: boolean;
 };
 
 /**
@@ -56,11 +58,13 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
     if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
     if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
+    if (!columns.some((column) => column.name === "runBound"))
+      db.exec("ALTER TABLE sessions ADD COLUMN runBound INTEGER");
     databases.set(path, db);
   }
   return db;
@@ -80,6 +84,7 @@ function read(db: Database): Saved[] {
       pid: row.pid ?? undefined,
       goneAt: row.goneAt ?? undefined,
       pane: row.pane ?? undefined,
+      runBound: row.runBound ? true : undefined,
     }));
 }
 
@@ -139,12 +144,15 @@ export function reconcile(
       cwd: session.cwd,
       title: session.title ?? recorded?.title,
       parent: session.spawnParent ?? recorded?.parent,
-      startedAt: session.startedAt,
+      // A spawned run's exit hook and watcher are bound to the start time its spawn recorded, so a row with a pane
+      // keeps it; the listing reads the process's own start time.
+      startedAt: recorded?.pane ? recorded.startedAt : session.startedAt,
       lastActiveAt: session.lastActiveAt,
       boot,
       pid: session.pid,
       goneAt: undefined,
       pane: recorded?.pane,
+      runBound: recorded?.runBound,
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));
@@ -192,7 +200,7 @@ export function reconcile(
 }
 
 function insert(db: Database, item: Saved): void {
-  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
     item.agent,
     item.id,
     item.cwd,
@@ -204,6 +212,7 @@ function insert(db: Database, item: Saved): void {
     item.goneAt ?? null,
     item.parent ?? null,
     item.pane ?? null,
+    item.runBound ? 1 : null,
   );
 }
 
@@ -254,13 +263,14 @@ export function recordSpawn(
     startedAt: number;
     pid?: number;
     pane?: string;
+    runBound?: boolean;
   },
   path = statePath(),
 ): void {
   try {
     open(path)
       .query(
-        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane)",
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound)",
       )
       .run(
         item.agent,
@@ -272,6 +282,7 @@ export function recordSpawn(
         item.pid ?? null,
         item.parent ?? null,
         item.pane ?? null,
+        item.runBound ? 1 : null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
@@ -294,6 +305,7 @@ export function spawnRecord(pane: string, path = statePath()): Saved | undefined
           pid: row.pid ?? undefined,
           goneAt: row.goneAt ?? undefined,
           pane: row.pane ?? undefined,
+          runBound: row.runBound ? true : undefined,
         }
       : undefined;
   } catch {
@@ -390,7 +402,7 @@ export function restoreRow(item: Saved, path = statePath()): void {
   }
 }
 
-export function forget(session: Session, path = statePath()): void {
+export function forget(session: Pick<Session, "agent" | "id">, path = statePath()): void {
   if (session.id !== undefined)
     open(path).query("DELETE FROM sessions WHERE agent = ? AND id = ?").run(session.agent, session.id);
 }

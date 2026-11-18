@@ -74,7 +74,9 @@ the exit status and the last output, so a child that stops on a usage limit is n
 A Codex child runs as `codex exec`, which works through one turn and exits: it is listed as
 `working` while its process runs and leaves the list when it exits. It is not on Codex's shared
 daemon, so messages to it wait in its mailbox and it cannot be interrupted.
-Exiting removes the child's pane and keeps its provider conversation available to resume.
+Exiting removes the child's pane and keeps its provider conversation available to resume:
+`kiln msg spawn claude --resume <name>` carries on an exited Claude child in the directory it began
+in, with its title, and records the caller as its parent again.
 `kiln msg view <name>` still reads a child that has exited, by the full name spawn printed, for as
 long as its provider keeps the transcript; kiln stores no copy. A Codex child is named by its thread,
 which spawn waits for, up to 30 seconds, after starting it.

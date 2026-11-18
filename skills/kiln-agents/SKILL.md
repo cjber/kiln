@@ -54,6 +54,10 @@ if the child did not message first, so a child that stops on a usage limit is re
 lost. Start it again with a model whose limit is not spent. A Codex child shows as `working` in
 `kiln msg list` while its process runs and leaves the list when it exits.
 
+`--resume <id>` (Claude only) carries on a child's conversation after it has exited, by the id spawn
+printed: `kiln msg spawn claude --resume claude:<id> -- "carry on from where you stopped"`. It runs
+in the directory the conversation began in, keeps its title, and records you as its parent again.
+
 When an OpenCode child stops to ask a question, kiln sends you the question as a message from the
 child, since nobody else can see it. Your `kiln msg send <child>` reply answers it, so answer it
 rather than leaving the child waiting. Do not wait on a child in the foreground: you cannot take its
