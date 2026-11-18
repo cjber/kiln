@@ -128,6 +128,35 @@ test("a stopped row is hidden while its conversation is listed some other way", 
   expect(result.saved).toHaveLength(1);
 });
 
+test("a row whose conversation its provider lists as finished is dropped, not offered after a restart", () => {
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const done: Session = {
+    ...running,
+    pid: undefined,
+    lifecycle: "completed",
+    place: { kind: "job", id: "0b276145", attach: [] },
+  };
+  expect(reconcile(saved, [done], "boot-1", 0, () => true, unknown).saved).toEqual([]);
+  expect(reconcile(saved, [done], "boot-2", 0, dead, unknown)).toEqual({ saved: [], stopped: [] });
+});
+
+test("a row from an earlier boot whose conversation is gone is dropped, not offered", () => {
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  // A running session is saved before its provider has written anything.
+  expect(
+    reconcile(
+      saved,
+      [],
+      "boot-1",
+      0,
+      () => true,
+      unknown,
+      () => false,
+    ).saved,
+  ).toHaveLength(1);
+  expect(reconcile(saved, [], "boot-2", 0, dead, unknown, () => false)).toEqual({ saved: [], stopped: [] });
+});
+
 test("a process missing from one listing is kept while it is still there", () => {
   const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
   const gone = reconcile(saved, [], "boot-1", 1_000, dead, unknown);

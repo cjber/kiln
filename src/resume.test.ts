@@ -17,19 +17,26 @@ Bun.env.KILN_TMUX_SERVER = `kiln-test-${process.pid}`;
 // The agent's environment is what kiln gives it, not whatever the test runner inherited.
 delete Bun.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE;
 const dir = mkdtempSync(join(tmpdir(), "kiln-resume-"));
+// Claude's transcripts, which a stopped Claude session needs to be resumed.
+const claudeConfig = Bun.env.CLAUDE_CONFIG_DIR;
+Bun.env.CLAUDE_CONFIG_DIR = join(dir, "claude");
+const project = join(dir, "claude", "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"));
 afterAll(() => {
   killServer(`kiln-test-${process.pid}`);
   rmSync(dir, { recursive: true, force: true });
+  if (claudeConfig === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
+  else Bun.env.CLAUDE_CONFIG_DIR = claudeConfig;
 });
 
-const stopped = (id: string, agent: Session["agent"] = "claude"): Session => ({
-  agent,
-  id,
-  cwd: dir,
-  startedAt: 1,
-  lifecycle: "stopped",
-  place: { kind: "saved" },
-});
+/** A session a restart stopped; a Claude one has a transcript unless `transcript` is false. */
+const stopped = (id: string, agent: Session["agent"] = "claude", transcript = true): Session => {
+  const path = join(project, `${id}.jsonl`);
+  if (agent === "claude" && transcript && !existsSync(path)) {
+    mkdirSync(project, { recursive: true });
+    writeFileSync(path, `${JSON.stringify({ type: "user", cwd: dir, sessionId: id })}\n`);
+  }
+  return { agent, id, cwd: dir, startedAt: 1, lifecycle: "stopped", place: { kind: "saved" } };
+};
 
 test("a kept pane reports why its command quit, and a running one is left alone", async () => {
   expect(start("quits", dir, ["sh", "-c", "echo no login; exit 3"], "quits", true)).toBe(true);
@@ -329,6 +336,19 @@ test("a listing taken while a failed resume ran does not take the stopped row ov
   }
 });
 
+test("a Claude session with no transcript is reported as having no conversation, without starting Claude", async () => {
+  const marker = join(dir, "no-transcript-started");
+  const settings = {
+    ...defaults,
+    remoteControl: false,
+    agents: { ...defaults.agents, claude: ["sh", "-c", `touch ${marker}; exit 255`] },
+  };
+  expect(
+    await resumeStopped(stopped("no-transcript", "claude", false), settings, undefined, listedOnce(marker)),
+  ).toEqual({ problem: "Claude has no conversation no-transcript to resume" });
+  expect(existsSync(marker)).toBe(false);
+});
+
 test("an agent its provider never lists is stopped and reported with what it shows", async () => {
   const settings = {
     ...defaults,
@@ -342,29 +362,20 @@ test("an agent its provider never lists is stopped and reported with what it sho
 });
 
 test("a conversation Claude recorded in Code Mode resumes with Code Mode on and no Remote Control", async () => {
-  const before = Bun.env.CLAUDE_CONFIG_DIR;
-  const config = join(dir, "claude");
-  Bun.env.CLAUDE_CONFIG_DIR = config;
-  try {
-    const project = join(config, "projects", dir.replace(/[^a-zA-Z0-9]/g, "-"));
-    mkdirSync(project, { recursive: true });
-    writeFileSync(
-      join(project, "code-mode-id.jsonl"),
-      `${JSON.stringify({ type: "repl-mode", replMode: true, sessionId: "code-mode-id" })}\n`,
-    );
-    const out = join(dir, "code-mode-argv");
-    const fake = `printf '%s %s\\n' "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" "$*" > ${out}; sleep 30`;
-    const settings = {
-      ...defaults,
-      remoteControl: true,
-      agents: { ...defaults.agents, claude: ["sh", "-c", fake, "sh"] },
-    };
-    expect(await resumeStopped(stopped("code-mode-id"), settings, "continue", listedOnce(out))).toHaveProperty("name");
-    expect(readFileSync(out, "utf8")).toBe("1 --resume code-mode-id -- continue\n\n");
-  } finally {
-    if (before === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
-    else Bun.env.CLAUDE_CONFIG_DIR = before;
-  }
+  mkdirSync(project, { recursive: true });
+  writeFileSync(
+    join(project, "code-mode-id.jsonl"),
+    `${JSON.stringify({ type: "repl-mode", replMode: true, sessionId: "code-mode-id" })}\n`,
+  );
+  const out = join(dir, "code-mode-argv");
+  const fake = `printf '%s %s\\n' "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" "$*" > ${out}; sleep 30`;
+  const settings = {
+    ...defaults,
+    remoteControl: true,
+    agents: { ...defaults.agents, claude: ["sh", "-c", fake, "sh"] },
+  };
+  expect(await resumeStopped(stopped("code-mode-id"), settings, "continue", listedOnce(out))).toHaveProperty("name");
+  expect(readFileSync(out, "utf8")).toBe("1 --resume code-mode-id -- continue\n\n");
 });
 
 test("Code Mode drops Remote Control, including from the configured command", () => {
