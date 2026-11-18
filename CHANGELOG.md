@@ -9,7 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
-- **A running `codex exec` session shows as working.** A Codex child started with `kiln msg spawn`, or any other `codex exec` run, was listed with status `unknown` from start to finish, the same as a session whose status kiln cannot read, so a parent could not tell from `kiln msg list` whether its child was still at work. `codex exec` runs one turn without asking anything and exits when the turn ends, so kiln now lists it as working while its process runs; it leaves the list when it exits, and its parent still gets the exit report. Messages to it still wait in its mailbox, and `kiln msg interrupt` says it cannot stop one rather than pressing Escape in a pane that takes no input. `kiln msg list` also prints `completed` or `stopped` for a finished Claude background job instead of `unknown`, and `--json` includes that `lifecycle`.
+- **A running `codex exec` session shows as working.** A Codex child started with `kiln msg spawn`, or any other `codex exec` run, was listed with status `unknown` from start to finish, the same as a session whose status kiln cannot read, so a parent could not tell from `kiln msg list` whether its child was still at work. `codex exec` runs one turn without asking anything and exits when the turn ends, so kiln now lists it as working while its process runs; it leaves the list when it exits, and its parent still gets the exit report. Messages to it still wait in its mailbox, and `kiln msg interrupt` says it cannot stop one rather than pressing Escape in a pane that takes no input.
+
+- **A spawned interactive Claude that never starts fails the spawn.** `kiln msg spawn claude --interactive` used to print the child's id and exit successfully even when Claude was held at a startup question kiln does not answer, such as whether to allow a project's CLAUDE.md to import files from outside its folder. The child then never read its prompt and never appeared in `kiln msg list`. Now a child that has not started its session within 30 seconds fails the spawn with what its screen shows, and kiln closes it.
 
 ## [0.29.1] - 2026-11-17
 

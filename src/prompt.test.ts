@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { emptyInput, moves, parsePrompt } from "./prompt";
+import { emptyInput, moves, parsePrompt, withoutFaint } from "./prompt";
 
 const screen = (name: string) => Bun.file(join(import.meta.dir, "fixtures", "prompts", `${name}.txt`)).text();
 const read = async (name: string) => parsePrompt(await screen(name), 100);
@@ -56,4 +56,15 @@ test("an input box is empty only when the cursor's row is the bare marker", () =
   // The second line of a draft, or a cursor outside the box, is not an empty prompt.
   expect(emptyInput(["❯ first line", "  ", "────────"], 1)).toBe(false);
   expect(emptyInput(rows, 0)).toBe(false);
+});
+
+test("a suggestion Claude draws faint in an empty prompt box is not a draft", () => {
+  // Captured with capture-pane -e from a Claude session showing a prompt suggestion.
+  const suggested = "\x1b[39m❯\u00a0\x1b[2mok keep going, ping me when spf ships\x1b[0m";
+  expect(emptyInput([withoutFaint(suggested)], 0)).toBe(true);
+  expect(emptyInput([withoutFaint("\x1b[39m❯\u00a0half a prompt\x1b[0m")], 0)).toBe(false);
+  // Truecolour arguments carry 2s that are not the faint attribute.
+  expect(withoutFaint("\x1b[38;2;2;2;2mtyped\x1b[22m")).toBe("typed");
+  expect(withoutFaint("\x1b[2mfaint\x1b[22m kept")).toBe(" kept");
+  expect(withoutFaint("\x1b]8;;https://a.b\x1b\\link\x1b]8;;\x07")).toBe("link");
 });

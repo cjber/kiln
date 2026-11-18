@@ -95,9 +95,38 @@ export function moves(prompt: Prompt, number: number): string[] {
   return Array.from({ length: Math.abs(steps) }, () => (steps > 0 ? "Down" : "Up"));
 }
 
+const esc = "\u001b";
+// CSI sequences, and OSC ones such as the hyperlinks `capture-pane -e` writes.
+const controlSequence = new RegExp(`(${esc}\\[[0-9;:]*[A-Za-z]|${esc}\\][^\u0007${esc}]*(?:\u0007|${esc}\\\\))`);
+const graphicRendition = new RegExp(`^${esc}\\[([0-9;:]*)m$`);
+
+/**
+ * A captured row (`capture-pane -e`) as plain text, without what it draws faint. Claude draws its prompt suggestion and
+ * placeholder faint in an empty prompt box; typed text is never faint, so only the typed part is left.
+ */
+export function withoutFaint(row: string): string {
+  let faint = false;
+  let text = "";
+  for (const part of row.split(controlSequence)) {
+    const sgr = graphicRendition.exec(part);
+    if (sgr) {
+      const codes = (sgr[1] || "0").split(";").map(Number);
+      for (let index = 0; index < codes.length; index++) {
+        const code = codes[index];
+        // An extended colour's arguments are not attributes: 38;5;n and 38;2;r;g;b.
+        if (code === 38 || code === 48 || code === 58) index += codes[index + 1] === 5 ? 2 : 4;
+        else if (code === 2) faint = true;
+        else if (code === 0 || code === 22) faint = false;
+      }
+    } else if (!part.startsWith(esc) && !faint) text += part;
+  }
+  return text;
+}
+
 /**
  * Whether the prompt box the cursor is in holds no draft: the cursor's row is the bare input marker. Claude puts the
  * terminal cursor where the next key lands, so a draft of any length, or a cursor moved into one, shows on that row.
+ * Rows come through `withoutFaint`, so a suggestion shown in an empty box is not a draft.
  */
 export function emptyInput(rows: readonly string[], cursorY: number): boolean {
   return /^[❯›>]\s*$/.test(rows[cursorY] ?? "");

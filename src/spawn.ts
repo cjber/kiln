@@ -12,7 +12,7 @@ import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, endedPane, kill, kiln, panePid, paneState, reapEnded, start } from "./tmux";
+import { ended, endedPane, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>`;
 
@@ -180,28 +180,40 @@ const claudeLaunches = 3;
  * instead of waiting at the trust dialog. Kiln trusted the folder in the config dir it passed, but a launcher such as a
  * multi-account wrapper can choose another one after it starts. When the launch reaches a config that had not trusted
  * the folder, kiln trusts it there and starts Claude again, because Claude reads trust only as it starts. Returns the
- * pane's process; throws, closing the session, when every launch lands on an untrusted config.
+ * pane's process; throws, closing the session, when every launch lands on an untrusted config or Claude has not
+ * registered its session by the deadline, which is how a startup dialog kiln does not answer holds it.
  */
-async function settleClaudeTrust(
+export async function settleClaudeTrust(
   name: string,
   id: string,
-  options: SpawnOptions,
+  options: Pick<SpawnOptions, "dir">,
   argv: string[],
   title: string,
   hook: string,
+  waitMs = claudeStartWaitMs,
 ): Promise<number | undefined> {
   for (let launch = 1; ; launch++) {
     const pid = await panePid(name);
     if (!pid) return pid;
     let outcome: LaunchOutcome;
     try {
-      outcome = await settleLaunch(pid, id, options.dir, claudeStartWaitMs);
+      outcome = await settleLaunch(pid, id, options.dir, waitMs);
     } catch (error) {
       kill(name);
       throw error;
     }
-    // Registered, ended or still starting: every config the launch reached trusts the folder, so the dialog is not
-    // what holds it.
+    if (outcome === "unregistered") {
+      const shown = (screen(name)?.text ?? "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join("\n");
+      kill(name);
+      throw new Error(
+        `Claude had not started its session after ${waitMs / 1000} s, so kiln closed it. Its screen showed:\n${shown}`,
+      );
+    }
+    // Registered or ended: every config the launch reached trusts the folder, so the dialog is not what holds it.
     if (outcome !== "untrusted") return pid;
     kill(name);
     if (launch === claudeLaunches)
