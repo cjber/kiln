@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pending, post, posted } from "./mailbox";
 import {
+  approvalShown,
   askParents,
   callerIdentity,
   findRecipient,
   flush,
   frame,
+  HeldForApproval,
   heldBecause,
   NotNow,
   processAgent,
@@ -161,6 +163,34 @@ test("flush types each deliverable message once, framed with its sender, and kee
   expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:missing", "claude:open"]);
   expect(await flush(sessions, { path, send })).toHaveLength(3);
   expect(typed).toHaveLength(1);
+});
+
+test("a message Claude holds at its approval prompt says so, rather than that it may be lost", async () => {
+  const path = mailbox();
+  const send = {
+    tmux: async (target: Session) => {
+      throw new HeldForApproval(`held at Claude's message approval prompt in claude:${target.id}; approve it there`);
+    },
+  } as unknown as Transports;
+  post("terminal", "claude:held", "hello", path);
+  const [outcome] = await flush([session({ id: "held" })], { path, send });
+  expect(outcome?.delivered ? "delivered" : outcome?.reason).toBe(
+    "held at Claude's message approval prompt in claude:held; approve it there",
+  );
+  // Claude delivers it once approved, so kiln does not send it again.
+  expect(pending(path)).toEqual([]);
+});
+
+test("Claude's pane shows its prompt for a held message", () => {
+  const prompt = [
+    "Another Claude session sent a message: from claude:293a92c1 [verified pid 54331]",
+    "This session is not prompting for permissions.",
+    "Message body (this is what will be delivered)",
+    "❯ 1. Deny — drop it and tell the sender it was declined",
+    "  2. Deliver this message to Claude",
+  ].join("\n");
+  expect(approvalShown(prompt)).toBe(true);
+  expect(approvalShown("❯ \n  ⏵⏵ auto mode on (shift+tab to cycle)")).toBe(false);
 });
 
 test("a message from a person at a shell offers no reply command", () => {

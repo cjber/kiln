@@ -99,6 +99,9 @@ export function claudeInbox(pid: number, dir = claudeConfigDir(), start = proces
 /** Nothing reached the inbox, so the message can simply be sent again later. */
 export class InboxClosed extends Error {}
 
+/** The inbox took the message and Claude did not queue it: it held, refused or dropped it. */
+export class ClaudeNotQueued extends Error {}
+
 /**
  * Put a prompt in a Claude session's inbox, as one session messages another. Claude queues it while a turn runs and
  * starts a turn with it otherwise, including in print mode while it waits on background work or a wakeup.
@@ -117,7 +120,7 @@ export async function sendClaudeInbox(
   await writeInbox(inbox, text, timeoutMs);
   const deadline = Date.now() + timeoutMs;
   while (!queued(transcript, offset, text)) {
-    if (Date.now() >= deadline) throw new Error("Claude did not queue it, so it held, refused or dropped it");
+    if (Date.now() >= deadline) throw new ClaudeNotQueued("Claude did not queue it, so it held, refused or dropped it");
     await Bun.sleep(100);
   }
 }
