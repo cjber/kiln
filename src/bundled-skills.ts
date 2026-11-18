@@ -80,6 +80,8 @@ function syncOne(store: ReturnType<typeof skillStore>, name: string, source: Ski
     for (const [path, text] of Object.entries(source)) {
       const target = join(directory, path);
       mkdirSync(dirname(target), { recursive: true });
+      if (lstatSync(dirname(target)).isSymbolicLink())
+        throw new Error(`${dirname(target)} is a link; kiln will not write through it`);
       const temporary = join(dirname(target), `.kiln-tmp-${randomUUID()}`);
       writeFileSync(temporary, text, { flag: "wx" });
       renameSync(temporary, target);
@@ -101,9 +103,11 @@ function removeRetired(store: ReturnType<typeof skillStore>, name: string): void
   } catch {
     return; // Absent, or a same-name skill kiln does not own: leave it alone.
   }
-  const files = readFiles(directory);
-  // Earlier releases digested SKILL.md alone.
-  if (sha256(files["SKILL.md"] ?? "") !== previous || Object.keys(files).length !== 1) backUp(store, name, directory);
+  // Earlier releases digested SKILL.md alone and held nothing else, so any other entry is the user's.
+  const pristine =
+    readdirSync(directory).sort().join("/") === [markerName, "SKILL.md"].sort().join("/") &&
+    sha256(readFileSync(join(directory, "SKILL.md"), "utf8")) === previous;
+  if (!pristine) backUp(store, name, directory);
   unshareSkill(store, name);
   rmSync(directory, { recursive: true });
 }
@@ -123,6 +127,7 @@ export function syncBundledSkills(
     }
   };
   for (const [name, source] of Object.entries(sources)) attempt(() => syncOne(store, name, source));
-  for (const name of retiredNames) attempt(() => removeRetired(store, name));
+  // Retire the old skills only once their replacement is installed and shared.
+  if (problems.length === 0) for (const name of retiredNames) attempt(() => removeRetired(store, name));
   return problems;
 }
