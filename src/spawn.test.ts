@@ -14,6 +14,7 @@ import {
   interactiveClaudeCommand,
   reportSpawnExit,
   settleClaudeTrust,
+  spawnAgent,
   spawnedCodexThread,
   spawnOptions,
   spawnUsage,
@@ -380,6 +381,84 @@ test("every exit of a resumed child reaches the parent recorded for that run", a
     else Bun.env.XDG_STATE_HOME = state;
   }
 });
+
+test("a resumed child that exits before its spawn settles reports to the new parent under a new exit id", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    claude: Bun.env.CLAUDE_CONFIG_DIR,
+  };
+  const root = join(paneDir, "resumed-early");
+  const state = join(root, "state");
+  const dir = join(root, "work");
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "claude"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  Bun.env.XDG_STATE_HOME = state;
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.CLAUDE_CONFIG_DIR = join(root, "claude");
+  const server = `kiln-spawn-${process.pid}`;
+  // The pane's exit hook runs in the tmux server's environment, so it reads this test's state too.
+  Bun.spawnSync(["tmux", "-L", server, "set-environment", "-g", "XDG_STATE_HOME", state]);
+  const id = crypto.randomUUID();
+  const name = `claude-${id.replaceAll("-", "").slice(0, 20)}`;
+  // A Claude that exits before it registers its session, noting the spawn record its exit reporters would read.
+  const seen = join(root, "seen.json");
+  const claude = join(root, "claude.sh");
+  const reader = `import { spawnRecord } from ${JSON.stringify(resolve(import.meta.dir, "saved-sessions.ts"))}; await Bun.write(${JSON.stringify(seen)}, JSON.stringify(spawnRecord(${JSON.stringify(name)}) ?? null));`;
+  writeFileSync(claude, `#!/bin/sh\nXDG_STATE_HOME='${state}' '${process.execPath}' -e '${reader}'\nexit 7\n`, {
+    mode: 0o755,
+  });
+  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\nclaude = [${JSON.stringify(claude)}]\n`);
+  try {
+    // The run before this one exited and was reported to its own parent.
+    recordSpawn({
+      agent: "claude",
+      id,
+      cwd: dir,
+      title: "resumed",
+      parent: "codex:old-parent",
+      startedAt: 1_000,
+      pane: name,
+    });
+    expect(
+      await spawnAgent(
+        {
+          agent: "claude",
+          dir,
+          prompt: "carry on",
+          interactive: true,
+          resume: { id, codeMode: false, title: "resumed" },
+        },
+        "codex:new-parent",
+      ),
+    ).toBe(`claude:${id}`);
+    const record = JSON.parse(await Bun.file(seen).text());
+    expect(record).toMatchObject({ agent: "claude", id, parent: "codex:new-parent" });
+    expect(record.startedAt).not.toBe(1_000);
+    let messages = takeUnread("codex:new-parent");
+    for (let waited = 0; messages.length === 0 && waited < 15_000; waited += 100) {
+      await Bun.sleep(100);
+      messages = takeUnread("codex:new-parent");
+    }
+    expect(messages.map((message) => message.body)).toEqual([
+      `Child claude:${id} exited with status 7 while working on "resumed".`,
+    ]);
+    expect(messages[0]?.id).toBe(exitReportId({ agent: "claude", id, startedAt: record.startedAt }));
+    expect(takeUnread("codex:old-parent")).toHaveLength(0);
+  } finally {
+    kill(name);
+    Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["CLAUDE_CONFIG_DIR", saved.claude],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+}, 30_000);
 
 test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
   const state = Bun.env.XDG_STATE_HOME;

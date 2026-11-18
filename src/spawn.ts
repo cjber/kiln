@@ -10,7 +10,7 @@ import { flush, spawnReportSender } from "./messages";
 import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
-import { recordSpawn, type Saved, spawnRecord } from "./saved-sessions";
+import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
 import { ended, endedPane, exists, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
@@ -406,11 +406,22 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // A conversation already running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? ""]);
-  const startedAt = Date.now();
-  if (!start(name, options.dir, argv, title, false, hook))
-    throw new Error(`could not start ${agentName(options.agent)}`);
-  const pid = options.interactive ? await settleClaudeTrust(name, id, options, argv, title, hook) : await panePid(name);
-  recordSpawn({ agent: options.agent, id, cwd: options.dir, title, parent, startedAt, pid, pane: name });
+  const run = { agent: options.agent, id, cwd: options.dir, title, parent, startedAt: Date.now(), pane: name };
+  // Record this run before its pane can exit: a resumed child keeps its pane name, so an exit hook that fired first
+  // would read the previous run's parent and start time. A spawn that fails puts the previous record back.
+  const previous = savedRow(run);
+  recordSpawn(run);
+  let pid: number | undefined;
+  try {
+    if (!start(name, options.dir, argv, title, false, hook))
+      throw new Error(`could not start ${agentName(options.agent)}`);
+    pid = options.interactive ? await settleClaudeTrust(name, id, options, argv, title, hook) : await panePid(name);
+  } catch (error) {
+    if (previous) restoreRow(previous);
+    else forget(run);
+    throw error;
+  }
+  recordSpawn({ ...run, pid });
   watchInBackground(name, `${options.agent}:${id}`, parent ?? "");
   if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");
   return `${options.agent}:${id}`;

@@ -390,7 +390,7 @@ export function restoreRow(item: Saved, path = statePath()): void {
   }
 }
 
-export function forget(session: Session, path = statePath()): void {
+export function forget(session: Pick<Session, "agent" | "id">, path = statePath()): void {
   if (session.id !== undefined)
     open(path).query("DELETE FROM sessions WHERE agent = ? AND id = ?").run(session.agent, session.id);
 }
