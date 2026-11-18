@@ -108,3 +108,24 @@ test("retired kiln-owned skills and their links are removed, edited ones backed 
       .sort(),
   ).toEqual(["kiln", "kiln-skills"]);
 });
+
+test("retired skills stay until the replacement installs, and user additions inside them are backed up", () => {
+  const store = fixture();
+  const directory = join(store.directory, "kiln-agents");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "SKILL.md"), "old");
+  const sha256 = new Bun.CryptoHasher("sha256").update("old").digest("hex");
+  writeFileSync(join(directory, ".kiln-bundle.json"), JSON.stringify({ owner: "kiln", name: "kiln-agents", sha256 }));
+  mkdirSync(join(directory, "notes"));
+  mkdirSync(join(store.directory, "kiln"));
+  writeFileSync(join(store.directory, "kiln", "SKILL.md"), "the user's own kiln skill");
+
+  expect(syncBundledSkills(store, { kiln: skill("new") })).toHaveLength(1);
+  expect(existsSync(directory)).toBe(true);
+
+  rmSync(join(store.directory, "kiln"), { recursive: true });
+  expect(syncBundledSkills(store, { kiln: skill("new") })).toEqual([]);
+  expect(existsSync(directory)).toBe(false);
+  const backups = join(store.directory, ".kiln-backups");
+  expect(existsSync(join(backups, readdirSync(backups)[0] as string, "kiln-agents", "notes"))).toBe(true);
+});
