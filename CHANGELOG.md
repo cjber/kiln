@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **`kiln msg spawn claude --resume <name>` carries on a Claude child that has exited.** It restarts the conversation by the id spawn printed, in the directory it began in and with its title, and records the caller as its parent, so a child cut off by a network outage or a usage limit picks up where it stopped and still reports its exit.
+- **`kiln resume` no longer offers a Claude session that finished or has nothing to resume.** A session Claude lists as a finished background job, or whose Claude transcript no longer exists, is dropped from the stopped sessions a restart left, instead of showing in `kiln resume` and the list. Resuming a Claude session with no transcript now says it has no conversation to resume, rather than starting Claude and reporting `Claude exited with status -1`.
 - **A spawned interactive Claude that never starts fails the spawn.** `kiln msg spawn claude --interactive` used to print the child's id and exit successfully even when Claude was held at a startup question kiln does not answer, such as whether to allow a project's CLAUDE.md to import files from outside its folder. The child then never read its prompt and never appeared in `kiln msg list`. Now a child that has not started its session within 30 seconds fails the spawn with what its screen shows, and kiln closes it.
 
 ## [0.29.1] - 2026-11-17

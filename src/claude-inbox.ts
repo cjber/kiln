@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,24 @@ export const claudeConfigDir = () => Bun.env.CLAUDE_CONFIG_DIR || join(homedir()
 export function claudeTranscript(cwd: string, sessionId: string | undefined): string | undefined {
   if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return undefined;
   return join(claudeConfigDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${sessionId}.jsonl`);
+}
+
+/**
+ * The transcript of the Claude conversation `id`, or undefined when Claude has none to resume. Claude files it under the
+ * directory the conversation began in; `cwd`, when known, is tried first, and otherwise it is found by the id alone.
+ */
+export function findClaudeTranscript(id: string, cwd?: string): string | undefined {
+  if (!/^[A-Za-z0-9-]+$/.test(id)) return undefined;
+  const direct = cwd === undefined ? undefined : claudeTranscript(cwd, id);
+  if (direct && existsSync(direct)) return direct;
+  let path: string | undefined;
+  try {
+    for (const match of new Bun.Glob(`*/${id}.jsonl`).scanSync({ cwd: join(claudeConfigDir(), "projects") }))
+      path = join(claudeConfigDir(), "projects", match);
+  } catch {
+    // No projects directory holds no conversations.
+  }
+  return path;
 }
 
 /** What kiln reads from the record Claude keeps for each running session, `sessions/<pid>.json`. */
