@@ -13,7 +13,7 @@ import { piExtensionPath } from "./pi-status";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
+import { claimEnded, ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--interactive] -- <prompt>`;
@@ -476,10 +476,12 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
       // An unavailable discovery source must not prevent an offline mailbox report.
     }
   }
-  // Claim cleanup before posting. Only the reporter that removes this exact
-  // dead process owns its exit; a replacement during discovery belongs to another run.
-  // A pane whose session is gone has nothing to claim, and the message id makes a second reporter's post a no-op.
-  if (ending && !reapEnded(ending)) return;
+  // Claim the exit before posting. Only the reporter that claims this exact dead process owns its exit; a replacement
+  // during discovery belongs to another run. The claimant posts before it closes the pane, so a reporter that finds the
+  // pane gone, and reports it as ended without a status, can only post after the report that has the status. A pane
+  // whose session is gone has nothing to claim, and the message id makes a second reporter's post a no-op.
+  if (ending && !claimEnded(ending)) return;
+  let posted = false;
   if (to && separator > 0) {
     try {
       post(
@@ -490,6 +492,14 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
         undefined,
         exitReportId(record),
       );
+      posted = true;
+    } catch {
+      // A report that cannot be posted now is lost either way; the pane is still closed below.
+    }
+  }
+  if (ending) reapEnded(ending);
+  if (posted) {
+    try {
       await flush(recipients);
     } catch {
       // A parent kiln cannot reach right now can still read the message from its mailbox.

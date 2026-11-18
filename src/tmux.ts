@@ -404,7 +404,23 @@ export function ended(name: string): { status: number; output: string } | undefi
   return exit ? { status: exit.status, output: exit.output } : undefined;
 }
 
-/** Claim an inspected exit inside tmux, so an asynchronous reporter cannot reap a replacement. */
+/**
+ * Claim an inspected exit inside tmux, so one reporter owns it and an asynchronous reporter cannot claim a replacement.
+ * The claim marks the dead pane with its generation and leaves it in place until `reapEnded`, so a reporter that finds
+ * the pane gone knows no claimant still holds its status.
+ */
+export function claimEnded(exit: PaneExit): boolean {
+  return (
+    /^[0-9a-f-]{36}$/.test(exit.generation) &&
+    onObserved(
+      exit,
+      `#{&&:#{pane_dead},#{!=:#{@kiln_claimed},${exit.generation}}}`,
+      `set-option -p -t ${exit.pane} @kiln_claimed ${exit.generation}`,
+    ).acted
+  );
+}
+
+/** Close the pane of an exit already claimed and reported, unless a respawn has replaced it since it was read. */
 export function reapEnded(exit: PaneExit): boolean {
   return /^[0-9a-f-]{36}$/.test(exit.generation) && onObserved(exit, "#{pane_dead}", `kill-pane -t ${exit.pane}`).acted;
 }

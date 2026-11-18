@@ -2,6 +2,7 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import * as mailbox from "./mailbox";
 import { peekUnread, takeUnread } from "./mailbox";
 import { findRecipient } from "./messages";
 import * as opencode from "./opencode";
@@ -647,6 +648,64 @@ test("a watcher reports a child whose pane is gone before its exit can be read",
     // A send to the child now names its exit rather than a missing session.
     expect(() => findRecipient([], "claude:gone-session")).toThrow("claude:gone-session has exited");
   } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a watcher that reads a claimed exit cannot report it without its status", async () => {
+  // The hook and the watcher are separate processes. The claimant used to close the pane before posting, so a watcher
+  // that read the pane in between found it gone and posted a status-less report first, which the message id then kept.
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "claim-order-state");
+  const name = "claim-order-child";
+  const server = `kiln-spawn-${process.pid}`;
+  const channel = `claimed-${crypto.randomUUID()}`;
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  const realPost = mailbox.post;
+  let seenAtPost: ReturnType<typeof paneState> | undefined;
+  let watching: Promise<void> | undefined;
+  // Run the watcher's read at the moment the claimant posts, the step a second process can take in that window.
+  const posting = spyOn(mailbox, "post").mockImplementation((...args: Parameters<typeof mailbox.post>) => {
+    if (!watching) {
+      seenAtPost = paneState(name);
+      watching = watchSpawnExit(name, "claude:claim-order", "claude:claim-parent", "3000", 20);
+    }
+    return realPost(...args);
+  });
+  try {
+    expect(
+      start(
+        name,
+        paneDir,
+        ["sh", "-c", "exit 7"],
+        "claim order",
+        true,
+        exitHook(["tmux", "-L", server, "wait-for", "-S", channel]),
+      ),
+    ).toBe(true);
+    expect(await hookSignalled(name, channel)).toBe(0);
+    recordSpawn({
+      agent: "claude",
+      id: "claim-order",
+      cwd: paneDir,
+      title: "claim order",
+      startedAt: 3_000,
+      pane: name,
+      runBound: true,
+    });
+    await reportSpawnExit(name, "claude:claim-order", "claude:claim-parent", "3000");
+    await watching;
+    expect(seenAtPost).toMatchObject({ status: 7 });
+    const messages = peekUnread("claude:claim-parent");
+    expect(messages.map((message) => message.body)).toEqual([
+      'Child claude:claim-order exited with status 7 while working on "claim order".',
+    ]);
+    expect(exists(name)).toBe(false);
+  } finally {
+    posting.mockRestore();
     discovery.mockRestore();
     kill(name);
     if (state === undefined) delete Bun.env.XDG_STATE_HOME;
