@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import configText from "../tmux.conf" with { type: "text" };
 
+import { withoutFaint } from "./prompt";
 import type { Settings } from "./settings";
 
 /** This kiln's own executable: tmux's status bar calls it for `kiln status`, and messages name it for replies. */
@@ -151,7 +152,7 @@ export function sendKey(name: string, key: string): boolean {
   return run("send-keys", "-t", `=${name}:`, key);
 }
 
-/** The rows a session's pane shows, unjoined so they line up with the cursor, and the cursor's row. */
+/** The rows a session's pane shows, unjoined so they line up with the cursor and without faint text, and the cursor's row. */
 export function rowsAndCursor(name: string): { rows: string[]; cursorY: number } | undefined {
   const shown = Bun.spawnSync(
     [
@@ -163,6 +164,7 @@ export function rowsAndCursor(name: string): { rows: string[]; cursorY: number }
       "#{cursor_y}",
       ";",
       "capture-pane",
+      "-e",
       "-p",
       "-t",
       `=${name}:`,
@@ -171,7 +173,7 @@ export function rowsAndCursor(name: string): { rows: string[]; cursorY: number }
   );
   if (shown.exitCode !== 0) return undefined;
   const [cursorY = "", ...rows] = shown.stdout.toString().split("\n");
-  return { rows, cursorY: Number(cursorY) };
+  return { rows: rows.map(withoutFaint), cursorY: Number(cursorY) };
 }
 
 /** How many terminals have the session open; none when it has closed. */
