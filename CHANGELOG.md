@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-18
+
 - **A Claude session that compacts its conversation while idle shows as idle.** Claude compacts a long conversation when it has sat idle for most of an hour, and can report the session as busy meanwhile. `kiln msg list`, the list and the dashboard showed it as working while its pane waited at an empty prompt, and kiln read the summary Claude writes into the transcript as a new prompt. The summary no longer counts as one, and a Claude session in a kiln pane whose transcript ended its turn reads as idle unless its footer shows a turn running (`esc to interrupt`).
 
 ## [0.30.0] - 2026-11-18
