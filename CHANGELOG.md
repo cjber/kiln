@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.3] - 2026-11-18
+
+- **`kiln msg` says when a sandbox hides the sessions.** Run inside a sandbox with a process namespace of its own, such as Claude Code's Bash sandbox, `kiln msg list` printed nothing and `kiln msg send` said `no running session`, so an agent concluded its peers were gone. kiln now exits with `kiln runs in a process namespace of its own (sandboxed?), so it cannot see the sessions running outside it`, and names the socket when the sandbox refuses kiln's tmux server.
+
 ## [0.30.2] - 2026-11-18
 
 - **`kiln msg send` says when Claude holds a message at its approval prompt.** Claude can hold a message from another session until a person picks `Deliver this message to Claude` in the recipient's terminal, as it does for a session that is not prompting for permissions. kiln reported that as `Claude did not queue it, so it held, refused or dropped it`, the same as a lost message, so the sender waited on a reply that could not come. When the recipient runs in a kiln pane that shows the prompt, kiln now says `held at Claude's message approval prompt in <session>; approve it there`.

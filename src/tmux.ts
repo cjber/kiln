@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +15,43 @@ export const kiln = import.meta.dir.startsWith("/$bunfs/")
 /** The tmux server kiln runs its sessions on, read on each call, so a test can point kiln at a server of its own. */
 export const tmuxServer = () => Bun.env.KILN_TMUX_SERVER || "kiln";
 const tmux = () => ["tmux", "-L", tmuxServer()];
+/** The socket of the tmux server `-L name`, where tmux puts it: `$TMUX_TMPDIR/tmux-<uid>/`, `/tmp` when unset. */
+export const tmuxSocket = (name = tmuxServer()) =>
+  join(Bun.env.TMUX_TMPDIR || "/tmp", `tmux-${process.getuid?.()}`, name);
+
+/** The kernel's own process namespace, `PROC_PID_INIT_INO`, which every process is in unless something isolates it. */
+const hostPidNamespace = "pid:[4026531836]";
+
+function pidNamespace(): string | undefined {
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch {
+    // Outside Linux there is no namespace to be isolated in.
+    return undefined;
+  }
+}
+
+/**
+ * Why this process cannot see the sessions kiln runs, or undefined when it can. A sandbox can put a command in a process
+ * namespace of its own, where no session's process is visible, and can refuse it kiln's tmux socket; either way
+ * discovery would find nothing and report each session as gone.
+ */
+export async function sessionsHidden(namespace = pidNamespace(), socket = tmuxSocket()): Promise<string | undefined> {
+  if (namespace !== undefined && namespace !== hostPidNamespace)
+    return "kiln runs in a process namespace of its own (sandboxed?), so it cannot see the sessions running outside it";
+  const code = await new Promise<string | undefined>((resolve) => {
+    const connection = createConnection(socket);
+    connection.once("connect", () => {
+      connection.destroy();
+      resolve(undefined);
+    });
+    connection.once("error", (error: NodeJS.ErrnoException) => resolve(error.code));
+  });
+  // No socket, or none listening, is a kiln with no sessions; a refusal is a kiln this process may not reach.
+  if (code === "EACCES" || code === "EPERM")
+    return `cannot reach kiln's tmux server at ${socket}: permission denied (${code}, sandboxed?)`;
+  return undefined;
+}
 let config: string | undefined;
 
 /** tmux reads a real file, including when the configuration is embedded in a standalone executable. */
