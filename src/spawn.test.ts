@@ -11,6 +11,7 @@ import * as sessions from "./sessions";
 import {
   exitHook,
   exitMessage,
+  exitReporter,
   exitReportId,
   headlessCommand,
   interactiveClaudeCommand,
@@ -655,8 +656,8 @@ test("a watcher reports a child whose pane is gone before its exit can be read",
   }
 });
 
-test("a watcher that reads a claimed exit cannot report it without its status", async () => {
-  // The hook and the watcher are separate processes. The claimant used to close the pane before posting, so a watcher
+test("a watcher that reads an exit while it is reported cannot report it without its status", async () => {
+  // The hook and the watcher are separate processes. A reporter used to close the pane before posting, so a watcher
   // that read the pane in between found it gone and posted a status-less report first, which the message id then kept.
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "claim-order-state");
@@ -667,7 +668,7 @@ test("a watcher that reads a claimed exit cannot report it without its status", 
   const realPost = mailbox.post;
   let seenAtPost: ReturnType<typeof paneState> | undefined;
   let watching: Promise<void> | undefined;
-  // Run the watcher's read at the moment the claimant posts, the step a second process can take in that window.
+  // Run the watcher's read at the moment the first reporter posts, the step a second process can take in that window.
   const posting = spyOn(mailbox, "post").mockImplementation((...args: Parameters<typeof mailbox.post>) => {
     if (!watching) {
       seenAtPost = paneState(name);
@@ -712,6 +713,91 @@ test("a watcher that reads a claimed exit cannot report it without its status", 
     else Bun.env.XDG_STATE_HOME = state;
   }
 });
+
+test("a reporter that stops before closing a pane leaves its exit, with its status, to the next", async () => {
+  // A reporter writes nothing before it posts and closes the pane only after, so one that stops or fails at any step
+  // leaves the dead pane and its status for the hook or the watcher to report.
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "stopped-state");
+  const name = "stopped-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "exit 7"], "stopped", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "stopped",
+      cwd: paneDir,
+      title: "stopped",
+      startedAt: 5_000,
+      pane: name,
+      runBound: true,
+    });
+    // One reporter read the exit and stopped there.
+    expect(paneState(name)).toMatchObject({ status: 7 });
+    // Another could not post.
+    const failing = spyOn(mailbox, "post").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    try {
+      await reportSpawnExit(name, "claude:stopped", "claude:stopped-parent", "5000");
+    } finally {
+      failing.mockRestore();
+    }
+    expect(ended(name)?.status).toBe(7);
+    expect(peekUnread("claude:stopped-parent")).toHaveLength(0);
+    // The hook and the watcher of that run still report it once, with its status, and close the pane.
+    await reportSpawnExit(name, "claude:stopped", "claude:stopped-parent", "5000");
+    await watchSpawnExit(name, "claude:stopped", "claude:stopped-parent", "5000", 20);
+    expect(peekUnread("claude:stopped-parent").map((message) => message.body)).toEqual([
+      'Child claude:stopped exited with status 7 while working on "stopped".',
+    ]);
+    expect(exists(name)).toBe(false);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("an exit hook or watcher reads the spawn's tmux server, without a UTF-8 locale", async () => {
+  // Neither runs in the spawner's process, so neither has its settings. One that read kiln's default server, or a tmux
+  // reply printed for a client without a UTF-8 locale, found no pane and reported the child as ended without its status,
+  // ahead of the report that had it.
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "reporter-state");
+  const home = join(paneDir, "reporter-home");
+  mkdirSync(home, { recursive: true });
+  const name = "reporter-child";
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "echo reporter; exit 7"], "reporter", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "reporter",
+      cwd: paneDir,
+      title: "reporter",
+      startedAt: 6_000,
+      pane: name,
+      runBound: true,
+    });
+    // Only what a hook started by a server without a locale has: no tmux server named, and no LANG.
+    const env = { PATH: Bun.env.PATH ?? "", HOME: home, XDG_STATE_HOME: Bun.env.XDG_STATE_HOME };
+    for (const command of ["exit", "watch"]) {
+      const argv = exitReporter(command, name, "claude:reporter", "claude:reporter-parent", "6000");
+      expect(await Bun.spawn(argv, { env, stdout: "ignore", stderr: "ignore" }).exited).toBe(0);
+    }
+    expect(peekUnread("claude:reporter-parent").map((message) => message.body)).toEqual([
+      'Child claude:reporter exited with status 7 while working on "reporter".\n\nLast output:\n\nreporter',
+    ]);
+    expect(exists(name)).toBe(false);
+  } finally {
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+}, 30_000);
 
 test("a spawn with no caller reports its exit to the parent its record names", async () => {
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process

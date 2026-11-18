@@ -262,3 +262,22 @@ test("a launch that reaches an untrusted config is trusted there, and a register
   }
   expect(await settleLaunch(child.pid, id, dir, 5_000)).toBe("ended");
 });
+
+test("a launch that has exited is settled while its parent has not collected it", async () => {
+  // The parent never waits, so the exited launch stays a zombie, as a pane's process does until tmux collects it.
+  const parent = Bun.spawn(["sh", "-c", "sh -c 'exit 7' & echo $!; exec sleep 30"], { stdout: "pipe" });
+  try {
+    const reader = parent.stdout.getReader();
+    let printed = "";
+    while (!printed.includes("\n")) printed += new TextDecoder().decode((await reader.read()).value);
+    const launch = Number(printed.trim());
+    for (let waited = 0; !readFileSync(`/proc/${launch}/stat`, "utf8").includes(") Z "); waited += 10) {
+      expect(waited).toBeLessThan(5_000);
+      await Bun.sleep(10);
+    }
+    expect(await settleLaunch(launch, crypto.randomUUID(), root, 5_000)).toBe("ended");
+  } finally {
+    parent.kill();
+    await parent.exited;
+  }
+});

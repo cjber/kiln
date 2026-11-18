@@ -148,7 +148,7 @@ function respawnAfterRead(name: string, when: (read: string) => boolean) {
   const state = { respawned: false };
   const spy = spyOn(Bun, "spawnSync").mockImplementation(((command: string[], options?: object) => {
     const result = spawn(command, options);
-    const read = command.some((part) => String(part).startsWith("#{pane_dead}\t")) ? result.stdout.toString() : "";
+    const read = command.some((part) => String(part).startsWith("#{pane_dead} ")) ? result.stdout.toString() : "";
     if (!state.respawned && read && when(read)) {
       state.respawned = true;
       expect(respawn(name, dir, ["sleep", "30"])).toBe(true);
@@ -176,7 +176,7 @@ const kept = (name: string) =>
 
 test("a pane respawned after a watcher reads it running is left kept for its new command", async () => {
   expect(start("respawned-running", dir, ["sleep", "30"], "respawned running", true)).toBe(true);
-  const replaced = respawnAfterRead("respawned-running", (read) => read.startsWith("0\t"));
+  const replaced = respawnAfterRead("respawned-running", (read) => read.startsWith("0 "));
   try {
     expect(await survives("respawned-running", 0, 50)).toBe(true);
   } finally {
@@ -189,7 +189,7 @@ test("a pane respawned after a watcher reads it running is left kept for its new
 
 test("a pane respawned after a watcher reads its exit is left running", async () => {
   expect(start("respawned-exit", dir, ["sh", "-c", "echo old; exit 3"], "respawned exit", true)).toBe(true);
-  const replaced = respawnAfterRead("respawned-exit", (read) => /^1\t\d/.test(read));
+  const replaced = respawnAfterRead("respawned-exit", (read) => /^1 \d/.test(read));
   try {
     expect(await survives("respawned-exit", 2_000, 50)).toBe(true);
   } finally {
@@ -201,7 +201,7 @@ test("a pane respawned after a watcher reads its exit is left running", async ()
 
 test("a pane respawned after a launch is read as hung is left running", async () => {
   expect(start("respawned-hung", dir, ["sleep", "30"], "respawned hung", true)).toBe(true);
-  const replaced = respawnAfterRead("respawned-hung", (read) => read.startsWith("0\t"));
+  const replaced = respawnAfterRead("respawned-hung", (read) => read.startsWith("0 "));
   try {
     expect(await awaitStart("respawned-hung", async () => false, 0, 50)).toBe(true);
   } finally {
@@ -216,7 +216,7 @@ test("a pane respawned after a watcher reads its command as exiting is not aband
   const runsOn = `trap '' HUP; echo $$ > ${pidFile}; exec >&- 2>&- <&-; exec sleep 30`;
   // The old command reads as exited without a status, so the deadline abandons it.
   const zombie = fakeProc(() => "1 (sleep) Z 0 0 0");
-  const replaced = respawnAfterRead("respawned-exiting", (read) => read.startsWith("1\t\t\t"));
+  const replaced = respawnAfterRead("respawned-exiting", (read) => read.startsWith("1   "));
   try {
     expect(start("respawned-exiting", dir, ["sh", "-c", runsOn], "respawned exiting", true)).toBe(true);
     // A tmux that marks a pane dead only once its command exits, such as 3.8, reads it running and releases it.

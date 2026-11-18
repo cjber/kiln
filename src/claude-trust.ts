@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { hasExited } from "./tmux";
 
 /**
  * Claude Code asks whether to trust a folder before an interactive session reads its prompt, and has no flag to skip
@@ -248,7 +249,8 @@ export async function settleLaunch(
       if (await trustClaudeWorkspace(dir, config.json)) return "untrusted";
       trusted.add(config.json);
     }
-    if (!existsSync(`/proc/${root}`)) return "ended";
+    // An exited launch stays in /proc as a zombie until tmux, its parent, collects it, which tmux can do much later.
+    if (hasExited(root) !== false) return "ended";
     if (Date.now() >= deadline) return "unregistered";
   }
 }

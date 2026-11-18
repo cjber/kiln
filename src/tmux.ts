@@ -11,8 +11,9 @@ import type { Settings } from "./settings";
 export const kiln = import.meta.dir.startsWith("/$bunfs/")
   ? process.execPath
   : join(import.meta.dir, "..", "bin", "kiln");
-/** Read on each call, so a test can point kiln at a server of its own. */
-const tmux = () => ["tmux", "-L", Bun.env.KILN_TMUX_SERVER || "kiln"];
+/** The tmux server kiln runs its sessions on, read on each call, so a test can point kiln at a server of its own. */
+export const tmuxServer = () => Bun.env.KILN_TMUX_SERVER || "kiln";
+const tmux = () => ["tmux", "-L", tmuxServer()];
 let config: string | undefined;
 
 /** tmux reads a real file, including when the configuration is embedded in a standalone executable. */
@@ -24,6 +25,16 @@ function configPath(): string {
     process.once("exit", () => rmSync(directory, { recursive: true, force: true }));
   }
   return config;
+}
+
+/**
+ * A line of a tmux format whose fields are separated by spaces, split at the first. tmux prints a tab as `_` (3.4) or
+ * `\t` (3.8) to a client without a UTF-8 locale, such as a hook run by a server started without one, so formats
+ * separate their fields with spaces and put a session name, which can hold spaces, last.
+ */
+function byFirstSpace(line: string): [string, string] {
+  const space = line.indexOf(" ");
+  return space < 0 ? [line, ""] : [line.slice(0, space), line.slice(space + 1)];
 }
 
 function run(...args: string[]): boolean {
@@ -42,7 +53,7 @@ export async function panePid(name: string): Promise<number | undefined> {
 }
 
 export async function panes(): Promise<{ name: string; pid: number }[]> {
-  const format = "#{session_name}\t#{pane_pid}";
+  const format = "#{pane_pid} #{session_name}";
   const process = Bun.spawn([...tmux(), "list-panes", "-a", "-F", format], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
@@ -52,7 +63,7 @@ export async function panes(): Promise<{ name: string; pid: number }[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [name = "", pid] = line.split("\t");
+      const [pid, name] = byFirstSpace(line);
       return { name, pid: Number(pid) };
     });
 }
@@ -76,13 +87,13 @@ export async function lastSeen(): Promise<Map<string, number>> {
   };
   const lines = (
     await Promise.all([
-      read(["list-sessions", "-F", "#{session_name}\t#{session_last_attached}"]),
-      read(["list-clients", "-F", "#{session_name}\t#{client_activity}"]),
+      read(["list-sessions", "-F", "#{session_last_attached} #{session_name}"]),
+      read(["list-clients", "-F", "#{client_activity} #{session_name}"]),
     ])
   ).flat();
   const seen = new Map<string, number>();
   for (const line of lines) {
-    const [name = "", seconds = ""] = line.split("\t");
+    const [seconds, name] = byFirstSpace(line);
     const at = Number(seconds) * 1000;
     if (name && at > (seen.get(name) ?? 0)) seen.set(name, at);
   }
@@ -338,7 +349,7 @@ function readExit(name: string): PaneExit | Watched | "gone" {
       "-p",
       "-t",
       target,
-      "#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_id}\t#{@kiln_generation}\t#{pid}\t#{pane_pid}",
+      "#{pane_dead} #{pane_dead_status} #{pane_dead_signal} #{pane_id} #{@kiln_generation} #{pid} #{pane_pid}",
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
@@ -346,7 +357,7 @@ function readExit(name: string): PaneExit | Watched | "gone" {
   const [dead, status = "", signal = "", pane = "", generation = "", server = "", command = ""] = shown.stdout
     .toString()
     .trimEnd()
-    .split("\t");
+    .split(" ");
   // tmux 3.8 exits 0 with empty formats for a session that is not there; every pane has an id.
   if (!pane) return "gone";
   if (dead !== "1") return { waiting: "running", pane, generation };
@@ -368,7 +379,7 @@ function readExit(name: string): PaneExit | Watched | "gone" {
 }
 
 /** Whether a process has exited, including one its parent has not reaped yet; undefined when its state cannot be read. */
-function hasExited(pid: number): boolean | undefined {
+export function hasExited(pid: number): boolean | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     // The state follows the parenthesised command name, which may contain spaces.
@@ -404,23 +415,7 @@ export function ended(name: string): { status: number; output: string } | undefi
   return exit ? { status: exit.status, output: exit.output } : undefined;
 }
 
-/**
- * Claim an inspected exit inside tmux, so one reporter owns it and an asynchronous reporter cannot claim a replacement.
- * The claim marks the dead pane with its generation and leaves it in place until `reapEnded`, so a reporter that finds
- * the pane gone knows no claimant still holds its status.
- */
-export function claimEnded(exit: PaneExit): boolean {
-  return (
-    /^[0-9a-f-]{36}$/.test(exit.generation) &&
-    onObserved(
-      exit,
-      `#{&&:#{pane_dead},#{!=:#{@kiln_claimed},${exit.generation}}}`,
-      `set-option -p -t ${exit.pane} @kiln_claimed ${exit.generation}`,
-    ).acted
-  );
-}
-
-/** Close the pane of an exit already claimed and reported, unless a respawn has replaced it since it was read. */
+/** Close the pane of an exit already reported, unless a respawn has replaced it since it was read. */
 export function reapEnded(exit: PaneExit): boolean {
   return /^[0-9a-f-]{36}$/.test(exit.generation) && onObserved(exit, "#{pane_dead}", `kill-pane -t ${exit.pane}`).acted;
 }

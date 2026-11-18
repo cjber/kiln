@@ -13,7 +13,7 @@ import { piExtensionPath } from "./pi-status";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { claimEnded, ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
+import { ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--interactive] -- <prompt>`;
@@ -291,6 +291,15 @@ export async function settleClaudeTrust(
   }
 }
 
+/**
+ * The command a pane's exit hook or its exit watcher runs. Neither runs in the spawner's process: the hook runs in the
+ * tmux server's environment and the watcher in its own, so each is told the server that holds the pane. A reporter that
+ * read another server would find no such pane, and report a child it cannot see as ended without its status.
+ */
+export function exitReporter(...args: string[]): string[] {
+  return ["env", `KILN_TMUX_SERVER=${tmuxServer()}`, kiln, "msg", ...args];
+}
+
 /** How often the exit watcher reads its pane. */
 const watchIntervalMs = 500;
 
@@ -335,7 +344,7 @@ export async function watchSpawnExit(
  */
 function watchInBackground(name: string, child: string, parent: string, run = ""): void {
   try {
-    Bun.spawn([kiln, "msg", "watch", name, child, parent, run], {
+    Bun.spawn(exitReporter("watch", name, child, parent, run), {
       // Its own session, so a hangup or a group kill that ends the spawner's shell or tool call leaves it running.
       detached: true,
       stdin: "ignore",
@@ -358,7 +367,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
     const name = `codex-${crypto.randomUUID()}`;
     // The exit hook names the pane; the record made below supplies the id once the thread exists.
-    const hook = exitHook([kiln, "msg", "exit", name, "", parent ?? ""]);
+    const hook = exitHook(exitReporter("exit", name, "", parent ?? ""));
     if (
       !start(
         name,
@@ -425,7 +434,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
   // record is still this run's: a previous run's late hook must not reap this pane or report it to that run's parent.
   const token = String(run.startedAt);
-  const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? "", token]);
+  const hook = exitHook(exitReporter("exit", name, `${options.agent}:${id}`, parent ?? "", token));
   // Record this run before its pane can exit: an exit hook that fired first would read the previous run's record and
   // so, bound to this run, report nothing. A spawn that fails puts the previous record back.
   const previous = savedRow(run);
@@ -460,14 +469,9 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   if (run ? Number(run) !== record.startedAt : record.runBound) return;
   const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
-  const seen = paneState(name);
-  // A pane whose session is gone has no exit left to read, but the child still ended: report it as ended rather than
-  // dropping the notice (#240). A replaced pane belongs to another run, so it is not reported.
-  const ending = seen === "gone" || "waiting" in seen ? undefined : seen;
-  if (!ending && seen !== "gone") return;
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
-  const to = parent || record.parent || "";
+  const to = separator > 0 ? parent || record.parent || "" : "";
   let recipients: Awaited<ReturnType<typeof listSessions>> = [];
   if (to) {
     try {
@@ -476,13 +480,17 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
       // An unavailable discovery source must not prevent an offline mailbox report.
     }
   }
-  // Claim the exit before posting. Only the reporter that claims this exact dead process owns its exit; a replacement
-  // during discovery belongs to another run. The claimant posts before it closes the pane, so a reporter that finds the
-  // pane gone, and reports it as ended without a status, can only post after the report that has the status. A pane
-  // whose session is gone has nothing to claim, and the message id makes a second reporter's post a no-op.
-  if (ending && !claimEnded(ending)) return;
-  let posted = false;
-  if (to && separator > 0) {
+  // The pane is read after discovery, so a respawn while discovery ran is read as the new command it is, not reported.
+  // From the read to the post nothing is awaited.
+  const seen = paneState(name);
+  if (seen !== "gone" && "waiting" in seen) return;
+  // A pane whose session is gone has no exit left to read: a person closed it, tmux restarted, or a tmux without
+  // remain-on-exit removed it (#240). Reporters close a pane only once its report is posted, or when it has nobody to
+  // report to, so a pane they closed had its status reported already, and this report, under the same id, is not posted.
+  const ending = seen === "gone" ? undefined : seen;
+  if (to) {
+    // The message id makes the post idempotent: the hook, the watcher and the spawner can each report one exit, and the
+    // first to post decides its text. A reporter that stops before posting leaves the pane, and its status, to the next.
     try {
       post(
         spawnReportSender(identity),
@@ -492,13 +500,13 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
         undefined,
         exitReportId(record),
       );
-      posted = true;
     } catch {
-      // A report that cannot be posted now is lost either way; the pane is still closed below.
+      // The pane keeps the status for a reporter that can post it.
+      return;
     }
   }
   if (ending) reapEnded(ending);
-  if (posted) {
+  if (to) {
     try {
       await flush(recipients);
     } catch {
