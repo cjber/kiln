@@ -90,6 +90,8 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
     },
   );
   expect("inbox" in route(session({ agent: "codex", activity: undefined }))).toBe(true);
+  // A working exec run reports its status but has no daemon to take the message.
+  expect("inbox" in route(session({ agent: "codex", activity: "working", codexExec: true }))).toBe(true);
   expect(route(session({ agent: "opencode", activity: "working", opencodeService: true }))).toEqual({
     push: "opencode",
   });

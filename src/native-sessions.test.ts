@@ -7,6 +7,7 @@ import {
   claudeActivity,
   claudeListing,
   claudeStatus,
+  codexExecProcess,
   codexExecThread,
   deduplicateSessions,
   environParent,
@@ -510,4 +511,18 @@ test("a codex exec run is named by its own thread, never by a sub-agent thread i
   // Before Codex opens its rollout the run has no thread yet.
   expect(codexExecThread(["/dev/null"], read)).toBeUndefined();
   expect(codexExecThread([rollout("sub-1")], read)).toBeUndefined();
+});
+
+test("a running codex exec process is working and is not on the shared daemon", () => {
+  // Exec runs one turn non-interactively and exits as it ends, so its live process is its working turn (#239).
+  const run = codexExecProcess(40, "/work", 7.5, ["/dev/null"]);
+  expect(run).toEqual({
+    pid: 40,
+    agent: "codex",
+    id: undefined,
+    cwd: "/work",
+    startedAt: 7.5,
+    activity: "working",
+    codexExec: true,
+  });
 });

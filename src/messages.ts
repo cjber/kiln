@@ -126,8 +126,8 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
         ? { push: "pi" }
         : { inbox: "it was not started by kiln, or before kiln could message it" };
     case "codex":
-      // Only a thread on Codex's shared daemon reports a status, and only that daemon can start its turn.
-      return session.activity === undefined
+      // Only that daemon can start a turn; a thread whose status it does not report, or an exec run, is not on it.
+      return session.activity === undefined || session.codexExec
         ? { inbox: "it is not on Codex's shared daemon" }
         : session.activity === "waiting" && !session.turnEnded
           ? { wait: "Codex is waiting" }
@@ -148,6 +148,8 @@ export type Interruption = { via: "codex" | "opencode" | "tmux" } | { unsupporte
 
 /** How kiln stops a session's turn in progress, or why it cannot. */
 export function interruption(session: Session): Interruption {
+  // An exec run has no terminal input, even in a kiln pane, and is not on the shared daemon.
+  if (session.codexExec) return { unsupported: "a codex exec run takes no input" };
   // Escape is how an agent's own terminal ends a turn. OpenCode's TUI wants it twice, so its service stops it instead.
   if (session.place.kind === "kiln" && session.agent !== "opencode") return { via: "tmux" };
   switch (session.agent) {

@@ -32,6 +32,8 @@ test("a kiln pane takes Escape; elsewhere each agent is stopped through its own 
   for (const unsupported of [
     session({ place: { kind: "elsewhere" } }),
     session({ agent: "codex", activity: undefined, place: { kind: "elsewhere" } }),
+    // A working exec run in a kiln pane has no input for Escape to reach.
+    session({ agent: "codex", codexExec: true }),
     session({ agent: "opencode" }),
     session({ agent: "pi", place: { kind: "elsewhere" } }),
   ])
