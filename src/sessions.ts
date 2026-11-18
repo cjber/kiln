@@ -62,6 +62,8 @@ export type Session = {
   lifecycle?: Lifecycle;
   /** Claude opened an inbox for this session, so a message reaches it without typing into its terminal. */
   claudeInbox?: boolean;
+  /** A headless `codex exec` run: its own process holds the turn, so Codex's shared daemon cannot reach it. */
+  codexExec?: boolean;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
   /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */
