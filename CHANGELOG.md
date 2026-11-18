@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.5] - 2026-11-18
+
 - **A spawned child can message its parent and commit from inside its sandbox.** A Codex or Claude child started with `kiln msg spawn` runs its commands in its agent's sandbox, which hides the other sessions, so `kiln msg send <parent>` exited with `cannot see the sessions running outside it`, and a Codex child in a git worktree could not commit because Codex kept the worktree's git metadata read-only. The child's `send` now leaves the message in an outbox kiln grants it, and kiln delivers it from outside the sandbox, as from that child. A Codex child is also granted its worktree's git directory and the repository's objects, refs and logs, but not its hooks or config. Outside a spawn, a sandboxed `send` that names its recipient in full waits in the mailbox for kiln's list or phone server to deliver it.
 
 ## [0.30.4] - 2026-11-18
