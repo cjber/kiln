@@ -8,6 +8,9 @@ export type Agent = "claude" | "codex" | "opencode" | "pi" | "muse";
 
 export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi", "muse"];
 
+/** Whether a name is a session's full kiln id, `agent:id`, which needs no discovery to address. */
+export const isFullName = (name: string) => agents.some((agent) => name.startsWith(`${agent}:`));
+
 /** The name shown to people; ids stay lowercase for matching, filtering and sorting. */
 export function agentName(agent: Agent): string {
   return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi", muse: "Muse" }[agent];

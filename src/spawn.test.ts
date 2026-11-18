@@ -1033,6 +1033,8 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
     const watching = watchSpawnExit(name, "", "claude:outbox-parent", "", 20);
     mkdirSync(outboxPath(name), { recursive: true });
     writeOutbox(outboxPath(name), "claude:outbox-parent", "review done");
+    writeOutbox(outboxPath(name), "reviewer", "lost?");
+    writeOutbox(outboxPath(name), "codex:outbox-thread", "me");
     let messages: mailbox.Message[] = [];
     for (let waited = 0; !messages.length && waited < 2_000; waited += 20) {
       await Bun.sleep(20);
@@ -1041,8 +1043,22 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
     expect(messages.map(({ from, body }) => ({ from, body }))).toEqual([
       { from: "codex:outbox-thread", body: "review done" },
     ]);
+    // A name that finds no one, or the child's own, comes back to the child with the reason, since it was told "queued".
+    expect(peekUnread("codex:outbox-thread").map(({ from, body }) => ({ from, body }))).toEqual([
+      {
+        from: "kiln-spawn:codex:outbox-thread",
+        body: "Your message to reviewer was not delivered: no running session is called reviewer; run kiln msg list\n\nlost?",
+      },
+      {
+        from: "kiln-spawn:codex:outbox-thread",
+        body: "Your message to codex:outbox-thread was not delivered: you cannot message yourself\n\nme",
+      },
+    ]);
+    // Codex's sandbox leaves an empty mount point for each name it protects; the exit report clears them and the outbox.
+    mkdirSync(join(outboxPath(name), ".codex"));
     kill(name);
     await watching;
+    expect(existsSync(outboxPath(name))).toBe(false);
   } finally {
     discovery.mockRestore();
     kill(name);

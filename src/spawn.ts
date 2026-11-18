@@ -12,7 +12,7 @@ import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
-import { type Agent, agentName, agents, listSessions, type Session, sessionIdentity } from "./sessions";
+import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
 import { ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -198,7 +198,9 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 /**
  * The git metadata of the linked worktree `dir` is in, which lies outside it: the worktree's own git directory and the
  * main repository's objects, refs and logs, which a commit writes. The rest of the shared directory, its `hooks/` and
- * `config`, stays out, since a write there runs code in every checkout of the repository. A plain checkout has none.
+ * `config`, stays out, since a write there runs code in every checkout of the repository. The worktree's own directory
+ * holds `commondir`, so a child could point git in that worktree at a config it wrote; that reaches only git run in the
+ * worktree, where the child already writes the files a person or a gate will run. A plain checkout has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -249,7 +251,9 @@ function outboxFiles(pane: string): string[] {
  * is resolved here, against `sessions`; one that finds no session now waits under the name as given. Each file posts
  * under its own id, so the watcher and the exit hook relaying it together post it once.
  */
-function drainOutbox(pane: string, from: string, sessions: readonly Session[]): number {
+function drainOutbox(pane: string, from: string, sessions: readonly Session[] | undefined): number {
+  // Without discovery no name can be resolved, so the messages wait for a pass that has it.
+  if (!sessions) return 0;
   let posted = 0;
   for (const file of outboxFiles(pane)) {
     const path = join(outboxPath(pane), file);
@@ -260,14 +264,24 @@ function drainOutbox(pane: string, from: string, sessions: readonly Session[]): 
       // Only a finished write is renamed to .json, so one that does not parse is not a message.
     }
     if (typeof message.to === "string" && typeof message.body === "string") {
-      let to = message.to;
+      let [sender, to, body] = [from, message.to, message.body];
       try {
         to = sessionIdentity(findRecipient(sessions, message.to));
-      } catch {
-        // Not running now, or not one session: it waits under the name the child gave.
+      } catch (error) {
+        // A full name waits in the mailbox for a session that is not running now. Any other name finds no one, and the
+        // child was told only that it was queued, so it hears back why the message went nowhere.
+        if (!isFullName(message.to))
+          [sender, to, body] = notice(
+            from,
+            message.to,
+            error instanceof Error ? error.message : String(error),
+            message.body,
+          );
       }
+      // Its sandbox hid the child's own name from it, so it is checked here.
+      if (sender === from && to === from) [sender, to, body] = notice(from, to, "you cannot message yourself", body);
       try {
-        post(from, to, message.body, undefined, undefined, `outbox:${pane}:${file}`);
+        post(sender, to, body, undefined, undefined, `outbox:${pane}:${file}`);
       } catch {
         // A send limit or a locked mailbox leaves it, and the rest after it, for the next pass.
         return posted;
@@ -279,25 +293,55 @@ function drainOutbox(pane: string, from: string, sessions: readonly Session[]): 
   return posted;
 }
 
+/** What a child that sent from its outbox hears back when its message reached no one: the reason, then what it sent. */
+function notice(child: string, to: string, reason: string, body: string): [string, string, string] {
+  return [spawnReportSender(child), child, `Your message to ${to} was not delivered: ${reason}\n\n${body}`];
+}
+
 /**
- * Relay a child's outbox and deliver what it sent. Returns whether a message of the child's still waits, such as one
- * to a parent that is answering a question, so the watcher tries again.
+ * Relay a child's outbox and deliver what it sent. Returns whether anything still waits: a message the mailbox refused,
+ * or one to a parent that is answering a question, so the watcher tries again later.
  */
 async function relayOutbox(pane: string, from: string): Promise<boolean> {
-  let sessions: Session[] = [];
+  let sessions: Session[] | undefined;
   try {
     sessions = await listSessions({ kitty: false });
   } catch {
-    // Without discovery the messages still reach the mailbox under the names the child gave.
+    // The messages stay in the outbox for the next pass.
   }
   drainOutbox(pane, from, sessions);
-  const waiting = pending().filter((message) => message.from === from);
-  if (!waiting.length) return false;
+  const ours = (message: { from: string }) => message.from === from || message.from === spawnReportSender(from);
+  const waiting = pending().filter(ours);
+  if (!sessions || !waiting.length) return outboxFiles(pane).length > 0 || waiting.length > 0;
   try {
     const outcomes = await flush(sessions, { recipients: new Set(waiting.map((message) => message.to)) });
-    return outcomes.some((outcome) => !outcome.delivered && outcome.message.from === from);
+    return outboxFiles(pane).length > 0 || outcomes.some((outcome) => !outcome.delivered && ours(outcome.message));
   } catch {
     return true;
+  }
+}
+
+/**
+ * Codex's sandbox makes an empty directory in each root it grants for every name it protects there (`.codex`,
+ * `.agents`, `.git`), as a mount point, and leaves it behind. Git never gives an entry of its own a leading dot in a
+ * granted git directory, and an outbox holds only messages, so an empty one there is Codex's, and goes once the child
+ * has exited. Another Codex child of the same repository may still mount over one; removing it only lets that child
+ * write a name git never reads.
+ */
+function clearMountPoints(dirs: readonly string[]): void {
+  for (const dir of dirs) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries.filter((entry) => entry.startsWith(".")))
+      try {
+        rmdirSync(join(dir, entry));
+      } catch {
+        // Not empty, or not a directory: not a mount point.
+      }
   }
 }
 
@@ -463,7 +507,8 @@ export async function watchSpawnExit(
       return;
     }
     // The child runs in its agent's sandbox, which hides the sessions, so this watcher, outside it, delivers for it.
-    if (from && (outboxFiles(name).length || (retryAt !== undefined && Date.now() >= retryAt)))
+    // A failed pass waits out its retry delay rather than running discovery on every tick.
+    if (from && (retryAt === undefined ? outboxFiles(name).length > 0 : Date.now() >= retryAt))
       retryAt = (await relayOutbox(name, from)) ? Date.now() + relayRetryMs : undefined;
     await Bun.sleep(intervalMs);
   }
@@ -631,12 +676,13 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   if (!reported) return;
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
-  let recipients: Awaited<ReturnType<typeof listSessions>> = [];
+  let recipients: Session[] | undefined = [];
   if (parent || reported.parent || outboxFiles(name).length) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
       // An unavailable discovery source must not prevent an offline mailbox report.
+      recipients = undefined;
     }
   }
   // Discovery can pause long enough for another reporter to reap this run and a resumed run to exit in the same pane,
@@ -672,14 +718,16 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
     }
   }
   if (ending) reapEnded(ending);
+  if (record.agent === "codex") clearMountPoints(worktreeMetadata(record.cwd));
+  clearMountPoints([outboxPath(name)]);
   try {
     rmdirSync(outboxPath(name));
   } catch {
-    // Gone already, or holding a message a full mailbox refused, which a resumed run relays.
+    // Gone already, or holding a message kiln could not relay yet, which a resumed run relays.
   }
   if (to || relayed) {
     try {
-      await flush(recipients);
+      await flush(recipients ?? []);
     } catch {
       // A parent kiln cannot reach right now can still read the message from its mailbox.
     }

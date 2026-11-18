@@ -5,8 +5,8 @@ import { callerIdentity, findRecipient, flush, frame, interrupt, reachable, rout
 import { archiveOpencodeSession } from "./opencode";
 import {
   agentName,
-  agents,
   discovery,
+  isFullName,
   type Session,
   sessionAliases,
   sessionDirectory,
@@ -77,7 +77,7 @@ function queueUnseen(
   if (name === undefined) throw new Error(`${hidden}; name the recipient, and kiln delivers it from outside`);
   if (name === me) throw new Error("you cannot message yourself");
   if (outbox) writeOutbox(outbox, name, body);
-  else if (agents.some((agent) => name.startsWith(`${agent}:`))) post(me ?? terminal, name, body);
+  else if (isFullName(name)) post(me ?? terminal, name, body);
   else throw new Error(`${hidden}; name the recipient in full, as agent:id, and kiln delivers it from outside`);
   return { to: name, delivered: false, reason: "this sandbox hides the sessions, so kiln delivers it from outside" };
 }
