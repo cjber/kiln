@@ -4,13 +4,13 @@ import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
-import { promptArguments } from "./launcher";
+import { claudeCommand, promptArguments } from "./launcher";
 import { post } from "./mailbox";
 import { flush, spawnReportSender } from "./messages";
 import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
-import { recordSpawn, spawnRecord } from "./saved-sessions";
+import { recordSpawn, type Saved, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
 import { ended, endedPane, exists, kill, kiln, panePid, paneState, reapEnded, screen, start } from "./tmux";
@@ -132,7 +132,7 @@ export function headlessCommand(
         "env",
         "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
         ...claudeCodeMode(resume),
-        ...command,
+        ...claudeCommand(command, resume?.codeMode === true),
         "-p",
         ...claudeSession(id, resume),
         ...(title ? ["--name", title] : []),
@@ -164,7 +164,7 @@ export function interactiveClaudeCommand(
     "env",
     ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : ["-u", "CLAUDE_CONFIG_DIR"]),
     ...claudeCodeMode(resume),
-    ...command,
+    ...claudeCommand(command, resume?.codeMode === true),
     ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
@@ -203,6 +203,15 @@ export function exitMessage(
         : `Child ${child} exited with status ${status}${worked}.`;
   const reason = output?.trim();
   return reason ? `${ended}\n\nLast output:\n\n${reason}` : ended;
+}
+
+/**
+ * The mailbox id of one run's exit report. A resumed child keeps its conversation id, so the start time its spawn
+ * recorded tells one run's exit from the next, while the hook and the watcher reporting the same run share one id and
+ * so post one message.
+ */
+export function exitReportId(record: Pick<Saved, "agent" | "id" | "startedAt">): string {
+  return `exit:${record.agent}:${record.id}:${record.startedAt}`;
 }
 
 function processStartedAt(pid: number): number {
@@ -438,7 +447,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
         exitMessage(identity, record?.title, ending?.status, ending?.output),
         undefined,
         undefined,
-        `exit:${identity}`,
+        exitReportId(record),
       );
       await flush(recipients);
     } catch {

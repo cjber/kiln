@@ -116,8 +116,16 @@ export function promptArguments(agent: Agent, prompt: string | undefined): strin
 }
 
 /**
- * The agent's configured command; `resume` continues a provider conversation instead of starting one. Claude refuses
- * to resume a Code Mode conversation with Remote Control on, so `codeMode` leaves it off, configured or not.
+ * The configured Claude command for a run in or out of Code Mode. Claude refuses to resume a Code Mode conversation with
+ * Remote Control on, so `codeMode` leaves it off, configured or not.
+ */
+export function claudeCommand(command: readonly string[], codeMode: boolean): string[] {
+  return codeMode ? command.filter((word) => word !== "--remote-control") : [...command];
+}
+
+/**
+ * The agent's configured command; `resume` continues a provider conversation instead of starting one, and `codeMode`
+ * runs Claude as {@link claudeCommand} does.
  */
 export function agentCommand(
   agent: Agent,
@@ -131,7 +139,7 @@ export function agentCommand(
   switch (agent) {
     case "claude":
       return [
-        ...(codeMode ? command.filter((word) => word !== "--remote-control") : command),
+        ...claudeCommand(command, codeMode),
         ...(!codeMode && settings.remoteControl && !command.includes("--remote-control") ? ["--remote-control"] : []),
         ...(resume ? ["--resume", resume] : []),
         ...first,

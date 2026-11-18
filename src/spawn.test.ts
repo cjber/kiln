@@ -9,6 +9,7 @@ import * as sessions from "./sessions";
 import {
   exitHook,
   exitMessage,
+  exitReportId,
   headlessCommand,
   interactiveClaudeCommand,
   reportSpawnExit,
@@ -342,6 +343,44 @@ test("an offline child exit reaches its parent mailbox without a provider call",
   }
 });
 
+test("every exit of a resumed child reaches the parent recorded for that run", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "resumed-state");
+  const name = "resumed-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    // A resume reuses the conversation id, so each run is told apart by the start time its spawn recorded.
+    const runs = [
+      { startedAt: 1_000, parent: "codex:first-parent", status: 3 },
+      { startedAt: 2_000, parent: "codex:first-parent", status: 4 },
+      { startedAt: 3_000, parent: "codex:second-parent", status: 5 },
+    ];
+    for (const run of runs) {
+      expect(start(name, paneDir, ["sh", "-c", `exit ${run.status}`], "resumed", true)).toBe(true);
+      for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+      recordSpawn({ agent: "claude", id: "resumed-conversation", cwd: paneDir, startedAt: run.startedAt, pane: name });
+      await reportSpawnExit(name, "", run.parent);
+      expect(exists(name)).toBe(false);
+    }
+    expect(takeUnread("codex:first-parent").map((message) => message.body)).toEqual([
+      "Child claude:resumed-conversation exited with status 3.",
+      "Child claude:resumed-conversation exited with status 4.",
+    ]);
+    expect(takeUnread("codex:second-parent").map((message) => message.body)).toEqual([
+      "Child claude:resumed-conversation exited with status 5.",
+    ]);
+    // The hook and the watcher reporting one run read the same record, so they share one message id.
+    const record = { agent: "claude" as const, id: "resumed-conversation", startedAt: 3_000 };
+    expect(exitReportId(record)).toBe(exitReportId({ ...record }));
+    expect(exitReportId(record)).not.toBe(exitReportId({ ...record, startedAt: 2_000 }));
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
 test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "discovery-race-state");
@@ -470,6 +509,29 @@ test("a resumed Claude child carries on its conversation in the directory it beg
       "--",
       "carry on",
     ]);
+    // Claude will not resume a Code Mode conversation with Remote Control on, even when the configured command has it.
+    const codeMode = { id, codeMode: true };
+    expect(headlessCommand(["claude", "--remote-control"], "claude", id, "go", undefined, undefined, codeMode)).toEqual(
+      [
+        "env",
+        "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+        "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1",
+        "claude",
+        "-p",
+        "--resume",
+        id,
+        "go",
+      ],
+    );
+    expect(
+      interactiveClaudeCommand(["claude", "--remote-control"], id, "go", undefined, undefined, "/account", codeMode),
+    ).not.toContain("--remote-control");
+    expect(
+      interactiveClaudeCommand(["claude", "--remote-control"], id, "go", undefined, undefined, "/account", {
+        id,
+        codeMode: false,
+      }),
+    ).toContain("--remote-control");
     expect(() => spawnOptions(["claude", "--resume", "1c949e39", "--", "go"])).toThrow(
       "no Claude conversation 1c949e39",
     );
