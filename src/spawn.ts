@@ -1,18 +1,18 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { claudeCommand, promptArguments } from "./launcher";
-import { post } from "./mailbox";
-import { flush, spawnReportSender } from "./messages";
+import { outboxPath, pending, post } from "./mailbox";
+import { findRecipient, flush, spawnReportSender } from "./messages";
 import { afterMuseWord } from "./muse";
 import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
-import { type Agent, agentName, agents, listSessions } from "./sessions";
+import { type Agent, agentName, agents, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
 import { ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -121,8 +121,10 @@ export function headlessCommand(
   title?: string,
   model?: string,
   resume?: SpawnOptions["resume"],
+  writable: readonly string[] = [],
 ): string[] {
   const chosen = model ? ["--model", model] : [];
+  const granted = writable.flatMap((directory) => ["--add-dir", directory]);
   switch (agent) {
     case "opencode":
       return [...command, "run", "--session", id, ...(title ? ["--title", title] : []), ...chosen, prompt];
@@ -134,6 +136,8 @@ export function headlessCommand(
         "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
         ...claudeCodeMode(resume),
         ...claudeCommand(command, resume?.codeMode === true),
+        // Claude's --add-dir takes every word up to the next option, so one always follows it.
+        ...granted,
         "-p",
         ...claudeSession(id, resume),
         ...(title ? ["--name", title] : []),
@@ -141,7 +145,7 @@ export function headlessCommand(
         prompt,
       ];
     case "codex":
-      return [...command, "exec", ...chosen, prompt];
+      return [...command, "exec", ...chosen, ...granted, prompt];
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
     case "muse": {
@@ -165,12 +169,15 @@ export function interactiveClaudeCommand(
   model?: string,
   configDir?: string,
   resume?: SpawnOptions["resume"],
+  writable: readonly string[] = [],
 ): string[] {
   return [
     "env",
     ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : ["-u", "CLAUDE_CONFIG_DIR"]),
     ...claudeCodeMode(resume),
     ...claudeCommand(command, resume?.codeMode === true),
+    // Claude's --add-dir takes every word up to the next option, so one always follows it.
+    ...writable.flatMap((directory) => ["--add-dir", directory]),
     ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
@@ -187,6 +194,115 @@ function claudeSession(id: string, resume: SpawnOptions["resume"]): string[] {
 function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
   return resume?.codeMode ? ["CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1"] : [];
 }
+
+/**
+ * The git metadata of the linked worktree `dir` is in, which lies outside it: the worktree's own git directory and the
+ * main repository's objects, refs and logs, which a commit writes. The rest of the shared directory, its `hooks/` and
+ * `config`, stays out, since a write there runs code in every checkout of the repository. A plain checkout has none.
+ */
+function worktreeMetadata(dir: string): string[] {
+  const found = Bun.spawnSync(
+    ["git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+    {
+      stdout: "pipe",
+      stderr: "ignore",
+    },
+  );
+  if (found.exitCode !== 0) return [];
+  const [own, common] = found.stdout.toString().trim().split("\n");
+  if (!own || !common || own === common) return [];
+  return [own, ...["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path))];
+}
+
+/**
+ * The directories a child's agent sandbox must let it write besides its own, passed as `--add-dir`: the outbox it sends
+ * from, and for Codex the worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
+ * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
+ * commands unsandboxed.
+ */
+export function spawnGrants(agent: Agent, dir: string, outbox: string): string[] {
+  switch (agent) {
+    case "claude":
+      return [outbox];
+    case "codex":
+      return [outbox, ...worktreeMetadata(dir)];
+    case "opencode":
+    case "pi":
+    case "muse":
+      return [];
+  }
+}
+
+/** The messages a child left in its outbox, oldest first. */
+function outboxFiles(pane: string): string[] {
+  try {
+    return readdirSync(outboxPath(pane))
+      .filter((file) => file.endsWith(".json"))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Post what a sandboxed child left in its outbox as from that child. Its sandbox hid the sessions, so the name it gave
+ * is resolved here, against `sessions`; one that finds no session now waits under the name as given. Each file posts
+ * under its own id, so the watcher and the exit hook relaying it together post it once.
+ */
+function drainOutbox(pane: string, from: string, sessions: readonly Session[]): number {
+  let posted = 0;
+  for (const file of outboxFiles(pane)) {
+    const path = join(outboxPath(pane), file);
+    let message: { to?: unknown; body?: unknown } = {};
+    try {
+      message = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      // Only a finished write is renamed to .json, so one that does not parse is not a message.
+    }
+    if (typeof message.to === "string" && typeof message.body === "string") {
+      let to = message.to;
+      try {
+        to = sessionIdentity(findRecipient(sessions, message.to));
+      } catch {
+        // Not running now, or not one session: it waits under the name the child gave.
+      }
+      try {
+        post(from, to, message.body, undefined, undefined, `outbox:${pane}:${file}`);
+      } catch {
+        // A send limit or a locked mailbox leaves it, and the rest after it, for the next pass.
+        return posted;
+      }
+      posted++;
+    }
+    rmSync(path, { force: true });
+  }
+  return posted;
+}
+
+/**
+ * Relay a child's outbox and deliver what it sent. Returns whether a message of the child's still waits, such as one
+ * to a parent that is answering a question, so the watcher tries again.
+ */
+async function relayOutbox(pane: string, from: string): Promise<boolean> {
+  let sessions: Session[] = [];
+  try {
+    sessions = await listSessions({ kitty: false });
+  } catch {
+    // Without discovery the messages still reach the mailbox under the names the child gave.
+  }
+  drainOutbox(pane, from, sessions);
+  const waiting = pending().filter((message) => message.from === from);
+  if (!waiting.length) return false;
+  try {
+    const outcomes = await flush(sessions, { recipients: new Set(waiting.map((message) => message.to)) });
+    return outcomes.some((outcome) => !outcome.delivered && outcome.message.from === from);
+  } catch {
+    return true;
+  }
+}
+
+/** How long the exit watcher waits before trying again to deliver a message its child sent that could not go yet. */
+const relayRetryMs = 5_000;
 
 /** A tmux `pane-died` hook value that runs one command through a shell, quoted for tmux's own parser. */
 export function exitHook(argv: readonly string[]): string {
@@ -264,6 +380,7 @@ export async function settleClaudeTrust(
   title: string,
   hook: string,
   waitMs = claudeStartWaitMs,
+  env: Record<string, string> = {},
 ): Promise<number | undefined> {
   for (let launch = 1; ; launch++) {
     const pid = await panePid(name);
@@ -293,7 +410,8 @@ export async function settleClaudeTrust(
       throw new Error(
         `Claude started ${launch} times under a config dir that had not trusted ${options.dir}; it is trusted in each now`,
       );
-    if (!start(name, options.dir, argv, title, false, hook)) throw new Error(`could not start ${agentName("claude")}`);
+    if (!start(name, options.dir, argv, title, false, hook, env))
+      throw new Error(`could not start ${agentName("claude")}`);
   }
 }
 
@@ -324,6 +442,10 @@ export async function watchSpawnExit(
   intervalMs = watchIntervalMs,
 ): Promise<void> {
   let generation: string | undefined;
+  // A Codex child's hooks name no child, since its thread did not exist yet; its record does.
+  const record = runRecord(name, run);
+  const from = child || (record ? `${record.agent}:${record.id}` : "");
+  let retryAt: number | undefined;
   for (;;) {
     const seen = paneState(name);
     // A pane's session can be gone before its exit is read: a person closed it, tmux restarted, or a tmux without
@@ -340,6 +462,9 @@ export async function watchSpawnExit(
       await reportSpawnExit(name, child, parent, run);
       return;
     }
+    // The child runs in its agent's sandbox, which hides the sessions, so this watcher, outside it, delivers for it.
+    if (from && (outboxFiles(name).length || (retryAt !== undefined && Date.now() >= retryAt)))
+      retryAt = (await relayOutbox(name, from)) ? Date.now() + relayRetryMs : undefined;
     await Bun.sleep(intervalMs);
   }
 }
@@ -368,20 +493,30 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   if (!command[0] || !Bun.which(command[0]))
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
+  // A child in its agent's sandbox cannot see the sessions, so what it sends waits in an outbox its spawn relays.
+  const outbox = (name: string) => {
+    mkdirSync(outboxPath(name), { recursive: true, mode: 0o700 });
+    return {
+      env: { KILN_OUTBOX: outboxPath(name) },
+      writable: spawnGrants(options.agent, options.dir, outboxPath(name)),
+    };
+  };
 
   if (options.agent === "codex") {
     // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
     const name = `codex-${crypto.randomUUID()}`;
+    const { env, writable } = outbox(name);
     // The exit hook names the pane; the record made below supplies the id once the thread exists.
     const hook = exitHook(exitReporter("exit", name, "", parent ?? ""));
     if (
       !start(
         name,
         options.dir,
-        headlessCommand(command, "codex", "", options.prompt, undefined, options.model),
+        headlessCommand(command, "codex", "", options.prompt, undefined, options.model, undefined, writable),
         title,
         false,
         hook,
+        env,
       )
     )
       throw new Error(`could not start ${agentName("codex")}`);
@@ -412,9 +547,22 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // (`-p`) never asks, so this grants an interactive child what a headless one in the same folder already has.
   const configDir = Bun.env.CLAUDE_CONFIG_DIR || undefined;
   if (options.interactive) await trustClaudeWorkspace(options.dir, claudeConfig(Bun.env).json);
+  const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
+  // A conversation already running in its pane is not resumed a second time beside it.
+  if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
+  const { env, writable } = outbox(name);
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
-    ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model, configDir, options.resume)
+    ? interactiveClaudeCommand(
+        command,
+        id,
+        options.prompt,
+        options.title,
+        options.model,
+        configDir,
+        options.resume,
+        writable,
+      )
     : headlessCommand(
         command,
         options.agent,
@@ -423,10 +571,8 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
         options.agent === "claude" ? options.title : title,
         options.model,
         options.resume,
+        writable,
       );
-  const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
-  // A conversation already running in its pane is not resumed a second time beside it.
-  if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const run = {
     agent: options.agent,
     id,
@@ -447,9 +593,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   recordSpawn(run);
   let pid: number | undefined;
   try {
-    if (!start(name, options.dir, argv, title, false, hook))
+    if (!start(name, options.dir, argv, title, false, hook, env))
       throw new Error(`could not start ${agentName(options.agent)}`);
-    pid = options.interactive ? await settleClaudeTrust(name, id, options, argv, title, hook) : await panePid(name);
+    pid = options.interactive
+      ? await settleClaudeTrust(name, id, options, argv, title, hook, undefined, env)
+      : await panePid(name);
   } catch (error) {
     if (previous) restoreRow(previous);
     else forget(run);
@@ -484,7 +632,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
   let recipients: Awaited<ReturnType<typeof listSessions>> = [];
-  if (parent || reported.parent) {
+  if (parent || reported.parent || outboxFiles(name).length) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
@@ -500,6 +648,8 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // The pane is read after discovery, so a respawn while discovery ran is read as the new command it is, not reported.
   const seen = paneState(name);
   if (seen !== "gone" && "waiting" in seen) return;
+  // What the child sent before it exited goes ahead of its exit report.
+  const relayed = drainOutbox(name, identity, recipients);
   // A pane whose session is gone has no exit left to read: a person closed it, tmux restarted, or a tmux without
   // remain-on-exit removed it (#240). Reporters close a pane only once its report is posted, or when it has nobody to
   // report to, so a pane they closed had its status reported already, and this report, under the same id, is not posted.
@@ -522,7 +672,12 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
     }
   }
   if (ending) reapEnded(ending);
-  if (to) {
+  try {
+    rmdirSync(outboxPath(name));
+  } catch {
+    // Gone already, or holding a message a full mailbox refused, which a resumed run relays.
+  }
+  if (to || relayed) {
     try {
       await flush(recipients);
     } catch {

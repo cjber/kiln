@@ -55,7 +55,8 @@ of its exit only when someone closes it: use it for long runs a person watches, 
 whose exit you wait on.
 
 A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
-changed and what it could not finish. `--model M` passes the model to the provider's headless
+changed and what it could not finish. In a sandbox that hides the sessions, `send` answers `queued`
+and kiln delivers it from outside: that is success, so do not retry it outside the sandbox. `--model M` passes the model to the provider's headless
 command. When the child's process exits, kiln sends you the exit status and its last output, even
 if the child did not message first, so a child that stops on a usage limit is reported rather than
 lost. Start it again with a model whose limit is not spent. A Codex child shows as `working` in

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -25,6 +25,20 @@ export const sendLimit = { count: 20, perMs: 10 * 60 * 1000 };
 
 export const mailboxPath = () =>
   join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "mailbox.sqlite");
+
+/**
+ * Where a spawned child leaves messages it sends from a sandbox that hides the sessions. Kiln grants the child this one
+ * directory and its spawn's exit watcher, outside the sandbox, relays each file into the mailbox as from that child, so
+ * the child never needs write access to the mailbox itself or a way to name another sender.
+ */
+export const outboxPath = (pane: string) => join(dirname(mailboxPath()), "outbox", pane);
+
+/** Leave a message in an outbox; the relay reads only `.json` files, so it never sees one half written. */
+export function writeOutbox(directory: string, to: string, body: string): void {
+  const name = `${Date.now()}-${crypto.randomUUID()}`;
+  writeFileSync(join(directory, `${name}.tmp`), JSON.stringify({ to, body }), { mode: 0o600, flag: "wx" });
+  renameSync(join(directory, `${name}.tmp`), join(directory, `${name}.json`));
+}
 
 const databases = new Map<string, Database>();
 

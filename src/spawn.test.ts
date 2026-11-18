@@ -1,9 +1,9 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as mailbox from "./mailbox";
-import { peekUnread, takeUnread } from "./mailbox";
+import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
 import { findRecipient } from "./messages";
 import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
@@ -19,6 +19,7 @@ import {
   settleClaudeTrust,
   spawnAgent,
   spawnedCodexThread,
+  spawnGrants,
   spawnOptions,
   spawnUsage,
   watchSpawnExit,
@@ -1019,4 +1020,68 @@ test("a spawned Codex run is named by the thread whose writer lock it holds", as
   const started = Date.now();
   expect(await spawnedCodexThread(quit.pid, 10_000)).toBeUndefined();
   expect(Date.now() - started).toBeLessThan(1_000);
+});
+
+test("an exit watcher relays what a sandboxed child left in its outbox, as from that child (#264)", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-state");
+  const name = "outbox-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sleep", "60"], "outbox", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "outbox-thread", cwd: paneDir, startedAt: Date.now(), pane: name });
+    const watching = watchSpawnExit(name, "", "claude:outbox-parent", "", 20);
+    mkdirSync(outboxPath(name), { recursive: true });
+    writeOutbox(outboxPath(name), "claude:outbox-parent", "review done");
+    let messages: mailbox.Message[] = [];
+    for (let waited = 0; !messages.length && waited < 2_000; waited += 20) {
+      await Bun.sleep(20);
+      messages = peekUnread("claude:outbox-parent");
+    }
+    expect(messages.map(({ from, body }) => ({ from, body }))).toEqual([
+      { from: "codex:outbox-thread", body: "review done" },
+    ]);
+    kill(name);
+    await watching;
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a Codex child in a linked worktree may write that worktree's git metadata (#264)", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-grants-"));
+  try {
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect(git("init", "-q", "main").exitCode).toBe(0);
+    expect(
+      git("-C", "main", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        .exitCode,
+    ).toBe(0);
+    expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
+    const common = join(realpathSync(root), "main", ".git");
+    expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
+      "/outbox",
+      join(common, "worktrees", "tree"),
+      join(common, "objects"),
+      join(common, "refs"),
+      join(common, "logs"),
+    ]);
+    // A plain checkout keeps Codex's own rule for its .git, and Claude's sandbox already opens a worktree's metadata.
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
+    expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
+      "codex",
+      "exec",
+      "--add-dir",
+      "/a",
+      "--add-dir",
+      "/b",
+      "go",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
