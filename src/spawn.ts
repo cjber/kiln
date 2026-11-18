@@ -305,6 +305,7 @@ export async function watchSpawnExit(
   name: string,
   child: string,
   parent: string,
+  run = "",
   intervalMs = watchIntervalMs,
 ): Promise<void> {
   let generation: string | undefined;
@@ -315,7 +316,7 @@ export async function watchSpawnExit(
     generation ??= seen.generation;
     if (seen.generation !== generation) return;
     if (!("waiting" in seen)) {
-      await reportSpawnExit(name, child, parent);
+      await reportSpawnExit(name, child, parent, run);
       return;
     }
     await Bun.sleep(intervalMs);
@@ -326,9 +327,9 @@ export async function watchSpawnExit(
  * Start that watcher as its own process, so it outlives the spawner and a person's shell. The hook stays the fast path;
  * a watcher that cannot start only loses the fallback, and the hook still reports an exit it sees.
  */
-function watchInBackground(name: string, child: string, parent: string): void {
+function watchInBackground(name: string, child: string, parent: string, run = ""): void {
   try {
-    Bun.spawn([kiln, "msg", "watch", name, child, parent], {
+    Bun.spawn([kiln, "msg", "watch", name, child, parent, run], {
       // Its own session, so a hangup or a group kill that ends the spawner's shell or tool call leaves it running.
       detached: true,
       stdin: "ignore",
@@ -405,10 +406,13 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A conversation already running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
-  const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? ""]);
   const run = { agent: options.agent, id, cwd: options.dir, title, parent, startedAt: Date.now(), pane: name };
-  // Record this run before its pane can exit: a resumed child keeps its pane name, so an exit hook that fired first
-  // would read the previous run's parent and start time. A spawn that fails puts the previous record back.
+  // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
+  // record is still this run's: a previous run's late hook must not reap this pane or report it to that run's parent.
+  const token = String(run.startedAt);
+  const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? "", token]);
+  // Record this run before its pane can exit: an exit hook that fired first would read the previous run's record and
+  // so, bound to this run, report nothing. A spawn that fails puts the previous record back.
   const previous = savedRow(run);
   recordSpawn(run);
   let pid: number | undefined;
@@ -422,19 +426,22 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw error;
   }
   recordSpawn({ ...run, pid });
-  watchInBackground(name, `${options.agent}:${id}`, parent ?? "");
-  if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "");
+  watchInBackground(name, `${options.agent}:${id}`, parent ?? "", token);
+  if (ended(name)) await reportSpawnExit(name, `${options.agent}:${id}`, parent ?? "", token);
   return `${options.agent}:${id}`;
 }
 
 /**
  * A spawned child's process has exited: tell its parent why, so a child that stops on a usage limit is not lost, then
- * close the pane kept for this report. The parent may be gone too; the message then waits in the mailbox.
+ * close the pane kept for this report. The parent may be gone too; the message then waits in the mailbox. `run` is the
+ * start time of the run the hook or watcher was made for; a Codex pane is named per run, so its reporters carry none.
  */
-export async function reportSpawnExit(name: string, _child: string, parent: string): Promise<void> {
+export async function reportSpawnExit(name: string, _child: string, parent: string, run = ""): Promise<void> {
   const record = spawnRecord(name);
   // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
   if (!record) return;
+  // A later run of the conversation owns this pane now; this reporter's run was reported, or failed to start.
+  if (run && Number(run) !== record.startedAt) return;
   const identity = `${record.agent}:${record.id}`;
   const separator = identity.indexOf(":");
   const ending = endedPane(name);

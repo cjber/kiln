@@ -332,6 +332,37 @@ test("a spawn is found by its pane after its process has gone, even when its row
   expect(spawnRecord("codex-1", path)).toMatchObject({ agent: "codex", id: "thread", pane: "codex-1" });
 });
 
+test("a spawned run keeps the start time its exit hook was bound to while it runs", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  recordSpawn(
+    {
+      agent: "claude",
+      id: "child",
+      cwd: "/repo",
+      parent: "codex:lead",
+      startedAt: 5_000,
+      pid: 40,
+      pane: "claude-child",
+    },
+    path,
+  );
+  // The listing reads the process's own start time, which is not the run's.
+  restartStopped(
+    [
+      {
+        agent: "claude",
+        id: "child",
+        pid: 40,
+        cwd: "/repo",
+        startedAt: 4_990,
+        place: { kind: "kiln", name: "claude-child" },
+      },
+    ],
+    path,
+  );
+  expect(spawnRecord("claude-child", path)).toMatchObject({ startedAt: 5_000, parent: "codex:lead" });
+});
+
 test("a spawned Codex run keeps its recorded parent and title once its thread id is known", () => {
   const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
   recordSpawn(

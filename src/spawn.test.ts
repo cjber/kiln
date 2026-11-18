@@ -267,7 +267,7 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
       startedAt: Date.now(),
       pane: name,
     });
-    await watchSpawnExit(name, "", "codex:parent", 20);
+    await watchSpawnExit(name, "", "codex:parent", "", 20);
     const messages = takeUnread("codex:parent");
     expect(messages).toHaveLength(1);
     expect(messages[0]?.body).toContain("codex:watched-thread exited with status 5");
@@ -283,7 +283,7 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
 test("an exit watcher stops once its session is closed", async () => {
   const name = "watched-close";
   expect(start(name, paneDir, ["sleep", "60"], "watched close", true)).toBe(true);
-  const watching = watchSpawnExit(name, "", "codex:close-parent", 20);
+  const watching = watchSpawnExit(name, "", "codex:close-parent", "", 20);
   await Bun.sleep(100);
   kill(name);
   // tmux 3.8 answers a read of a missing session with empty formats and status 0 (#235).
@@ -301,7 +301,7 @@ test("an exit watcher leaves a respawned pane to whoever respawned it", async ()
   try {
     expect(start(name, paneDir, ["sleep", "60"], "watched respawn", true)).toBe(true);
     recordSpawn({ agent: "codex", id: "watched-respawn", cwd: paneDir, startedAt: Date.now(), pane: name });
-    const watching = watchSpawnExit(name, "", "codex:respawn-parent", 20);
+    const watching = watchSpawnExit(name, "", "codex:respawn-parent", "", 20);
     await Bun.sleep(100);
     expect(respawn(name, paneDir, ["sh", "-c", "exit 6"])).toBe(true);
     await watching;
@@ -374,6 +374,42 @@ test("every exit of a resumed child reaches the parent recorded for that run", a
     const record = { agent: "claude" as const, id: "resumed-conversation", startedAt: 3_000 };
     expect(exitReportId(record)).toBe(exitReportId({ ...record }));
     expect(exitReportId(record)).not.toBe(exitReportId({ ...record, startedAt: 2_000 }));
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a stale run's delayed exit hook neither reaps a resumed run nor reports it to the stale parent", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "stale-hook-state");
+  const name = "stale-hook-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    const record = { agent: "claude" as const, id: "stale-hook-conversation", cwd: paneDir, pane: name };
+    // Run A exits and its watcher reports it, while A's pane-died hook is still delayed.
+    expect(start(name, paneDir, ["sh", "-c", "exit 3"], "stale", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({ ...record, parent: "codex:old-parent", startedAt: 1_000 });
+    await reportSpawnExit(name, "", "codex:old-parent", "1000");
+    expect(exists(name)).toBe(false);
+    // Run B resumes the conversation under another parent, in a pane of the same name, and exits.
+    recordSpawn({ ...record, parent: "codex:new-parent", startedAt: 2_000 });
+    expect(start(name, paneDir, ["sh", "-c", "exit 4"], "stale", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    // A's delayed hook fires now, bound to run A.
+    await reportSpawnExit(name, "", "codex:old-parent", "1000");
+    expect(exists(name)).toBe(true);
+    await reportSpawnExit(name, "", "codex:new-parent", "2000");
+    expect(exists(name)).toBe(false);
+    expect(takeUnread("codex:old-parent").map((message) => message.body)).toEqual([
+      "Child claude:stale-hook-conversation exited with status 3.",
+    ]);
+    expect(takeUnread("codex:new-parent").map((message) => message.body)).toEqual([
+      "Child claude:stale-hook-conversation exited with status 4.",
+    ]);
   } finally {
     discovery.mockRestore();
     kill(name);
