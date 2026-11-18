@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { claudeTranscript } from "./claude-inbox";
+import { claudeTranscript, findClaudeTranscript } from "./claude-inbox";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
@@ -224,6 +224,9 @@ export async function resumeStopped(
   if (session.place.kind !== "saved" || !session.id) return { problem: "this session is not stopped" };
   const name = sessionName(session.agent, session.id);
   if (exists(name)) return { name };
+  // Claude would exit at once with no reason given; there is no conversation to carry on.
+  if (session.agent === "claude" && !findClaudeTranscript(session.id, session.cwd))
+    return { problem: `Claude has no conversation ${session.id} to resume` };
   const row = savedRow(session);
   const failed = (problem: string) => {
     if (row) restoreRow(row);
