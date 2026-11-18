@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { peekUnread, takeUnread } from "./mailbox";
+import { findRecipient } from "./messages";
 import * as opencode from "./opencode";
 import { recordSpawn } from "./saved-sessions";
 import * as sessions from "./sessions";
@@ -643,6 +644,8 @@ test("a watcher reports a child whose pane is gone before its exit can be read",
     // The hook and the watcher can both report one exit; the message id keeps that one message.
     await reportSpawnExit(name, "claude:gone-session", "claude:gone-parent", "2000");
     expect(peekUnread("claude:gone-parent")).toHaveLength(1);
+    // A send to the child now names its exit rather than a missing session.
+    expect(() => findRecipient([], "claude:gone-session")).toThrow("claude:gone-session has exited");
   } finally {
     discovery.mockRestore();
     kill(name);

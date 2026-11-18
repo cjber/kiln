@@ -2,7 +2,7 @@ import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
-import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
+import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
@@ -87,7 +87,11 @@ export function reachable(session: Session): boolean {
 }
 
 /** A full name, or a prefix of one or of the bare id that matches a single session. */
-export function findRecipient(sessions: readonly Session[], name: string): Session {
+export function findRecipient(
+  sessions: readonly Session[],
+  name: string,
+  exitReport: (name: string) => Message | undefined = (child) => lastFrom(spawnReportSender(child)),
+): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));
   if (exact) return exact;
@@ -95,7 +99,15 @@ export function findRecipient(sessions: readonly Session[], name: string): Sessi
     (session) => sessionIdentity(session).startsWith(name) || session.id?.startsWith(name),
   );
   if (matches.length === 1 && matches[0]) return matches[0];
-  if (!matches.length) throw new Error(`no running session is called ${name}; run kiln msg list`);
+  if (!matches.length) {
+    // A spawned child that has exited left its exit report, so a sender can tell it from a mistyped name.
+    const exit = exitReport(name);
+    if (exit)
+      throw new Error(
+        `${name} has exited; kiln reported at ${new Date(exit.createdAt).toISOString()}: ${exit.body.split("\n")[0]}`,
+      );
+    throw new Error(`no running session is called ${name}; run kiln msg list`);
+  }
   throw new Error(`${name} matches ${matches.map(sessionIdentity).join(", ")}; give more of the name`);
 }
 
