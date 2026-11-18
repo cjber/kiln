@@ -457,6 +457,47 @@ test("a delayed exit hook without a run neither reaps a run-bound resumed run no
   }
 });
 
+test.each(["1000", ""])(
+  "a run replaced while its reporter's discovery is paused is neither read nor reaped by it (run %p)",
+  async (run) => {
+    const state = Bun.env.XDG_STATE_HOME;
+    Bun.env.XDG_STATE_HOME = join(paneDir, `replaced-run-state-${run || "none"}`);
+    const name = `replaced-run-child-${run || "none"}`;
+    let release!: (rows: sessions.Session[]) => void;
+    const barrier = new Promise<sessions.Session[]>((resolve) => {
+      release = resolve;
+    });
+    const discovery = spyOn(sessions, "listSessions").mockImplementation(() => barrier);
+    let reporting: Promise<void> | undefined;
+    try {
+      const record = { agent: "claude" as const, id: "replaced-run-conversation", cwd: paneDir, pane: name };
+      expect(start(name, paneDir, ["sh", "-c", "exit 3"], "replaced", true)).toBe(true);
+      for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+      recordSpawn({ ...record, parent: "codex:old-parent", startedAt: 1_000 });
+      // Run A's reporter, bound to its run or from a hook naming none, pauses in discovery.
+      reporting = reportSpawnExit(name, "", "", run);
+      expect(discovery).toHaveBeenCalledTimes(1);
+      // Meanwhile A is reaped, and run B resumes in a pane of the same name under another parent and exits.
+      kill(name);
+      recordSpawn({ ...record, parent: "codex:new-parent", startedAt: 2_000, runBound: true });
+      expect(start(name, paneDir, ["sh", "-c", "exit 4"], "replaced", true)).toBe(true);
+      for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+      release([]);
+      await reporting;
+      expect(ended(name)?.status).toBe(4);
+      expect(takeUnread("codex:old-parent")).toHaveLength(0);
+      expect(takeUnread("codex:new-parent")).toHaveLength(0);
+    } finally {
+      release([]);
+      await reporting;
+      discovery.mockRestore();
+      kill(name);
+      if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+      else Bun.env.XDG_STATE_HOME = state;
+    }
+  },
+);
+
 test("a resumed child that exits before its spawn settles reports to the new parent under a new exit id", async () => {
   const saved = {
     state: Bun.env.XDG_STATE_HOME,

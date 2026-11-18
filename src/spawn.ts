@@ -456,32 +456,42 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
 }
 
 /**
+ * The record of the run a reporter was made for, or nothing when the pane has none or a later run owns it now: that
+ * reporter's run was reported, or failed to start. A reporter naming no run acts only on a record whose hooks name none
+ * either, from a Codex spawn or an older kiln.
+ */
+function runRecord(name: string, run: string): Saved | undefined {
+  const record = spawnRecord(name);
+  // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
+  if (!record) return undefined;
+  return (run ? Number(run) === record.startedAt : !record.runBound) ? record : undefined;
+}
+
+/**
  * A spawned child's process has exited: tell its parent why, so a child that stops on a usage limit is not lost, then
  * close the pane kept for this report. The parent may be gone too; the message then waits in the mailbox. `run` is the
  * start time of the run the hook or watcher was made for; a Codex pane is named per run, so its reporters carry none.
  */
 export async function reportSpawnExit(name: string, _child: string, parent: string, run = ""): Promise<void> {
-  const record = spawnRecord(name);
-  // The hook can beat registration. The spawner checks for an already-ended pane after saving its record.
-  if (!record) return;
-  // A later run of the conversation owns this pane now; this reporter's run was reported, or failed to start. A
-  // reporter naming no run acts only on a record whose hooks name none either, from a Codex spawn or an older kiln.
-  if (run ? Number(run) !== record.startedAt : record.runBound) return;
-  const identity = `${record.agent}:${record.id}`;
-  const separator = identity.indexOf(":");
+  const reported = runRecord(name, run);
+  if (!reported) return;
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
   // ancestry is in the record, so an exit report still reaches the session that started the child.
-  const to = separator > 0 ? parent || record.parent || "" : "";
   let recipients: Awaited<ReturnType<typeof listSessions>> = [];
-  if (to) {
+  if (parent || reported.parent) {
     try {
       recipients = await listSessions({ kitty: false });
     } catch {
       // An unavailable discovery source must not prevent an offline mailbox report.
     }
   }
+  // Discovery can pause long enough for another reporter to reap this run and a resumed run to exit in the same pane,
+  // so the run is checked again, and the record read now names who is told. From here to the post nothing is awaited.
+  const record = runRecord(name, run);
+  if (!record) return;
+  const identity = `${record.agent}:${record.id}`;
+  const to = parent || record.parent || "";
   // The pane is read after discovery, so a respawn while discovery ran is read as the new command it is, not reported.
-  // From the read to the post nothing is awaited.
   const seen = paneState(name);
   if (seen !== "gone" && "waiting" in seen) return;
   // A pane whose session is gone has no exit left to read: a person closed it, tmux restarted, or a tmux without
