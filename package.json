@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/index.tsx",
-    "test": "bun test"
+    "test": "bun test",
+    "gate": "biome ci . && tsc --noEmit -p . && bun test && bun scripts/changelog.ts --check",
+    "gate:changed": "scripts/gate-changed.sh"
   },
   "dependencies": {
     "@opentui/core": "^0.9.2",
