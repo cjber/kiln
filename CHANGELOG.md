@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.4] - 2026-11-18
+
 - **A spawned child that fails reports its exit status and error to its parent.** `kiln msg spawn` run from an agent inside kiln's tmux set the child's exit hook and `remain-on-exit` on the parent's own window, because tmux took the target of those commands from the caller's `$TMUX_PANE`. The child's pane then closed as it exited, and the parent heard only `ended while working on ...`, without the status or the error, such as a Muse usage limit. The child's pane now gets its own options, so the report carries the exit status and the last output.
 
 ## [0.30.3] - 2026-11-18
