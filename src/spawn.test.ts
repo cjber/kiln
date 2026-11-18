@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { peekUnread, takeUnread } from "./mailbox";
@@ -9,9 +9,12 @@ import * as sessions from "./sessions";
 import {
   exitHook,
   exitMessage,
+  exitReportId,
   headlessCommand,
   interactiveClaudeCommand,
   reportSpawnExit,
+  settleClaudeTrust,
+  spawnAgent,
   spawnedCodexThread,
   spawnOptions,
   spawnUsage,
@@ -199,6 +202,20 @@ test("a spawned pane's exit hook runs, and its kept pane reports the status and 
   expect(kill("limit-child")).toBe(true);
 });
 
+test("an interactive Claude held at a startup dialog fails the spawn and closes its session", async () => {
+  const name = "dialog-child";
+  const argv = ["sh", "-c", "echo 'Allow external CLAUDE.md file imports?'; sleep 30"];
+  expect(start(name, paneDir, argv, "dialog", false, "")).toBe(true);
+  try {
+    await expect(
+      settleClaudeTrust(name, crypto.randomUUID(), { dir: paneDir }, argv, "dialog", "", 300),
+    ).rejects.toThrow("Its screen showed:\nAllow external CLAUDE.md file imports?");
+    expect(exists(name)).toBe(false);
+  } finally {
+    kill(name);
+  }
+});
+
 test("an exit before registration keeps the pane until the spawn is recorded", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "state");
@@ -250,7 +267,7 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
       startedAt: Date.now(),
       pane: name,
     });
-    await watchSpawnExit(name, "", "codex:parent", 20);
+    await watchSpawnExit(name, "", "codex:parent", "", 20);
     const messages = takeUnread("codex:parent");
     expect(messages).toHaveLength(1);
     expect(messages[0]?.body).toContain("codex:watched-thread exited with status 5");
@@ -266,7 +283,7 @@ test("a spawned child's exit is reported when tmux never runs its pane-died hook
 test("an exit watcher stops once its session is closed", async () => {
   const name = "watched-close";
   expect(start(name, paneDir, ["sleep", "60"], "watched close", true)).toBe(true);
-  const watching = watchSpawnExit(name, "", "codex:close-parent", 20);
+  const watching = watchSpawnExit(name, "", "codex:close-parent", "", 20);
   await Bun.sleep(100);
   kill(name);
   // tmux 3.8 answers a read of a missing session with empty formats and status 0 (#235).
@@ -284,7 +301,7 @@ test("an exit watcher leaves a respawned pane to whoever respawned it", async ()
   try {
     expect(start(name, paneDir, ["sleep", "60"], "watched respawn", true)).toBe(true);
     recordSpawn({ agent: "codex", id: "watched-respawn", cwd: paneDir, startedAt: Date.now(), pane: name });
-    const watching = watchSpawnExit(name, "", "codex:respawn-parent", 20);
+    const watching = watchSpawnExit(name, "", "codex:respawn-parent", "", 20);
     await Bun.sleep(100);
     expect(respawn(name, paneDir, ["sh", "-c", "exit 6"])).toBe(true);
     await watching;
@@ -326,6 +343,194 @@ test("an offline child exit reaches its parent mailbox without a provider call",
     else Bun.env.XDG_STATE_HOME = state;
   }
 });
+
+test("every exit of a resumed child reaches the parent recorded for that run", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "resumed-state");
+  const name = "resumed-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    // A resume reuses the conversation id, so each run is told apart by the start time its spawn recorded.
+    const runs = [
+      { startedAt: 1_000, parent: "codex:first-parent", status: 3 },
+      { startedAt: 2_000, parent: "codex:first-parent", status: 4 },
+      { startedAt: 3_000, parent: "codex:second-parent", status: 5 },
+    ];
+    for (const run of runs) {
+      expect(start(name, paneDir, ["sh", "-c", `exit ${run.status}`], "resumed", true)).toBe(true);
+      for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+      recordSpawn({ agent: "claude", id: "resumed-conversation", cwd: paneDir, startedAt: run.startedAt, pane: name });
+      await reportSpawnExit(name, "", run.parent);
+      expect(exists(name)).toBe(false);
+    }
+    expect(takeUnread("codex:first-parent").map((message) => message.body)).toEqual([
+      "Child claude:resumed-conversation exited with status 3.",
+      "Child claude:resumed-conversation exited with status 4.",
+    ]);
+    expect(takeUnread("codex:second-parent").map((message) => message.body)).toEqual([
+      "Child claude:resumed-conversation exited with status 5.",
+    ]);
+    // The hook and the watcher reporting one run read the same record, so they share one message id.
+    const record = { agent: "claude" as const, id: "resumed-conversation", startedAt: 3_000 };
+    expect(exitReportId(record)).toBe(exitReportId({ ...record }));
+    expect(exitReportId(record)).not.toBe(exitReportId({ ...record, startedAt: 2_000 }));
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a stale run's delayed exit hook neither reaps a resumed run nor reports it to the stale parent", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "stale-hook-state");
+  const name = "stale-hook-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    const record = { agent: "claude" as const, id: "stale-hook-conversation", cwd: paneDir, pane: name };
+    // Run A exits and its watcher reports it, while A's pane-died hook is still delayed.
+    expect(start(name, paneDir, ["sh", "-c", "exit 3"], "stale", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({ ...record, parent: "codex:old-parent", startedAt: 1_000 });
+    await reportSpawnExit(name, "", "codex:old-parent", "1000");
+    expect(exists(name)).toBe(false);
+    // Run B resumes the conversation under another parent, in a pane of the same name, and exits.
+    recordSpawn({ ...record, parent: "codex:new-parent", startedAt: 2_000 });
+    expect(start(name, paneDir, ["sh", "-c", "exit 4"], "stale", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    // A's delayed hook fires now, bound to run A.
+    await reportSpawnExit(name, "", "codex:old-parent", "1000");
+    expect(exists(name)).toBe(true);
+    await reportSpawnExit(name, "", "codex:new-parent", "2000");
+    expect(exists(name)).toBe(false);
+    expect(takeUnread("codex:old-parent").map((message) => message.body)).toEqual([
+      "Child claude:stale-hook-conversation exited with status 3.",
+    ]);
+    expect(takeUnread("codex:new-parent").map((message) => message.body)).toEqual([
+      "Child claude:stale-hook-conversation exited with status 4.",
+    ]);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a delayed exit hook without a run neither reaps a run-bound resumed run nor reports it", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "legacy-hook-state");
+  const name = "legacy-hook-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    const record = { agent: "claude" as const, id: "legacy-hook-conversation", cwd: paneDir, pane: name };
+    // Run A exits and its watcher reports it, while A's hook, which names no run, is still delayed.
+    expect(start(name, paneDir, ["sh", "-c", "exit 3"], "legacy", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({ ...record, parent: "codex:old-parent", startedAt: 1_000, runBound: true });
+    await reportSpawnExit(name, "", "codex:old-parent", "1000");
+    expect(exists(name)).toBe(false);
+    // Run B resumes the conversation under another parent, in a pane of the same name, and exits.
+    recordSpawn({ ...record, parent: "codex:new-parent", startedAt: 2_000, runBound: true });
+    expect(start(name, paneDir, ["sh", "-c", "exit 4"], "legacy", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    // A's delayed hook fires now and names no run.
+    await reportSpawnExit(name, "", "codex:old-parent");
+    expect(exists(name)).toBe(true);
+    await reportSpawnExit(name, "", "codex:new-parent", "2000");
+    expect(exists(name)).toBe(false);
+    expect(takeUnread("codex:old-parent").map((message) => message.body)).toEqual([
+      "Child claude:legacy-hook-conversation exited with status 3.",
+    ]);
+    expect(takeUnread("codex:new-parent").map((message) => message.body)).toEqual([
+      "Child claude:legacy-hook-conversation exited with status 4.",
+    ]);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
+test("a resumed child that exits before its spawn settles reports to the new parent under a new exit id", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    claude: Bun.env.CLAUDE_CONFIG_DIR,
+  };
+  const root = join(paneDir, "resumed-early");
+  const state = join(root, "state");
+  const dir = join(root, "work");
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "claude"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  Bun.env.XDG_STATE_HOME = state;
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.CLAUDE_CONFIG_DIR = join(root, "claude");
+  const server = `kiln-spawn-${process.pid}`;
+  // The pane's exit hook runs in the tmux server's environment, so it reads this test's state too.
+  Bun.spawnSync(["tmux", "-L", server, "set-environment", "-g", "XDG_STATE_HOME", state]);
+  const id = crypto.randomUUID();
+  const name = `claude-${id.replaceAll("-", "").slice(0, 20)}`;
+  // A Claude that exits before it registers its session, noting the spawn record its exit reporters would read.
+  const seen = join(root, "seen.json");
+  const claude = join(root, "claude.sh");
+  const reader = `import { spawnRecord } from ${JSON.stringify(resolve(import.meta.dir, "saved-sessions.ts"))}; await Bun.write(${JSON.stringify(seen)}, JSON.stringify(spawnRecord(${JSON.stringify(name)}) ?? null));`;
+  writeFileSync(claude, `#!/bin/sh\nXDG_STATE_HOME='${state}' '${process.execPath}' -e '${reader}'\nexit 7\n`, {
+    mode: 0o755,
+  });
+  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\nclaude = [${JSON.stringify(claude)}]\n`);
+  try {
+    // The run before this one exited and was reported to its own parent.
+    recordSpawn({
+      agent: "claude",
+      id,
+      cwd: dir,
+      title: "resumed",
+      parent: "codex:old-parent",
+      startedAt: 1_000,
+      pane: name,
+    });
+    expect(
+      await spawnAgent(
+        {
+          agent: "claude",
+          dir,
+          prompt: "carry on",
+          interactive: true,
+          resume: { id, codeMode: false, title: "resumed" },
+        },
+        "codex:new-parent",
+      ),
+    ).toBe(`claude:${id}`);
+    const record = JSON.parse(await Bun.file(seen).text());
+    expect(record).toMatchObject({ agent: "claude", id, parent: "codex:new-parent" });
+    expect(record.startedAt).not.toBe(1_000);
+    let messages = takeUnread("codex:new-parent");
+    for (let waited = 0; messages.length === 0 && waited < 15_000; waited += 100) {
+      await Bun.sleep(100);
+      messages = takeUnread("codex:new-parent");
+    }
+    expect(messages.map((message) => message.body)).toEqual([
+      `Child claude:${id} exited with status 7 while working on "resumed".`,
+    ]);
+    expect(messages[0]?.id).toBe(exitReportId({ agent: "claude", id, startedAt: record.startedAt }));
+    expect(takeUnread("codex:old-parent")).toHaveLength(0);
+  } finally {
+    kill(name);
+    Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["CLAUDE_CONFIG_DIR", saved.claude],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+}, 30_000);
 
 test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
   const state = Bun.env.XDG_STATE_HOME;
@@ -422,16 +627,21 @@ test("a watcher reports a child whose pane is gone before its exit can be read",
       id: "gone-session",
       cwd: paneDir,
       title: "gone work",
-      startedAt: Date.now(),
+      startedAt: 2_000,
       pane: name,
+      runBound: true,
     });
     expect(kill(name)).toBe(true);
-    await watchSpawnExit(name, "claude:gone-session", "claude:gone-parent", 20);
+    // A watcher left from an earlier run of the conversation must not report this run, even with no pane to check.
+    await watchSpawnExit(name, "claude:gone-session", "claude:gone-parent", "1000", 20);
+    await reportSpawnExit(name, "claude:gone-session", "claude:gone-parent");
+    expect(peekUnread("claude:gone-parent")).toHaveLength(0);
+    await watchSpawnExit(name, "claude:gone-session", "claude:gone-parent", "2000", 20);
     const messages = peekUnread("claude:gone-parent");
     expect(messages).toHaveLength(1);
     expect(messages[0]?.body).toContain('claude:gone-session ended while working on "gone work"');
     // The hook and the watcher can both report one exit; the message id keeps that one message.
-    await reportSpawnExit(name, "claude:gone-session", "claude:gone-parent");
+    await reportSpawnExit(name, "claude:gone-session", "claude:gone-parent", "2000");
     expect(peekUnread("claude:gone-parent")).toHaveLength(1);
   } finally {
     discovery.mockRestore();
@@ -480,6 +690,78 @@ test("kiln's tmux server outlives its last session, so a start right after a rea
     expect(shown.stdout.toString().trim()).toBe("off");
   } finally {
     kill(name);
+  }
+});
+
+test("a resumed Claude child carries on its conversation in the directory it began in", () => {
+  const config = mkdtempSync(join(tmpdir(), "kiln-spawn-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
+  const previous = Bun.env.CLAUDE_CONFIG_DIR;
+  Bun.env.CLAUDE_CONFIG_DIR = config;
+  try {
+    const id = "0f9a28c0-019a-4c72-9821-825fd64311f6";
+    mkdirSync(join(config, "projects", "-somewhere"), { recursive: true });
+    writeFileSync(
+      join(config, "projects", "-somewhere", `${id}.jsonl`),
+      `${JSON.stringify({ type: "user", cwd: dir, sessionId: id })}\n`,
+    );
+    const options = spawnOptions(["claude", "--resume", `claude:${id}`, "--", "carry on"], "/tmp");
+    expect(options).toMatchObject({ agent: "claude", dir, resume: { id, codeMode: false } });
+    expect(headlessCommand(["claude"], "claude", id, "carry on", undefined, undefined, options.resume)).toEqual([
+      "env",
+      "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+      "claude",
+      "-p",
+      "--resume",
+      id,
+      "carry on",
+    ]);
+    // Claude resumes a Code Mode conversation only with Code Mode on.
+    expect(
+      interactiveClaudeCommand(["claude"], id, "carry on", undefined, undefined, "/account", { id, codeMode: true }),
+    ).toEqual([
+      "env",
+      "CLAUDE_CONFIG_DIR=/account",
+      "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1",
+      "claude",
+      "--resume",
+      id,
+      "--",
+      "carry on",
+    ]);
+    // Claude will not resume a Code Mode conversation with Remote Control on, even when the configured command has it.
+    const codeMode = { id, codeMode: true };
+    expect(headlessCommand(["claude", "--remote-control"], "claude", id, "go", undefined, undefined, codeMode)).toEqual(
+      [
+        "env",
+        "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+        "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1",
+        "claude",
+        "-p",
+        "--resume",
+        id,
+        "go",
+      ],
+    );
+    expect(
+      interactiveClaudeCommand(["claude", "--remote-control"], id, "go", undefined, undefined, "/account", codeMode),
+    ).not.toContain("--remote-control");
+    expect(
+      interactiveClaudeCommand(["claude", "--remote-control"], id, "go", undefined, undefined, "/account", {
+        id,
+        codeMode: false,
+      }),
+    ).toContain("--remote-control");
+    expect(() => spawnOptions(["claude", "--resume", "1c949e39", "--", "go"])).toThrow(
+      "no Claude conversation 1c949e39",
+    );
+    expect(() => spawnOptions(["claude", "--resume", id, "--dir", dir, "--", "go"])).toThrow("drop --dir");
+    expect(() => spawnOptions(["pi", "--resume", id, "--", "go"])).toThrow("claude only");
+  } finally {
+    if (previous === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
+    else Bun.env.CLAUDE_CONFIG_DIR = previous;
+    rmSync(config, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

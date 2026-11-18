@@ -85,14 +85,14 @@ export async function runMsgCli(args: string[]): Promise<void> {
   }
   // A spawned child's kept pane calls this from its pane-died hook when its process exits.
   if (first === "exit") {
-    const [, name, child, parent] = args;
-    if (name) await reportSpawnExit(name, child ?? "", parent ?? "");
+    const [, name, child, parent, run] = args;
+    if (name) await reportSpawnExit(name, child ?? "", parent ?? "", run ?? "");
     return;
   }
   // A watcher the spawn started reports the same exit when a tmux that lost the pane's SIGCHLD never fires that hook.
   if (first === "watch") {
-    const [, name, child, parent] = args;
-    if (name) await watchSpawnExit(name, child ?? "", parent ?? "");
+    const [, name, child, parent, run] = args;
+    if (name) await watchSpawnExit(name, child ?? "", parent ?? "", run ?? "");
     return;
   }
   // Older versions wrapped a spawned OpenCode run with this; keep it working for one already running.
@@ -146,6 +146,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
           title: session.title,
           directory: sessionDirectory(session),
           activity: session.activity,
+          turnEnded: session.turnEnded ?? false,
           delivery: delivery(session),
           you: me !== undefined && (sessionIdentity(session) === me || sessionAliases(session).includes(me)),
           parent: parent ? sessionIdentity(parent) : null,
@@ -159,7 +160,8 @@ export async function runMsgCli(args: string[]): Promise<void> {
             [
               `${"  ".repeat(row.depth)}${row.name}${row.you ? " (you)" : ""}`,
               agentName(row.agent),
-              row.activity ?? "unknown",
+              // Claude counts a turn that ended with a background shell or subagent still running as working.
+              row.turnEnded ? `${row.activity}, turn ended` : (row.activity ?? "unknown"),
               tilde(row.directory),
               row.title ?? "",
               `delivery: ${row.delivery}`,

@@ -1,5 +1,6 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
 import { claim, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
@@ -100,7 +101,7 @@ export function findRecipient(sessions: readonly Session[], name: string): Sessi
 
 export type Route =
   /** Kiln can put the message in front of the agent now. */
-  | { push: "codex" | "opencode" | "pi" | "tmux" }
+  | { push: "claude" | "codex" | "opencode" | "pi" | "tmux" }
   /** It can, once the agent stops working or asking. */
   | { wait: string }
   /** The agent has to read it with `kiln msg inbox`. */
@@ -125,16 +126,21 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
         ? { push: "pi" }
         : { inbox: "it was not started by kiln, or before kiln could message it" };
     case "codex":
-      // Only a thread on Codex's shared daemon reports a status, and only that daemon can start its turn.
-      return session.activity === undefined
+      // Only that daemon can start a turn; a thread whose status it does not report, or an exec run, is not on it.
+      return session.activity === undefined || session.codexExec
         ? { inbox: "it is not on Codex's shared daemon" }
         : session.activity === "waiting" && !session.turnEnded
           ? { wait: "Codex is waiting" }
           : { push: "codex" };
     case "claude":
+      // Claude's inbox queues a message while a turn runs, as Codex's daemon does; a question waits for its answer.
+      if (session.claudeInbox)
+        return session.activity === "waiting" && !session.turnEnded
+          ? { wait: "Claude is waiting" }
+          : { push: "claude" };
       return session.place.kind === "kiln"
         ? (busy() ?? { push: "tmux" })
-        : { inbox: "kiln can only type into Claude sessions it started" };
+        : { inbox: "it has no Claude inbox, and kiln can only type into Claude sessions it started" };
   }
 }
 
@@ -142,6 +148,8 @@ export type Interruption = { via: "codex" | "opencode" | "tmux" } | { unsupporte
 
 /** How kiln stops a session's turn in progress, or why it cannot. */
 export function interruption(session: Session): Interruption {
+  // An exec run has no terminal input, even in a kiln pane, and is not on the shared daemon.
+  if (session.codexExec) return { unsupported: "a codex exec run takes no input" };
   // Escape is how an agent's own terminal ends a turn. OpenCode's TUI wants it twice, so its service stops it instead.
   if (session.place.kind === "kiln" && session.agent !== "opencode") return { via: "tmux" };
   switch (session.agent) {
@@ -212,7 +220,7 @@ export function frame(message: Message, sender: Session | undefined, command = k
 export class NotNow extends Error {}
 
 export type Transports = Record<
-  "codex" | "opencode" | "pi" | "tmux",
+  "claude" | "codex" | "opencode" | "pi" | "tmux",
   (session: Session, text: string, message: Message) => Promise<void>
 >;
 
@@ -220,6 +228,17 @@ export type Transports = Record<
 const askId = (session: Session, question: string) => `ask:${sessionIdentity(session)}:${question}`;
 
 const transports: Transports = {
+  claude: async (session, text) => {
+    const inbox = session.pid === undefined ? undefined : claudeInbox(session.pid);
+    const transcript = claudeTranscript(session.cwd, session.id);
+    if (!inbox || !transcript) throw new NotNow("its Claude inbox has closed");
+    try {
+      await sendClaudeInbox(inbox, text, transcript);
+    } catch (error) {
+      if (error instanceof InboxClosed) throw new NotNow(error.message);
+      throw error;
+    }
+  },
   codex: async (session, text) => {
     try {
       await messageCodexSession(session.id ?? "", text);

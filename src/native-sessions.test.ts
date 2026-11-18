@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionAction } from "./launcher";
 import {
   claudeActivity,
   claudeListing,
-  claudeSessionStatus,
+  claudeStatus,
+  codexExecProcess,
   codexExecThread,
   deduplicateSessions,
   environParent,
@@ -199,16 +200,28 @@ describe("finished Claude jobs", () => {
 });
 
 test("a Claude turn with a background shell or agent still running is working, as Claude counts it", () => {
-  const dir = mkdtempSync(join(tmpdir(), "kiln-claude-"));
-  mkdirSync(join(dir, "sessions"));
-  writeFileSync(join(dir, "sessions", "7.json"), JSON.stringify({ pid: 7, status: "shell" }));
-  writeFileSync(join(dir, "sessions", "8.json"), "{");
-  expect(claudeSessionStatus(7, dir)).toBe("shell");
-  expect(claudeSessionStatus(8, dir)).toBeUndefined();
-  expect(claudeSessionStatus(9, dir)).toBeUndefined();
   expect(claudeActivity("shell")).toBe("working");
   expect(claudeActivity("busy")).toBe("working");
   expect(claudeActivity("idle")).toBe("idle");
+});
+
+test("a busy Claude session's status comes from its own record, or for print mode from its transcript", () => {
+  const shells = () => true;
+  const none = () => false;
+  const interactive = { entrypoint: "cli" };
+  const print = { status: "busy", entrypoint: "sdk-cli" };
+  expect(claudeStatus("idle", print, true, shells)).toBe("idle");
+  expect(claudeStatus("waiting", interactive, false, none)).toBe("waiting");
+  expect(claudeStatus(undefined, print, true, none)).toBeUndefined();
+  // An interactive Claude keeps its record current, so a turn the transcript shows ended is still busy until it says so.
+  expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells)).toBe("busy");
+  expect(claudeStatus("busy", { ...interactive, status: "shell" }, true, none)).toBe("shell");
+  expect(claudeStatus("busy", {}, true, shells)).toBe("busy");
+  // A print-mode record stays busy for the life of the process.
+  expect(claudeStatus("busy", print, false, shells)).toBe("busy");
+  expect(claudeStatus("busy", print, undefined, none)).toBe("busy");
+  expect(claudeStatus("busy", print, true, shells)).toBe("shell");
+  expect(claudeStatus("busy", print, true, none)).toBe("idle");
 });
 
 test("a failed Claude listing keeps the last rows with their status unknown", () => {
@@ -498,4 +511,18 @@ test("a codex exec run is named by its own thread, never by a sub-agent thread i
   // Before Codex opens its rollout the run has no thread yet.
   expect(codexExecThread(["/dev/null"], read)).toBeUndefined();
   expect(codexExecThread([rollout("sub-1")], read)).toBeUndefined();
+});
+
+test("a running codex exec process is working and is not on the shared daemon", () => {
+  // Exec runs one turn non-interactively and exits as it ends, so its live process is its working turn (#239).
+  const run = codexExecProcess(40, "/work", 7.5, ["/dev/null"]);
+  expect(run).toEqual({
+    pid: 40,
+    agent: "codex",
+    id: undefined,
+    cwd: "/work",
+    startedAt: 7.5,
+    activity: "working",
+    codexExec: true,
+  });
 });

@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { claudeConfigDir, claudeTranscript } from "./native-sessions";
+import { claudeConfigDir, claudeTranscript } from "./claude-inbox";
 import { type Agent, agents, type Session } from "./sessions";
 
 /** One line of a session as the phone draws it. `result` items attach to the `tool` item named by `of`. */

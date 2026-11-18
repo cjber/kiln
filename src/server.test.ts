@@ -652,7 +652,7 @@ test("a session view reads its transcript, posts a retried reply once and refuse
     };
     expect(kittyView.abilities).toEqual({
       read: true,
-      inbox: "kiln can only type into Claude sessions it started",
+      inbox: "it has no Claude inbox, and kiln can only type into Claude sessions it started",
       stop: false,
     });
     expect((await fetch(`${origin}/v1/sessions/nope/view`, { headers })).status).toBe(404);

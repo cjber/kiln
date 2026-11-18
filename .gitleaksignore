@@ -1,2 +1,5 @@
 # RFC 8291 Web Push test vector (public, from the RFC), not a credential.
 ce2601af123224dc9691953c9368b64fbc5dc15b:src/push.test.ts:generic-api-key:20
+# A made-up Claude peer token in the inbox test's fake session record, not a credential.
+eb42501fb52bf22ea839c16f5a01323a05275646:src/claude-inbox.test.ts:generic-api-key:20
+10c2b4833e9362326a878fec2f677594ed26a3ca:src/claude-inbox.test.ts:generic-api-key:20

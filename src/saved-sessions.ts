@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { findClaudeTranscript } from "./claude-inbox";
 import { type Agent, gitBranch, processIdentity, processStartTicks, type Session, sessionIdentity } from "./sessions";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
@@ -21,6 +22,8 @@ export type Saved = {
   goneAt?: number;
   /** The tmux session `kiln msg spawn` started it in, so its exit hook can name it. */
   pane?: string;
+  /** Its spawn bound the exit hook and watcher to this run's start time; an older kiln's hooks name no run. */
+  runBound?: boolean;
 };
 
 /**
@@ -55,11 +58,13 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
     if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
     if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
+    if (!columns.some((column) => column.name === "runBound"))
+      db.exec("ALTER TABLE sessions ADD COLUMN runBound INTEGER");
     databases.set(path, db);
   }
   return db;
@@ -79,6 +84,7 @@ function read(db: Database): Saved[] {
       pid: row.pid ?? undefined,
       goneAt: row.goneAt ?? undefined,
       pane: row.pane ?? undefined,
+      runBound: row.runBound ? true : undefined,
     }));
 }
 
@@ -104,7 +110,9 @@ function resumable(session: Session): session is Session & { id: string } {
 /**
  * Bring the saved list up to date with one observation. A running session is saved under this boot. One
  * whose process is gone in the same boot was closed and is dropped; one from an earlier boot was cut off
- * by the restart, and stays as a stopped row until it is seen running again or forgotten.
+ * by the restart, and stays as a stopped row until it is seen running again or forgotten. A row whose conversation its
+ * provider lists as finished, or whose conversation `hasConversation` cannot find, is dropped: there is nothing a
+ * restart cut off to resume.
  */
 export function reconcile(
   saved: readonly Saved[],
@@ -113,6 +121,7 @@ export function reconcile(
   now: number,
   alive: (pid: number) => boolean,
   started: (pid: number) => number | undefined,
+  hasConversation: (item: Saved) => boolean = () => true,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
@@ -135,18 +144,25 @@ export function reconcile(
       cwd: session.cwd,
       title: session.title ?? recorded?.title,
       parent: session.spawnParent ?? recorded?.parent,
-      startedAt: session.startedAt,
+      // A spawned run's exit hook and watcher are bound to the start time its spawn recorded, so a row with a pane
+      // keeps it; the listing reads the process's own start time.
+      startedAt: recorded?.pane ? recorded.startedAt : session.startedAt,
       lastActiveAt: session.lastActiveAt,
       boot,
       pid: session.pid,
       goneAt: undefined,
       pane: recorded?.pane,
+      runBound: recorded?.runBound,
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));
   const listed = new Set(sessions.filter((session) => session.id !== undefined).map(key));
+  // A finished Claude background job is listed with its lifecycle; its provider keeps it, and a restart did not stop it.
+  const finished = new Set(
+    sessions.filter((session) => session.place.kind === "job" && session.lifecycle !== undefined).map(key),
+  );
   for (const item of saved) {
-    if (next.has(key(item))) continue;
+    if (next.has(key(item)) || finished.has(key(item))) continue;
     // A child outlives its process when its provider still lists it, as an `opencode run` does, and keeps its parent.
     if (item.parent && listed.has(key(item))) {
       next.set(key(item), { ...item, boot, goneAt: undefined });
@@ -156,7 +172,7 @@ export function reconcile(
     // which decides whether to run it again; a finished `opencode run` revived as an interactive session would carry on
     // editing a worktree its parent has since moved on from, so a child from an earlier boot is dropped.
     if (item.boot !== boot) {
-      if (!item.parent) next.set(key(item), item);
+      if (!item.parent && hasConversation(item)) next.set(key(item), item);
     }
     // A running process under a new id started another conversation; the old one is not what a restart would lose.
     else if (item.pid !== undefined && running.has(item.pid)) continue;
@@ -184,7 +200,7 @@ export function reconcile(
 }
 
 function insert(db: Database, item: Saved): void {
-  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
     item.agent,
     item.id,
     item.cwd,
@@ -196,7 +212,13 @@ function insert(db: Database, item: Saved): void {
     item.goneAt ?? null,
     item.parent ?? null,
     item.pane ?? null,
+    item.runBound ? 1 : null,
   );
+}
+
+/** Whether the provider still has a saved row's conversation to resume. Only Claude's is checked, by its transcript. */
+function savedConversation(item: Saved): boolean {
+  return item.agent !== "claude" || findClaudeTranscript(item.id, item.cwd) !== undefined;
 }
 
 /** Save what is running and return the sessions a restart stopped. */
@@ -215,6 +237,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
           Date.now(),
           (pid) => existsSync(`/proc/${pid}`),
           processStartTicks,
+          savedConversation,
         );
         if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
           db.exec("DELETE FROM sessions");
@@ -240,13 +263,14 @@ export function recordSpawn(
     startedAt: number;
     pid?: number;
     pane?: string;
+    runBound?: boolean;
   },
   path = statePath(),
 ): void {
   try {
     open(path)
       .query(
-        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane)",
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound)",
       )
       .run(
         item.agent,
@@ -258,6 +282,7 @@ export function recordSpawn(
         item.pid ?? null,
         item.parent ?? null,
         item.pane ?? null,
+        item.runBound ? 1 : null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
@@ -280,6 +305,7 @@ export function spawnRecord(pane: string, path = statePath()): Saved | undefined
           pid: row.pid ?? undefined,
           goneAt: row.goneAt ?? undefined,
           pane: row.pane ?? undefined,
+          runBound: row.runBound ? true : undefined,
         }
       : undefined;
   } catch {
@@ -376,7 +402,7 @@ export function restoreRow(item: Saved, path = statePath()): void {
   }
 }
 
-export function forget(session: Session, path = statePath()): void {
+export function forget(session: Pick<Session, "agent" | "id">, path = statePath()): void {
   if (session.id !== undefined)
     open(path).query("DELETE FROM sessions WHERE agent = ? AND id = ?").run(session.agent, session.id);
 }
