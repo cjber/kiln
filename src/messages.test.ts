@@ -66,6 +66,21 @@ test("a recipient is found by full name or a unique prefix, never among stopped 
   expect(() => findRecipient(sessions, "claude:cloud")).toThrow("no running session");
 });
 
+test("a send to a spawned child that has exited names its exit, not a missing session", () => {
+  const report = {
+    id: "exit:claude:gone:1000",
+    from: `${spawnSender}:claude:gone`,
+    to: "claude:parent",
+    body: 'Child claude:gone exited with status 4 while working on "t".\n\nLast output:\n\nboom',
+    createdAt: Date.UTC(2026, 10, 18, 9, 30),
+  };
+  const exited = (name: string) => (name === "claude:gone" ? report : undefined);
+  expect(() => findRecipient([], "claude:gone", exited)).toThrow(
+    'claude:gone has exited; kiln reported at 2026-11-18T09:30:00.000Z: Child claude:gone exited with status 4 while working on "t".',
+  );
+  expect(() => findRecipient([], "claude:gnoe", exited)).toThrow("no running session is called claude:gnoe");
+});
+
 test("a spawned Codex run answers to the process name its spawn returned and to its thread id", () => {
   const run = session({ agent: "codex", id: "0193-thread", pid: 40, startedAt: 7.5, activity: undefined });
   expect(findRecipient([run], "codex:40:7.5")).toBe(run);

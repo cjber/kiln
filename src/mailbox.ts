@@ -131,6 +131,15 @@ export function posted(id: string, path = mailboxPath()): Message | undefined {
   return row ? message(row) : undefined;
 }
 
+/** The latest message one sender posted, whatever has become of it. */
+export function lastFrom(from: string, path = mailboxPath()): Message | undefined {
+  if (!existsSync(path)) return undefined;
+  const row = open(path)
+    .query<Row, [string]>('SELECT * FROM messages WHERE "from" = ? ORDER BY createdAt DESC LIMIT 1')
+    .get(from);
+  return row ? message(row) : undefined;
+}
+
 /** The recipient's undelivered messages, marked read as they are handed over. */
 export function takeUnread(to: string, path = mailboxPath(), now = Date.now()): Message[] {
   if (!existsSync(path)) return [];
