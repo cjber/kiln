@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
+import { ClaudeNotQueued, claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
 import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
 import { MuseNotReady, messageMuseSession } from "./muse";
@@ -16,7 +16,7 @@ import {
   sessionIdentity,
   sessionParents,
 } from "./sessions";
-import { attachedClients, kiln, rowsAndCursor, sendKey, submitText } from "./tmux";
+import { attachedClients, kiln, rowsAndCursor, screen, sendKey, submitText } from "./tmux";
 import { tilde } from "./tui";
 
 /** The name a message from a person at a shell, rather than an agent, carries. */
@@ -242,6 +242,18 @@ export function frame(message: Message, sender: Session | undefined, command = k
 /** A transport throws this when it refused before sending anything, so the message can simply wait. */
 export class NotNow extends Error {}
 
+/** The recipient holds the message until a person answers its prompt; the error says where. */
+export class HeldForApproval extends Error {}
+
+/**
+ * Whether a Claude pane shows its prompt for a message from another session, which Claude holds rather than queues
+ * when its settings or the two sessions' permission modes say a person has to let it in. Claude reports that hold
+ * only to the sender's own inbox, which kiln does not have, so the pane is the one place it shows.
+ */
+export function approvalShown(text: string): boolean {
+  return text.includes("Deliver this message to Claude");
+}
+
 export type Transports = Record<
   "claude" | "codex" | "opencode" | "pi" | "muse" | "tmux",
   (session: Session, text: string, message: Message) => Promise<void>
@@ -259,6 +271,11 @@ const transports: Transports = {
       await sendClaudeInbox(inbox, text, transcript);
     } catch (error) {
       if (error instanceof InboxClosed) throw new NotNow(error.message);
+      const shown = error instanceof ClaudeNotQueued && session.place.kind === "kiln" && screen(session.place.name);
+      if (shown && approvalShown(shown.text))
+        throw new HeldForApproval(
+          `held at Claude's message approval prompt in ${sessionIdentity(session)}; approve it there`,
+        );
       throw error;
     }
   },
@@ -375,7 +392,10 @@ export async function flush(
           outcomes.set(message.id, {
             message,
             delivered: false,
-            reason: refused ? reason : `${reason}; it may have arrived, so it is left for kiln msg inbox`,
+            reason:
+              refused || error instanceof HeldForApproval
+                ? reason
+                : `${reason}; it may have arrived, so it is left for kiln msg inbox`,
           });
         }
       }
