@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **One `kiln` skill replaces `kiln-agents`, `kiln-config` and `kiln-skills`.** Messaging other sessions, changing kiln's TOML settings and repairing shared skills are one skill with one entry in an agent's skill list; the settings and skill-repair detail load only when needed. kiln removes the three skills it bundled before, with their Claude and Pi links, the next time it syncs. A copy you edited is kept under the shared store's `.kiln-backups`, and a same-name skill kiln did not install is left alone. `npx skills add cjber/kiln` and the Claude Code plugin install the new skill.
+
 ## [0.29.2] - 2026-11-18
 
 - **`kiln msg spawn claude --resume <name>` carries on a Claude child that has exited.** It restarts the conversation by the id spawn printed, in the directory it began in and with its title, and records the caller as its parent, so a child cut off by a network outage or a usage limit picks up where it stopped and still reports its exit.

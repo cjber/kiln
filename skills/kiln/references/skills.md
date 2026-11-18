@@ -1,8 +1,3 @@
----
-name: kiln-skills
-description: Inspect and repair kiln's shared user or project skills, including missing links and conflicting Claude or Pi copies.
----
-
 # Manage shared skills with kiln
 
 Use `kiln skills list` for user/machine scope, or
@@ -34,6 +29,6 @@ In kiln, `S` opens skills, `u` selects user scope, `p` selects project scope,
 `l` shares missing links, and `f` repairs the selected skill after confirmation.
 `Enter` edits, `i` copies an existing skill, and `x` removes only kiln's links.
 
-`kiln skills sync` refreshes the bundled kiln skills. Kiln also syncs them when
+`kiln skills sync` refreshes the bundled kiln skill. Kiln also syncs it when
 opening its TUI. Managed edits are backed up before an update; unrelated skills
 with the same name are preserved and reported as conflicts.

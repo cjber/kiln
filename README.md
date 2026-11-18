@@ -31,7 +31,7 @@ Install Claude Code, Codex CLI, OpenCode or Pi, and sign in through each provide
 
 ## Set up with your agent
 
-kiln ships three skills: `kiln-agents` lets running agents message each other and start subagents, `kiln-config` changes its TOML settings and native agent commands, and `kiln-skills` inspects and repairs shared skills. kiln syncs them into the shared skill store each time it starts. To install them before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
+kiln ships one skill, `kiln`: it lets running agents message each other and start subagents, changes kiln's TOML settings and native agent commands, and inspects and repairs shared skills. kiln syncs it into the shared skill store each time it starts. To install it before running kiln, for any agent that reads [Agent Skills](https://agentskills.io):
 
 ```sh
 npx skills add cjber/kiln
@@ -98,7 +98,7 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 | Codex on its shared daemon | input to its active turn while working, or a new turn when idle; approvals still wait |
 | Claude started by kiln | pasted into its terminal once it is idle and its prompt box holds no draft |
 
-Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. A send delivers pending messages for its recipients; unrelated recipients deliver concurrently on each refresh of the list or phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln-agents` skill teaches agents to use these commands.
+Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. A send delivers pending messages for its recipients; unrelated recipients deliver concurrently on each refresh of the list or phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln` skill teaches agents to use these commands.
 
 ### Pull request messages
 
@@ -295,7 +295,7 @@ kiln skills share <name>
 kiln skills sync
 ```
 
-The `kiln-agents`, `kiln-config` and `kiln-skills` helpers in [`skills/`](skills) are synced into the shared store before the terminal starts.
+The `kiln` skill in [`skills/kiln`](skills/kiln) is synced into the shared store before the terminal starts.
 
 ## Verification
 

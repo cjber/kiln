@@ -1,108 +1,34 @@
 # AGENTS.md
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex, OpenCode and Pi TUIs, plus read-only cloud discovery. Arch users install it
-from the AUR as `kiln-agents`, which a `v*` tag publishes.
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex, OpenCode and Pi TUIs, plus read-only cloud discovery, a localhost phone API and an Android client. Arch users install it from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
 
-`bun start` opens the TUI; it needs `fzf` and `tmux` on `PATH`.
+- `bun install --frozen-lockfile`, then `bun run gate` (biome, tsc, tests, changelog check) or `bun run gate:changed` (biome on changed files, tsc, the tests named for those files, changelog check). CI runs the same plus actionlint, zizmor, gitleaks, native x64 and arm64 binary jobs and the Arch package install.
+- `bun start` opens the TUI; it needs `fzf` and `tmux` on `PATH`. Perf and TUI end-to-end: `bun scripts/perf.ts`, `bun scripts/list-tui-e2e.ts`, `bun scripts/native-tui-e2e.ts`.
+- Phone changes also run `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`.
+- After every visible change, regenerate and inspect the terminal and mobile mock screenshots: `bun scripts/screenshots.tsx 2>/dev/null`, and `ANDROID_HOME=... JAVA_HOME=<jdk21> python3 scripts/android-screenshots.py` (a dedicated emulator, never a real phone). `python3 scripts/icons.py` and `scripts/wordmark.py` regenerate the mark and wordmark from `assets/icon.svg`.
 
-```sh
-bun install --frozen-lockfile
-bunx biome ci .
-bunx tsc --noEmit -p .
-bun test
-bun scripts/changelog.ts --check
-bun scripts/perf.ts
-bun scripts/list-tui-e2e.ts
-bun scripts/native-tui-e2e.ts
-```
+## Invariants
 
-CI runs the same except `bun scripts/perf.ts`, plus actionlint, zizmor and gitleaks over the workflows and history.
-Native x64 and arm64 CI jobs build and exercise the standalone executable and install the rendered
-binary AUR package in Arch without Bun. Release publication waits for both jobs.
-After every visible change, regenerate and inspect both terminal and mobile mock screenshots.
-`bun scripts/screenshots.tsx 2>/dev/null` renders the terminal;
-`ANDROID_HOME=/path/to/sdk JAVA_HOME=/path/to/jdk21 python3 scripts/android-screenshots.py`
-renders seeded production Android list, pairing and handoff screens on a dedicated emulator, never a real phone.
-`assets/icon.svg` is the shared mark; `python3 scripts/icons.py` regenerates its PNG and launcher assets,
-and `python3 scripts/wordmark.py` draws the wordmark for the README and site.
-Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its tag.
+- Activity is a closed set (`working`, `waiting`, `idle`). Map each agent's own states onto it with an exhaustive switch, never a fallthrough guess. Unknown stays unknown; pane output is not working status.
+- Anything that can fail at startup (a bad settings file) is reported before the TUI takes the screen; nothing prints to the console while it is up. Unknown keys in `~/.config/kiln/config.toml` are errors.
+- `src/sessions.ts` `discovery()` merges native and cached cloud rows and drops `elsewhere` ones kiln cannot open; each source keeps its last rows while it fails. `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
+- `kiln status` (`src/status-cache.ts`) prints one cached line shared by every client; only the caller holding the lock refreshes it.
+- A session's status comes from its own agent: Claude transcripts and background-job `lifecycle`, Codex daemon, Pi's per-process status file (`pi-extension/kiln-status.js`, loaded by `pi -e`), OpenCode's loopback service. Kiln passes OpenCode its `--session` id; a terminal with no id in argv is never paired by directory.
+- Saved sessions (`src/saved-sessions.ts`) from an earlier boot list as `stopped`; resuming keeps the pane (`remain-on-exit`) until discovery lists the conversation, and puts the stopped row back on failure.
+- `kiln msg` delivers by agent: OpenCode service, Pi extension inbox, Codex `turn/start`, Claude's peer inbox socket confirmed by the transcript's `queue-operation` record, else tmux paste. Typing waits for `idle` or `turnEnded`. The bundled skill is `skills/kiln/`.
+- Phone: starting sessions and sending prompts is gated by `[phone] write` (off by default). Keep credentials out of URLs and logs; handoffs accept only verified provider HTTPS links or a one-use `/opencode/<code>` path.
+- `src/tmux.ts` and `tmux.conf` drive kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
+- `src/bundled-skills.ts`, `skills/`: helpers synced to the shared user store before the TUI starts. Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
 
-## Layout
+## Releases
 
-- `src/sessions.ts` - `discovery()` merges native and cached cloud rows and drops `elsewhere` ones kiln cannot open; each source keeps its last rows while it fails.
-  `sessionIdentity` is the one name for a session in the list, on the phone and in notifications.
-- `src/status-cache.ts` - `kiln status`, the tmux status line, prints one cached line shared by every client; only the caller holding the lock refreshes it.
-- `src/native-sessions.ts`, `src/codex.ts` - native session discovery and daemon status. Finished Claude background jobs carry a
-  `lifecycle` (`completed`, `stopped`) instead of an activity. Pi is found by process.
-  A Claude `shell` session is working, as Claude's agent view shows it, and `discovery()` keeps a parent working while a subagent
-  works. Both carry `turnEnded`, so `kiln msg` can still deliver to them. A `claude -p` record stays `busy`, so `claudeStatus` reads its turn's
-  end from the transcript (`end_turn` with no later user record): `shell` while a Bash-tool child still runs, else `idle`.
-- `src/pi-status.ts`, `pi-extension/kiln-status.js` - the extension kiln loads into the Pi sessions it starts (`pi -e`) and the reader for the
-  per-process status file it writes. A Pi started elsewhere has no record and stays unknown.
-- `src/opencode.ts` - status from OpenCode's background service over loopback HTTP, using the address and password it records in
-  `$XDG_STATE_HOME/opencode/service.json`; read only while that service runs. Closing archives through `opencode api`, which starts the service if needed. Kiln passes each session its `--session` id; a terminal with no id in argv is never paired by directory.
-- `src/saved-sessions.ts` - the terminal sessions and Codex daemon threads last seen running, in `$XDG_STATE_HOME/kiln/sessions.sqlite`. One saved in an
-  earlier boot is listed as `stopped` in place `saved`, and opening it resumes the provider conversation.
-  `kiln resume` (`src/resume-cli.ts`) and the phone's `/v1/sessions/<id>/resume` resume them through `resumeStopped`, which keeps the pane
-  (`remain-on-exit`) until discovery lists the conversation in it, to catch an agent that quits at launch, starts it once more, and on failure
-  puts the stopped row back. A Claude conversation whose transcript records Code Mode (`repl-mode`) resumes with Code Mode on and no Remote Control.
-- `src/cloud-links.ts` - validated provider HTTPS URLs for cloud-session handoffs.
-- `src/cloud.ts` - cached read-only Codex Cloud tasks; CLI refresh is asynchronous, at most every 60 s.
-- `src/transcript.ts`, `src/workdir.ts` - Claude transcript titles, and the checkout an agent last edited or `cd`'d into, shown in place of
-  where it started (`sessionDirectory`); `cwd` stays the start directory for resuming.
-- `src/session-sort.ts`, `src/session-list.ts` - ordering, directory/task groups with collapsed children, status wording and the cursor.
-- `src/app.tsx` - the whole UI and its keys.
-- `src/tui.ts` - the shared palette, text-key test and editor hand-off every view uses.
-- `src/claude-cloud.ts` - opt-in internal Claude cloud API, existing login, cached reads and safe errors.
-
-- `src/launcher.ts` - open, create and close rules for each place kind, returning an outcome the view follows.
-- `src/tmux.ts`, `tmux.conf` - kiln's private tmux server (`tmux -L kiln`), no prefix, one detach key.
-- `src/server.ts`, `src/pairing.ts`, `src/phone-links.ts`, `src/push.ts` - localhost phone API, one-use pairing, provider handoffs and
-  Web Push (RFC 8291) alerts to the phone's UnifiedPush endpoint when a turn ends, and under their own id and channel
-  when a session's pull request goes from running or passing checks to failing. Starting sessions and sending prompts from a
-  phone is gated by `[phone] write`, which is off by default.
-- `src/opencode-web.ts` - `kiln setup` pins OpenCode's service to port 4096 and serves its web UI on the tailnet. Phone links are one-use
-  `/opencode/<code>` paths on kiln's server that set OpenCode's sign-in cookie and redirect to the session page.
-- `src/setup.ts` - `kiln setup`: idempotent systemd user unit for `kiln serve --local`, tunnel and pairing QR.
-- `android/` - native Kotlin/Compose client; CI runs unit tests, lint and builds its APK.
-- `src/settings.ts` - `~/.config/kiln/config.toml`; unknown keys are errors.
-- `src/skills.ts`, `src/skills-view.tsx`, `src/skills-cli.ts` - shared stores, backed-up conflict repair and the `S` view.
-- `src/session-prs.ts`, `src/autopilot.ts` - the pull requests a session opened, from `gh pr create` results in its transcript, and
-  `pr_messages`: `kiln serve` posting check failures, conflicts, reviews and merges to the owning session's mailbox once per event.
-- `src/mailbox.ts`, `src/messages.ts`, `src/msg-cli.ts`, `skills/kiln-agents/` - `kiln msg`: a SQLite mailbox, the caller's name from its agent's
-  session id variable, and delivery as a prompt (OpenCode service, Pi extension inbox, Codex `turn/start`, Claude's peer inbox socket from
-  `src/claude-inbox.ts`, confirmed by the `queue-operation` enqueue record in its transcript, else tmux paste for kiln Claude). Typing waits for `idle` or `turnEnded`; the list and phone server flush
-  pending messages on refresh.
-- `src/bundled-skills.ts`, `skills/` - embedded helpers synced to the shared user store before the TUI starts.
-  Preserve unowned same-name skills and back up edits to managed instructions before upgrades.
-- `scripts/` - release, changelog, AUR PKGBUILD rendering, screenshots, standalone builds, and the
-  light and dark wordmark outlines from `scripts/wordmark.py`.
-- `scripts/smoke-binary.ts`, `scripts/check-binary-package.sh` - native executable and Arch package checks.
-- `scripts/qa-drive.ts`, `scripts/qa-phone.ts` - seeded list and phone app for Bugpatrol (`.bugpatrol/bugpatrol.yml`, `.bugpatrol/android.yml`); never the real sessions or a paired phone.
-- `bun scripts/build.ts` builds Linux x64/arm64 into the generated dist directory; install with `--os linux --cpu "*"` first.
-  The binaries embed OpenTUI assets and `tmux.conf`; AUR `kiln-agents-bin` needs no Bun.
-
-## Rules
-
-- Commits are signed (`git commit -S`) with the personal email, in Conventional Commits form.
-- Activity is a closed set (`working`, `waiting`, `idle`); map each agent's own states onto it with an
-  exhaustive switch, never a fallthrough guess. Unknown activity stays unknown; pane output is not working status.
-- Anything that can fail at startup (a bad settings file) is reported before the TUI takes the
-  screen; nothing prints to the console while it is up.
-- README and changelog copy is plain and concrete: no marketing words, no em dashes.
-- Live roots, known false positives and settled shapes for cleanup and refactoring work are in
-  `.sloppatrol/instructions.md`.
-
-Phone changes also require `ANDROID_HOME=/path/to/sdk android/gradlew -p android checkKotlinFormat testDebugUnitTest lintDebug assembleDebug`. Keep credentials out of URLs and logs; phone handoffs accept only verified provider HTTPS links, or a one-use `/opencode/<code>` path the phone resolves against the kiln server it paired with.
-
-Android releases use repository signing secrets and attach a signed APK. CI checks both debug
-and release variants; private signing material stays outside the repository.
-
-Prepare release metadata on a PR branch; the release helper updates desktop and Android together.
-Its separate tag action requires the merged origin/main commit. Never push main directly.
+- Every version needs a `CHANGELOG.md` entry (prose, bold-lead bullets) before its tag. README and changelog copy is plain and concrete: no marketing words, no em dashes.
+- Prepare release metadata on a PR branch; the release helper updates desktop and Android together. Its separate tag action requires the merged origin/main commit. Never push main directly.
+- Android releases use repository signing secrets and attach a signed APK; private signing material stays outside the repository.
+- Bugpatrol runs `scripts/qa-drive.ts` and `scripts/qa-phone.ts` (seeded; never the real sessions or a paired phone). Live roots and settled shapes for cleanup work are in `.sloppatrol/instructions.md`.
 
 ## Standards
 
-- `repo-standards`: the RS-* requirements every cjber repo meets (repo, Actions and security settings, rulesets, CI hardening, community files), a skill in cjber/skills whose `audit.py` checks this repo
+- `repo-standards`: the RS-* requirements every cjber and agent-labs-dev repo meets; its `audit.py` checks this repo.

@@ -29,7 +29,7 @@ export function runSkillsCli(args: string[]): void {
       if (positionals.length !== 1 || values.project !== undefined || values["backup-conflicts"]) break;
       const problems = syncBundledSkills();
       if (problems.length) throw new Error(problems.join("\n"));
-      console.log("bundled kiln skills are current and shared");
+      console.log("bundled kiln skill is current and shared");
       return;
     }
   }
