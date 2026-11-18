@@ -136,8 +136,7 @@ export function headlessCommand(
         "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
         ...claudeCodeMode(resume),
         ...claudeCommand(command, resume?.codeMode === true),
-        // Claude's --add-dir takes every word up to the next option, so one always follows it.
-        ...granted,
+        ...claudeGrants(writable),
         "-p",
         ...claudeSession(id, resume),
         ...(title ? ["--name", title] : []),
@@ -176,13 +175,22 @@ export function interactiveClaudeCommand(
     ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : ["-u", "CLAUDE_CONFIG_DIR"]),
     ...claudeCodeMode(resume),
     ...claudeCommand(command, resume?.codeMode === true),
-    // Claude's --add-dir takes every word up to the next option, so one always follows it.
-    ...writable.flatMap((directory) => ["--add-dir", directory]),
+    ...claudeGrants(writable),
     ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
     ...promptArguments("claude", prompt),
   ];
+}
+
+/**
+ * Claude's grant of `writable` to the sandbox its commands run in. `--add-dir` would also give the session the folder,
+ * and asks first whether to trust it whenever the folder is inside something Claude takes for a repository (any parent
+ * holding a `.git`), which holds an interactive child at that prompt. The sandbox's `allowWrite` is merged with the
+ * user's own and asks nothing: https://code.claude.com/docs/en/sandboxing#configure-sandboxing
+ */
+function claudeGrants(writable: readonly string[]): string[] {
+  return writable.length ? ["--settings", JSON.stringify({ sandbox: { filesystem: { allowWrite: writable } } })] : [];
 }
 
 /** Claude starts a conversation under the id kiln chose, or carries one on under its own id. */
@@ -219,7 +227,7 @@ function worktreeMetadata(dir: string): string[] {
 }
 
 /**
- * The directories a child's agent sandbox must let it write besides its own, passed as `--add-dir`: the outbox it sends
+ * The directories a child's agent sandbox must let it write besides its own: the outbox it sends
  * from, and for Codex the worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
  * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
  * commands unsandboxed.
@@ -603,8 +611,10 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
         hook,
         env,
       )
-    )
+    ) {
+      releaseOutbox(name);
       throw new Error(`could not start ${agentName("codex")}`);
+    }
     const pid = await panePid(name);
     if (!pid) throw new Error("could not find the Codex process kiln started");
     const startedAt = processStartedAt(pid);
@@ -687,6 +697,8 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   } catch (error) {
     if (previous) restoreRow(previous);
     else forget(run);
+    // Nothing ran there long enough to leave a message, so the outbox would only be left behind.
+    releaseOutbox(outboxKey(name, token));
     throw error;
   }
   recordSpawn({ ...run, pid });

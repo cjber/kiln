@@ -1141,6 +1141,16 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
       "/b",
       "go",
     ]);
+    // Claude grants its sandbox the outbox: --add-dir would first ask whether to trust it, and hold the child there.
+    const sandbox = ["--settings", JSON.stringify({ sandbox: { filesystem: { allowWrite: ["/outbox"] } } })];
+    const interactive = interactiveClaudeCommand(["claude"], "id", "go", undefined, undefined, undefined, undefined, [
+      "/outbox",
+    ]);
+    const headless = headlessCommand(["claude"], "claude", "id", "go", undefined, undefined, undefined, ["/outbox"]);
+    for (const command of [interactive, headless]) {
+      expect(command).not.toContain("--add-dir");
+      expect(command.join("\n")).toContain(sandbox.join("\n"));
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
