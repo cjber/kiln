@@ -1,7 +1,8 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { promptArguments } from "./launcher";
 import { post } from "./mailbox";
@@ -12,9 +13,10 @@ import { piExtensionPath } from "./pi-status";
 import { recordSpawn, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, listSessions } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, endedPane, kill, kiln, panePid, paneState, reapEnded, start } from "./tmux";
+import { ended, endedPane, exists, kill, kiln, panePid, paneState, reapEnded, start } from "./tmux";
+import { readTranscript } from "./transcript";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>`;
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--interactive] -- <prompt>`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -24,7 +26,38 @@ export type SpawnOptions = {
   prompt: string;
   /** Start the agent's full terminal UI, so a person can attach and watch it, instead of its headless mode. */
   interactive?: boolean;
+  /** A Claude conversation to carry on, in the directory it was started in, instead of starting a new one. */
+  resume?: { id: string; codeMode: boolean; title?: string };
 };
+
+/**
+ * The Claude conversation `id` names: the directory Claude started it in, which `--resume` must run from, and what its
+ * transcript says. Claude files it under that directory, which the id does not carry, so it is found by the id alone.
+ */
+function claudeConversation(id: string): { cwd: string; codeMode: boolean; title?: string } | undefined {
+  if (!/^[A-Za-z0-9-]+$/.test(id)) return undefined;
+  const root = join(claudeConfigDir(), "projects");
+  let path: string | undefined;
+  try {
+    for (const match of new Bun.Glob(`*/${id}.jsonl`).scanSync({ cwd: root, absolute: true })) path = match;
+  } catch {
+    // No projects directory holds no conversations.
+  }
+  if (!path) return undefined;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.includes('"cwd"')) continue;
+    try {
+      const { cwd } = JSON.parse(line);
+      if (typeof cwd === "string") {
+        const { codeMode, title } = readTranscript(path);
+        return { cwd, codeMode: codeMode === true, title };
+      }
+    } catch {
+      // A line still being written is skipped.
+    }
+  }
+  return undefined;
+}
 
 /** Parse one spawn command; the prompt follows `--`, so a leading dash stays text. */
 export function spawnOptions(args: readonly string[], cwd = process.cwd()): SpawnOptions {
@@ -36,11 +69,23 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
       title: { type: "string" },
       model: { type: "string" },
       interactive: { type: "boolean" },
+      resume: { type: "string" },
     },
   });
   const [agent, ...prompt] = positionals;
   if (!agent || !agents.includes(agent as Agent) || !prompt.length) throw new Error(spawnUsage);
-  const requested = values.dir ?? ".";
+  let resume: SpawnOptions["resume"];
+  let requested = values.dir ?? ".";
+  if (values.resume !== undefined) {
+    if (agent !== "claude") throw new Error("--resume is supported for claude only");
+    // Claude finds a conversation only from the directory it began in, so that directory is not the spawner's choice.
+    if (values.dir !== undefined) throw new Error("--resume runs in the conversation's own directory; drop --dir");
+    const id = values.resume.replace(/^claude:/, "");
+    const found = claudeConversation(id);
+    if (!found) throw new Error(`no Claude conversation ${id}`);
+    resume = { id, codeMode: found.codeMode, title: found.title };
+    requested = found.cwd;
+  }
   const expanded =
     requested === "~" ? homedir() : requested.startsWith("~/") ? resolve(homedir(), requested.slice(2)) : requested;
   const dir = resolve(cwd, expanded);
@@ -53,6 +98,7 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     model: values.model,
     prompt: prompt.join(" "),
     interactive: values.interactive,
+    ...(resume ? { resume } : {}),
   };
 }
 
@@ -73,6 +119,7 @@ export function headlessCommand(
   prompt: string,
   title?: string,
   model?: string,
+  resume?: SpawnOptions["resume"],
 ): string[] {
   const chosen = model ? ["--model", model] : [];
   switch (agent) {
@@ -84,10 +131,10 @@ export function headlessCommand(
       return [
         "env",
         "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+        ...claudeCodeMode(resume),
         ...command,
         "-p",
-        "--session-id",
-        id,
+        ...claudeSession(id, resume),
         ...(title ? ["--name", title] : []),
         ...chosen,
         prompt,
@@ -111,17 +158,28 @@ export function interactiveClaudeCommand(
   title?: string,
   model?: string,
   configDir?: string,
+  resume?: SpawnOptions["resume"],
 ): string[] {
   return [
     "env",
     ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : ["-u", "CLAUDE_CONFIG_DIR"]),
+    ...claudeCodeMode(resume),
     ...command,
-    "--session-id",
-    id,
+    ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
     ...promptArguments("claude", prompt),
   ];
+}
+
+/** Claude starts a conversation under the id kiln chose, or carries one on under its own id. */
+function claudeSession(id: string, resume: SpawnOptions["resume"]): string[] {
+  return [resume ? "--resume" : "--session-id", id];
+}
+
+/** Claude resumes a conversation started in Code Mode only with Code Mode on. */
+function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
+  return resume?.codeMode ? ["CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1"] : [];
 }
 
 /** A tmux `pane-died` hook value that runs one command through a shell, quoted for tmux's own parser. */
@@ -266,7 +324,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const command = loadSettings().agents[options.agent];
   if (!command[0] || !Bun.which(command[0]))
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
-  const title = options.title ?? `${options.agent} · ${basename(options.dir)}`;
+  const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
 
   if (options.agent === "codex") {
     // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
@@ -305,7 +363,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     return `codex:${id}`;
   }
 
-  const id = options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID();
+  const id = options.resume?.id ?? (options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID());
   // An interactive Claude waits at its trust dialog, never reading the prompt, in a folder its config has not trusted.
   // Only the directory the spawner named is trusted, in the config dir this spawn runs Claude with. A headless Claude
   // (`-p`) never asks, so this grants an interactive child what a headless one in the same folder already has.
@@ -313,7 +371,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   if (options.interactive) await trustClaudeWorkspace(options.dir, claudeConfig(Bun.env).json);
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
-    ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model, configDir)
+    ? interactiveClaudeCommand(command, id, options.prompt, options.title, options.model, configDir, options.resume)
     : headlessCommand(
         command,
         options.agent,
@@ -321,8 +379,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
         options.prompt,
         options.agent === "claude" ? options.title : title,
         options.model,
+        options.resume,
       );
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
+  // A conversation already running in its pane is not resumed a second time beside it.
+  if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const hook = exitHook([kiln, "msg", "exit", name, `${options.agent}:${id}`, parent ?? ""]);
   const startedAt = Date.now();
   if (!start(name, options.dir, argv, title, false, hook))

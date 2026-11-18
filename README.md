@@ -71,7 +71,9 @@ and prints the child's kiln id. The child nests under its parent in the list, th
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command. When a child's process exits, kiln messages its parent with
 the exit status and the last output, so a child that stops on a usage limit is not lost.
-Exiting removes the child's pane and keeps its provider conversation available to resume.
+Exiting removes the child's pane and keeps its provider conversation available to resume:
+`kiln msg spawn claude --resume <name>` carries on an exited Claude child in the directory it began
+in, with its title, and records the caller as its parent again.
 `kiln msg view <name>` still reads a child that has exited, by the full name spawn printed, for as
 long as its provider keeps the transcript; kiln stores no copy. A Codex child is named by its thread,
 which spawn waits for, up to 30 seconds, after starting it.

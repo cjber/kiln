@@ -1,5 +1,5 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { takeUnread } from "./mailbox";
@@ -416,6 +416,55 @@ test("kiln's tmux server outlives its last session, so a start right after a rea
     expect(shown.stdout.toString().trim()).toBe("off");
   } finally {
     kill(name);
+  }
+});
+
+test("a resumed Claude child carries on its conversation in the directory it began in", () => {
+  const config = mkdtempSync(join(tmpdir(), "kiln-spawn-config-"));
+  const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
+  const previous = Bun.env.CLAUDE_CONFIG_DIR;
+  Bun.env.CLAUDE_CONFIG_DIR = config;
+  try {
+    const id = "0f9a28c0-019a-4c72-9821-825fd64311f6";
+    mkdirSync(join(config, "projects", "-somewhere"), { recursive: true });
+    writeFileSync(
+      join(config, "projects", "-somewhere", `${id}.jsonl`),
+      `${JSON.stringify({ type: "user", cwd: dir, sessionId: id })}\n`,
+    );
+    const options = spawnOptions(["claude", "--resume", `claude:${id}`, "--", "carry on"], "/tmp");
+    expect(options).toMatchObject({ agent: "claude", dir, resume: { id, codeMode: false } });
+    expect(headlessCommand(["claude"], "claude", id, "carry on", undefined, undefined, options.resume)).toEqual([
+      "env",
+      "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0",
+      "claude",
+      "-p",
+      "--resume",
+      id,
+      "carry on",
+    ]);
+    // Claude resumes a Code Mode conversation only with Code Mode on.
+    expect(
+      interactiveClaudeCommand(["claude"], id, "carry on", undefined, undefined, "/account", { id, codeMode: true }),
+    ).toEqual([
+      "env",
+      "CLAUDE_CONFIG_DIR=/account",
+      "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1",
+      "claude",
+      "--resume",
+      id,
+      "--",
+      "carry on",
+    ]);
+    expect(() => spawnOptions(["claude", "--resume", "1c949e39", "--", "go"])).toThrow(
+      "no Claude conversation 1c949e39",
+    );
+    expect(() => spawnOptions(["claude", "--resume", id, "--dir", dir, "--", "go"])).toThrow("drop --dir");
+    expect(() => spawnOptions(["pi", "--resume", id, "--", "go"])).toThrow("claude only");
+  } finally {
+    if (previous === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
+    else Bun.env.CLAUDE_CONFIG_DIR = previous;
+    rmSync(config, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

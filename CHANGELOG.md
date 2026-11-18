@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln msg spawn claude --resume <name>` carries on a Claude child that has exited.** It restarts the conversation by the id spawn printed, in the directory it began in and with its title, and records the caller as its parent, so a child cut off by a network outage or a usage limit picks up where it stopped and still reports its exit.
 ## [0.29.1] - 2026-11-17
 
 - **Messages reach a Claude session waiting on a wakeup or background work.** Claude keeps a `claude -p` session, such as a headless `kiln msg spawn` child, listed as busy for as long as it runs, so a child that ended its turn to wait on a `ScheduleWakeup` or a background shell held every message until it woke by itself, sometimes for half an hour. Kiln now reads each turn's end from the session's transcript: such a session shows as idle in the list, the status bar, the dashboard and `kiln msg list`, and as working only while a background shell it started still runs. Messages to Claude sessions go through the inbox Claude opens for messages from other sessions instead of being typed into the terminal: a waiting session starts a new turn with the message at once, a working one takes it at its next step, and Claude sessions kiln did not start can be messaged too. Sessions without that inbox are typed into as before.
