@@ -33,6 +33,7 @@ test("the compact task list advances elapsed update time while discovery is stal
           initialSettings={{ ...defaults, cloud: false }}
           onQuit={() => {}}
           loadSessions={async () => (++loads === 1 ? sessions : new Promise<Session[]>(() => {}))}
+          loadQuota={async () => []}
         />,
         { width: 70, height: 12 },
       );
@@ -65,7 +66,12 @@ test("the selected session stays visible when a cloud list is taller than the te
   let setup!: Awaited<ReturnType<typeof testRender>>;
   await act(async () => {
     setup = await testRender(
-      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={async () => sessions} />,
+      <App
+        initialSettings={{ ...defaults, cloud: false }}
+        onQuit={() => {}}
+        loadSessions={async () => sessions}
+        loadQuota={async () => []}
+      />,
       { width: 90, height: 10 },
     );
   });
@@ -100,7 +106,12 @@ async function frameAfter(sessions: Session[], size: { width: number; height: nu
   let setup!: Awaited<ReturnType<typeof testRender>>;
   await act(async () => {
     setup = await testRender(
-      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={async () => sessions} />,
+      <App
+        initialSettings={{ ...defaults, cloud: false }}
+        onQuit={() => {}}
+        loadSessions={async () => sessions}
+        loadQuota={async () => []}
+      />,
       size,
     );
   });
@@ -177,7 +188,12 @@ test("Space expands children, turns the cursor into the open mark and gives both
   let setup!: Awaited<ReturnType<typeof testRender>>;
   await act(async () => {
     setup = await testRender(
-      <App initialSettings={{ ...defaults, cloud: false }} onQuit={() => {}} loadSessions={async () => sessions} />,
+      <App
+        initialSettings={{ ...defaults, cloud: false }}
+        onQuit={() => {}}
+        loadSessions={async () => sessions}
+        loadQuota={async () => []}
+      />,
       { width: 100, height: 12 },
     );
   });
@@ -251,6 +267,7 @@ test("rows on a branch with a pull request show its number and stage dot, the ex
           initialSettings={{ ...defaults, cloud: false }}
           onQuit={() => {}}
           loadSessions={async () => sessions}
+          loadQuota={async () => []}
           prs={prs}
         />,
         { width: 100, height: 10 },

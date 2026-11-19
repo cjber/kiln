@@ -1,4 +1,5 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
+import { accountOf } from "./accounts";
 import { agyProcesses } from "./agy";
 import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claudeTranscript } from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
@@ -16,6 +17,7 @@ import {
   opencodeWorkdir,
 } from "./opencode";
 import { piStatus } from "./pi-status";
+import { claudeAccounts } from "./quota";
 import { attachParents, rememberParents, restartStopped } from "./saved-sessions";
 import {
   type Activity,
@@ -27,6 +29,7 @@ import {
   type Session,
   sessionIdentity,
 } from "./sessions";
+import { loadSettings } from "./settings";
 import { panes, screen } from "./tmux";
 import { readTranscript } from "./transcript";
 
@@ -874,9 +877,38 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessi
   } catch (error) {
     problem = `Stopped sessions unavailable: ${error instanceof Error ? error.message : String(error)}`;
   }
-  const found = attachParents([...listed, ...stopped]);
+  const found = withAccounts(attachParents([...listed, ...stopped]));
   rememberParents(found);
   return { sessions: await closeFinishedChildren(found), problem };
+}
+
+/** Name the account each running session was started on, read from its process's environment. */
+function withAccounts(sessions: Session[]): Session[] {
+  let accounts: ReturnType<typeof loadSettings>["accounts"];
+  try {
+    accounts = loadSettings().accounts;
+  } catch {
+    // A settings file that does not load is reported by the list itself; sessions just show no account.
+    return sessions;
+  }
+  const claudeNames = new Map(
+    claudeAccounts(Date.now()).flatMap((account) => (account.id && account.name ? [[account.id, account.name]] : [])),
+  );
+  return sessions.map((session) => {
+    if (session.pid === undefined) return session;
+    try {
+      const environment = Object.fromEntries(
+        readFileSync(`/proc/${session.pid}/environ`, "utf8")
+          .split("\0")
+          .map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]),
+      );
+      const account = accountOf(session.agent, environment, accounts, claudeNames);
+      return account ? { ...session, account } : session;
+    } catch {
+      // The process is gone or not ours to read: no account to show.
+      return session;
+    }
+  });
 }
 
 /**

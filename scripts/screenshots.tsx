@@ -9,13 +9,14 @@
  * The fonts are JetBrains Mono where installed, else any monospace.
  */
 
+import "./demo-home";
+
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CapturedFrame, RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode } from "react";
-
 import { App } from "../src/app";
 import type { DashboardRow, DashboardSnapshot, PullRequest } from "../src/dashboard";
 import type { Ledger } from "../src/edits";
@@ -27,7 +28,7 @@ import type { Skill } from "../src/skills";
 import { SkillsView } from "../src/skills-view";
 
 const cols = 92;
-const rows = 15;
+const rows = 17;
 const cell = { width: 9, height: 20 };
 const pad = 20;
 const background = "#121113";
@@ -58,9 +59,21 @@ const demoQuota: QuotaAccount[] = [
     source: "mclaude",
   },
   { agent: "claude", name: "home", disabled: false, windows: [window("wk", 0, 90)], source: "mclaude" },
-  { agent: "codex", disabled: false, windows: [window("wk", 34, 120)], source: "codex-daemon" },
-  { agent: "muse", disabled: false, windows: [], source: "none" },
-  { agent: "opencode", disabled: false, windows: [], source: "none" },
+  { agent: "codex", name: "default", disabled: false, windows: [window("wk", 34, 120)], source: "codex-daemon" },
+  { agent: "codex", name: "team", disabled: false, windows: [window("wk", 91, 20)], source: "codex-daemon" },
+  {
+    agent: "muse",
+    disabled: false,
+    windows: [],
+    spentUntil: Date.now() + 4 * 86_400_000,
+    source: "none",
+  },
+  {
+    agent: "opencode",
+    disabled: false,
+    windows: [window("5h", 12, 2), window("wk", 30, 60), window("mo", 41, 300)],
+    source: "opencode-go",
+  },
 ];
 
 const demo: Session[] = [
@@ -68,6 +81,7 @@ const demo: Session[] = [
     pid: 101,
     title: "Cache map tiles",
     agent: "claude",
+    account: "work",
     cwd: code("atlas"),
     lastActiveAt: minutes(2),
     startedAt: minutes(42),
@@ -79,6 +93,7 @@ const demo: Session[] = [
     pid: 102,
     title: "Fix retry backoff",
     agent: "codex",
+    account: "team",
     cwd: code("atlas"),
     lastActiveAt: minutes(2),
     startedAt: minutes(18),
@@ -123,7 +138,8 @@ const demo: Session[] = [
   {
     agent: "codex",
     cwd: join(homedir(), ".worktrees", "atlas", "search-index"),
-    lastActiveAt: minutes(2),
+    // The oldest atlas session, so it sorts last in its group and the list shots open on the tile-cache row.
+    lastActiveAt: minutes(1400),
     startedAt: minutes(1500),
     activity: "idle",
     branch: "feat/search-index",

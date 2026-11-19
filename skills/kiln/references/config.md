@@ -20,6 +20,18 @@ Supported top-level settings:
   array hides that harness from new-session choices. Keep arguments separate;
   these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex`, `opencode`, `pi`, `muse` and `agy`.
 
+- `[[accounts]]`: more than one login of `codex`, `muse` or `opencode`. Each entry has `agent`, `name`
+  and `home`, the config home that account runs in (`CODEX_HOME` for Codex, `XDG_CONFIG_HOME` for Muse,
+  `XDG_DATA_HOME` for OpenCode). The agent's own home stays an account called `default`. Claude's
+  accounts are not listed here: kiln reads mclaude's and starts Claude through it, pinned with
+  `MCLAUDE_USE_ACCOUNT`. `kiln login <agent> <name>` signs in inside the account's home.
+
+A new session or `kiln msg spawn` uses the account with the most headroom and skips one at its limit;
+`--account NAME` pins one. When a spawned run ends on the provider's usage-limit signal, kiln records
+the account as spent until its reset (shown red in the footer) and starts the work again on another
+account. Claude resumes the same conversation through mclaude's shared transcripts; Codex, Muse and
+OpenCode start fresh with the brief and the last output, and the parent is told which happened.
+
 Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
 change `sort` to persist it. Existing session launch arguments are not rewritten.

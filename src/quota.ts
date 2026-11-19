@@ -2,7 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { codexRateLimits } from "./codex";
+import { type Account, defaultAccount } from "./accounts";
+import { codexHome, codexRateLimits } from "./codex";
+import { museRecentLimit } from "./muse-limit";
+import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
+import { spentUntil } from "./spent";
 import { color } from "./tui";
 
 /** One rate-limit window an agent's provider reports: how much of it is used and when it resets. */
@@ -13,12 +17,16 @@ export type QuotaAccount = {
   agent: "claude" | "codex" | "muse" | "opencode";
   /** Which of the agent's accounts; absent for an agent with one. */
   name?: string;
+  /** Claude only: mclaude's id for the account, which `MCLAUDE_USE_ACCOUNT` takes. */
+  id?: string;
   disabled: boolean;
   windows: QuotaWindow[];
+  /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
+  spentUntil?: number;
   /** When the provider's numbers were read, ms; absent when they are live. */
   fetchedAt?: number;
   /** Where the numbers came from, for diagnosing a wrong one. */
-  source: "mclaude" | "codex-daemon" | "codex-rollout" | "none";
+  source: "mclaude" | "codex-daemon" | "codex-rollout" | "opencode-go" | "none";
 };
 
 const staleMs = 30 * 60_000;
@@ -72,6 +80,7 @@ export function claudeAccounts(now: number, home = join(homedir(), ".mclaude")):
       accounts.push({
         agent: "claude",
         name: state.alias ?? state.id ?? file.slice(0, -5),
+        id: state.id ?? file.slice(0, -5),
         disabled: state.disabled === true,
         windows: current(windows, now),
         fetchedAt: state.usage?.fetchedAt ? Date.parse(state.usage.fetchedAt) : undefined,
@@ -87,10 +96,7 @@ export function claudeAccounts(now: number, home = join(homedir(), ".mclaude")):
 type RolloutLimit = { used_percent: number; window_minutes: number | null; resets_at: number | null } | null;
 
 /** The newest `rate_limits` a Codex session recorded, for when no daemon is running to ask. */
-export function codexRollout(
-  now: number,
-  home = Bun.env.CODEX_HOME ?? join(homedir(), ".codex"),
-): QuotaAccount | undefined {
+export function codexRollout(now: number, home = codexHome()): QuotaAccount | undefined {
   const sessions = join(home, "sessions");
   const newest = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).sort().reverse() : []);
   for (const year of newest(sessions).slice(0, 1))
@@ -138,12 +144,14 @@ export function codexRollout(
 }
 
 const codexEveryMs = 30_000;
-let codexRead: { at: number; account: QuotaAccount | undefined } = { at: 0, account: undefined };
+const codexReads = new Map<string, { at: number; account: QuotaAccount | undefined }>();
 
-/** Codex's plan limits: the running daemon's answer, else the last session's record. Asked at most every 30 s. */
-async function codexAccount(now: number): Promise<QuotaAccount | undefined> {
-  if (now - codexRead.at < codexEveryMs) return codexRead.account;
-  const live = await codexRateLimits();
+/** One Codex home's plan limits: the running daemon's answer, else the last session's record. Asked at most every 30 s. */
+export async function codexAccount(now: number, home?: string): Promise<QuotaAccount | undefined> {
+  const key = codexHome(home);
+  const read = codexReads.get(key);
+  if (read && now - read.at < codexEveryMs) return read.account;
+  const live = await codexRateLimits(home);
   const account: QuotaAccount | undefined = live
     ? {
         agent: "codex",
@@ -164,24 +172,74 @@ async function codexAccount(now: number): Promise<QuotaAccount | undefined> {
         ),
         source: "codex-daemon",
       }
-    : codexRollout(now);
-  codexRead = { at: now, account };
+    : codexRollout(now, key);
+  codexReads.set(key, { at: now, account });
   return account;
 }
 
 /**
- * Every agent account's plan usage, as its provider reports it. Muse and OpenCode publish no usage kiln can
- * read (`muse usage` has no documented shape and answers `server_sent_no_usage`; OpenCode has no plan limit),
- * so they are listed without numbers rather than guessed.
+ * Every agent account's plan usage, as its provider reports it. OpenCode Go's allowance comes from the usage
+ * endpoint OpenCode's own Console view reads. Muse publishes none kiln can read (`muse usage` answers
+ * `server_sent_no_usage`), so it is listed without numbers rather than guessed.
  */
-export async function readQuota(now = Date.now()): Promise<QuotaAccount[]> {
-  const codex = await codexAccount(now);
-  return [
-    ...claudeAccounts(now),
-    ...(codex ? [codex] : []),
-    { agent: "muse", disabled: false, windows: [], source: "none" },
-    { agent: "opencode", disabled: false, windows: [], source: "none" },
+export async function readQuota(now = Date.now(), accounts: readonly Account[] = []): Promise<QuotaAccount[]> {
+  const named = (agent: Account["agent"]) => accounts.filter((account) => account.agent === agent);
+  // An agent with configured accounts names its own home too, so every row says which login it is.
+  const codex = await Promise.all([
+    codexAccount(now),
+    ...named("codex").map((account) => codexAccount(now, account.home)),
+  ]);
+  const codexNames = named("codex").length ? [defaultAccount, ...named("codex").map((account) => account.name)] : [];
+  // Muse's sessions stay in its default data home whatever account ran them, so its recent limit is the default's.
+  const museLimit = museRecentLimit(now);
+  const withoutNumbers = (agent: "muse"): QuotaAccount[] =>
+    (named(agent).length ? [defaultAccount, ...named(agent).map((account) => account.name)] : [undefined]).map(
+      (name) => ({
+        agent,
+        name,
+        disabled: false,
+        windows: [],
+        ...(museLimit?.resetsAt !== undefined && (name === undefined || name === defaultAccount)
+          ? { spentUntil: museLimit.resetsAt }
+          : {}),
+        source: "none" as const,
+      }),
+    );
+  const opencodeHomes = [
+    { name: named("opencode").length ? defaultAccount : undefined, home: undefined },
+    ...named("opencode").map((account) => ({ name: account.name, home: account.home })),
   ];
+  const opencode = await Promise.all(
+    opencodeHomes.map(async ({ name, home }): Promise<QuotaAccount> => {
+      const allowance = await opencodeAllowance(now, home);
+      return {
+        agent: "opencode",
+        name,
+        disabled: false,
+        windows: current(allowance?.windows ?? [], now),
+        ...(allowance?.limitedUntil !== undefined && allowance.limitedUntil > now
+          ? { spentUntil: allowance.limitedUntil }
+          : {}),
+        source: allowance ? "opencode-go" : "none",
+      };
+    }),
+  );
+  const listed = [
+    ...claudeAccounts(now),
+    ...codex.flatMap((account, index) => (account ? [{ ...account, name: codexNames[index] }] : [])),
+    ...withoutNumbers("muse"),
+    ...opencode,
+  ];
+  return listed.map((account) => {
+    const until = Math.max(spentUntil(account.agent, account.name, now) ?? 0, account.spentUntil ?? 0);
+    return until > now ? { ...account, spentUntil: until } : account;
+  });
+}
+
+/** Drop the cached provider reads, so the next one is fresh: a run just ended on a limit and the footer must say so. */
+export function forgetReads(): void {
+  codexReads.clear();
+  forgetAllowances();
 }
 
 export type FooterSegment = { text: string; fg: string };
@@ -197,10 +255,15 @@ function untilReset(resetsAt: number, now: number): string {
   return `${Math.floor(minutes / 1440)}d${Math.floor((minutes % 1440) / 60)}h`;
 }
 
+function resetDay(resetsAt: number): string {
+  return new Date(resetsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 /**
  * The footer: `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`, one chunk per
  * agent, wrapped onto at most two lines of `width`. A window past 85% adds when it resets (`96%·5h ↻1h20`);
- * a read older than 30 minutes is dimmed, and a disabled account is left out.
+ * a read older than 30 minutes is dimmed, an account a run found spent shows `spent ↻Nov 23` in red, and a disabled
+ * account is left out.
  */
 export function quotaFooter(accounts: readonly QuotaAccount[], width: number, now: number): FooterSegment[][] {
   const chunks: FooterSegment[][] = [];
@@ -211,6 +274,8 @@ export function quotaFooter(accounts: readonly QuotaAccount[], width: number, no
     for (const account of own) {
       const stale = account.fetchedAt !== undefined && now - account.fetchedAt > staleMs;
       if (account.name) chunk.push({ text: ` ${account.name}`, fg: stale ? color.comment : color.fg });
+      if (account.spentUntil !== undefined)
+        chunk.push({ text: ` spent ↻${resetDay(account.spentUntil)}`, fg: color.red });
       for (const window of account.windows) {
         const reset = window.percent >= 85 && window.resetsAt ? ` ↻${untilReset(window.resetsAt, now)}` : "";
         chunk.push({

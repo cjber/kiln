@@ -34,8 +34,13 @@ type Reply = { id?: number; result?: unknown; error?: { message: string } };
 
 const timeoutMs = 1_500;
 
-function controlSocket(): string {
-  return join(Bun.env.CODEX_HOME ?? join(homedir(), ".codex"), "app-server-control", "app-server-control.sock");
+/** Codex's default home, or the account home a caller names. */
+export function codexHome(home?: string): string {
+  return home ?? Bun.env.CODEX_HOME ?? join(homedir(), ".codex");
+}
+
+function controlSocket(home?: string): string {
+  return join(codexHome(home), "app-server-control", "app-server-control.sock");
 }
 
 export function codexActivity(status: ThreadStatus): Activity | undefined {
@@ -248,10 +253,10 @@ export async function codexRemoteHost(): Promise<{ id?: string; problem?: string
 type DaemonLimit = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
 
 /** The account's plan limits as the daemon reports them now; undefined when no daemon runs or it cannot answer. */
-export async function codexRateLimits(): Promise<
-  { primary: DaemonLimit | null; secondary: DaemonLimit | null; planType: string | null } | undefined
-> {
-  const socket = controlSocket();
+export async function codexRateLimits(
+  home?: string,
+): Promise<{ primary: DaemonLimit | null; secondary: DaemonLimit | null; planType: string | null } | undefined> {
+  const socket = controlSocket(home);
   if (!existsSync(socket)) return undefined;
   try {
     const reply = await rpc<{

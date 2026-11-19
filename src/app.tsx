@@ -1,5 +1,6 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Account } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
 import { agentColor, EditsView } from "./edits-view";
@@ -161,7 +162,7 @@ type AppProps = {
   /** Pull requests for session branches; demo and test lists look none up unless given one. */
   prs?: ReturnType<typeof pullRequests>;
   /** Plan usage for the footer; tests and screenshots give fixed numbers instead of reading the machine's. */
-  loadQuota?: () => Promise<QuotaAccount[]>;
+  loadQuota?: (accounts: Account[]) => Promise<QuotaAccount[]>;
 };
 
 export function App({
@@ -170,7 +171,7 @@ export function App({
   loadSessions,
   initialNotice = "",
   prs: givenPrs,
-  loadQuota = readQuota,
+  loadQuota = (accounts) => readQuota(Date.now(), accounts),
 }: AppProps) {
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
@@ -183,7 +184,8 @@ export function App({
   const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [quota, setQuota] = useState<QuotaAccount[]>([]);
-  const readQuotaNow = loadQuota ?? (loadSessions ? async () => [] : readQuota);
+  const readQuotaNow =
+    loadQuota ?? (loadSessions ? async () => [] : (accounts: Account[]) => readQuota(Date.now(), accounts));
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState(initialNotice);
   const [problem, setProblem] = useState("");
@@ -261,7 +263,7 @@ export function App({
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      void readQuotaNow().then(setQuota, () => {});
+      void readQuotaNow(getSettings().accounts).then(setQuota, () => {});
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
@@ -313,7 +315,8 @@ export function App({
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
   const visible = visibleSessions(rows);
   const current = visible[resolveSelection(visible, selection).index];
-  const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
+  const footer = useMemo(() => quotaFooter(quota, width - 2, now), [quota, width, now]);
+  const pageSize = Math.max(1, height - footer.length - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
   const shown = viewport(rows, Math.max(0, selectedRow), pageSize);
 
@@ -536,7 +539,17 @@ export function App({
   const showStatus = width >= 30;
   // The pull request column only appears once something has one, and only where the title keeps its room.
   const showPr = width >= 72 && pulls.size > 0;
-  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0));
+  // The account column appears once a session runs on a named account, where the title keeps its room.
+  const accountWidth = Math.max(
+    9,
+    Math.min(14, Math.max(0, ...sessions.map((session) => (session.account ?? "").length)) + 2),
+  );
+  const anyAccount = sessions.some((session) => session.account !== undefined);
+  const showAccount = width >= 60 && anyAccount;
+  const titleWidth = Math.max(
+    1,
+    width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0) - (showAccount ? accountWidth : 0),
+  );
   const currentPr = current && pulls.get(sessionIdentity(current));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
   const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
@@ -566,7 +579,7 @@ export function App({
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(8) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
+            {`  ${"harness".padEnd(9)}${showAccount ? "account".padEnd(accountWidth) : ""}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(8) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -591,6 +604,11 @@ export function App({
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? (open ? "⌄ " : "› ") : "  "}</span>
                   <span fg={agentColor[session.agent]}>{agentName(session.agent).padEnd(9)}</span>
+                  {showAccount ? (
+                    <span fg={color.fgDim}>
+                      {fit(session.account ?? "", accountWidth - 1, "end").padEnd(accountWidth)}
+                    </span>
+                  ) : null}
                   <span fg={toneColor[sessionStatus(session).tone]}>{fitted}</span>
                   {count ? <span fg={color.comment}>{count}</span> : null}
                   <span fg={toneColor[sessionStatus(session).tone]}>
@@ -633,7 +651,7 @@ export function App({
           ))}
         </text>
       ) : null}
-      {quotaFooter(quota, width - 2, now).map((line) => (
+      {footer.map((line) => (
         <text key={line.map((segment) => segment.text).join("")} wrapMode="none">
           {line.map((segment, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: segments are a fixed sequence rebuilt each frame

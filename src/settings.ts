@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-
+import { type Account, expandHome, isAccountAgent } from "./accounts";
 import { type SessionSort, sessionSorts } from "./session-sort";
-
 import { type Agent, agents } from "./sessions";
 
 export type Settings = {
@@ -33,6 +32,8 @@ export type Settings = {
   editMessages: boolean;
   /** `kiln serve` stops the computer suspending while an agent works; the screens still blank and lock. */
   keepAwake: boolean;
+  /** Extra logins of codex, muse and opencode, each its own config home. Claude's come from mclaude. */
+  accounts: Account[];
 };
 
 export const defaults: Settings = {
@@ -49,6 +50,7 @@ export const defaults: Settings = {
   prMessages: false,
   editMessages: true,
   keepAwake: true,
+  accounts: [],
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -100,6 +102,14 @@ pi = ["pi"]
 muse = ["muse"]
 agy = ["agy"]
 
+# More than one login of codex, muse or opencode: each [[accounts]] entry is a config home of its own, and
+# \`kiln login <agent> <name>\` signs in inside it. A new session or \`kiln msg spawn\` uses the account with the
+# most headroom. The agent's own home stays an account called "default". Claude's accounts come from mclaude.
+# [[accounts]]
+# agent = "codex"
+# name = "work"
+# home = "~/.local/share/kiln/accounts/codex-work"
+
 # Let paired phones start sessions in your directories and send prompts to running ones.
 # A phone that can do this can run code on this computer.
 [phone]
@@ -132,6 +142,20 @@ function stringList(path: string, key: string, value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
     fail(path, `${key} must be a list of strings`);
   return value;
+}
+
+function parseAccount(path: string, entry: unknown): Account {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) fail(path, "each [[accounts]] must be a table");
+  for (const key of Object.keys(entry))
+    if (!["agent", "name", "home"].includes(key)) fail(path, `unknown setting "accounts.${key}"`);
+  const { agent, name, home } = entry as Record<string, unknown>;
+  if (typeof agent !== "string" || !agent) fail(path, "an [[accounts]] entry needs an agent");
+  if (agent === "claude") fail(path, "Claude accounts come from mclaude (mclaude account add), not [[accounts]]");
+  if (!isAccountAgent(agent)) fail(path, `accounts.agent "${agent}" must be codex, muse or opencode`);
+  if (typeof name !== "string" || !/^[\w.-]+$/.test(name) || name === "default")
+    fail(path, 'accounts.name must be letters, digits, ".", "_" or "-", and not "default"');
+  if (typeof home !== "string" || !home) fail(path, `accounts.home is required for ${agent} "${name}"`);
+  return { agent, name, home: expandHome(home) };
 }
 
 /** A typo in the file is an error, not a silent default: a setting that does nothing is worse than a message. */
@@ -186,6 +210,10 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
           settings.agents[agent as Agent] = stringList(path, `agents.${agent}`, command);
         }
         break;
+      case "accounts":
+        if (!Array.isArray(value)) fail(path, "accounts must be [[accounts]] tables");
+        settings.accounts = value.map((entry) => parseAccount(path, entry));
+        break;
       case "phone":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[phone] must be a table");
         for (const [name, setting] of Object.entries(value)) {
@@ -197,6 +225,12 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
       default:
         fail(path, `unknown setting "${key}"`);
     }
+  }
+  const seen = new Set<string>();
+  for (const account of settings.accounts) {
+    const key = `${account.agent}:${account.name}`;
+    if (seen.has(key)) fail(path, `${account.agent} account "${account.name}" is listed twice`);
+    seen.add(key);
   }
   return settings;
 }

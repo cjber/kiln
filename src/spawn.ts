@@ -2,23 +2,28 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, st
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { defaultAccount } from "./accounts";
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { claudeCommand, promptArguments } from "./launcher";
-import { outboxPath, pending, post } from "./mailbox";
+import { detectLimit } from "./limits";
+import { outboxPath, pending, post, posted } from "./mailbox";
 import { findRecipient, flush, spawnReportSender } from "./messages";
 import { afterMuseWord } from "./muse";
 import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
+import { forgetReads, readQuota } from "./quota";
+import { routeNew } from "./routing";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
+import { recordSpent } from "./spent";
 import { ended, exists, hasExited, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
 import { readTranscript } from "./transcript";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--interactive] -- <prompt>`;
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] -- <prompt>`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -28,6 +33,10 @@ export type SpawnOptions = {
   prompt: string;
   /** Start the agent's full terminal UI, so a person can attach and watch it, instead of its headless mode. */
   interactive?: boolean;
+  /** Run on this account of the agent instead of the one with the most headroom. */
+  account?: string;
+  /** Accounts a run of this brief already used up, which the pick skips; set by a failover. */
+  tried?: string[];
   /** A Claude conversation to carry on, in the directory it was started in, instead of starting a new one. */
   resume?: { id: string; codeMode: boolean; title?: string };
 };
@@ -70,6 +79,7 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
       dir: { type: "string" },
       title: { type: "string" },
       model: { type: "string" },
+      account: { type: "string" },
       interactive: { type: "boolean" },
       resume: { type: "string" },
     },
@@ -98,6 +108,7 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     dir,
     title: values.title,
     model: values.model,
+    account: values.account,
     prompt: prompt.join(" "),
     interactive: values.interactive,
     ...(resume ? { resume } : {}),
@@ -658,13 +669,20 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   if (!command[0] || !Bun.which(command[0]))
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
+  // The account is chosen before anything starts: one at its limit is never picked, so a spawn can refuse here.
+  const route = await routeNew(options.agent, loadSettings().accounts, options.account, options.tried);
+  const account = {
+    account: route.name,
+    brief: options.prompt,
+    tried: options.tried?.length ? options.tried.join(",") : undefined,
+  };
   // A child in its agent's sandbox cannot see the sessions, so what it sends waits in an outbox its spawn relays.
   const outbox = (box: string) => {
     // A box this spawn did not make is another run's, which a failed start must leave alone.
     const made = mkdirSync(outboxPath(box), { recursive: true, mode: 0o700 }) !== undefined;
     return {
       release: () => made && releaseOutbox(box),
-      env: { KILN_OUTBOX: outboxPath(box) },
+      env: { ...route.env, KILN_OUTBOX: outboxPath(box) },
       writable: spawnGrants(options.agent, options.dir, outboxPath(box)),
     };
   };
@@ -724,6 +742,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       startedAt,
       pid,
       pane: name,
+      ...account,
     });
     watchInBackground(name, "", parent ?? "");
     if (ended(name)) await reportSpawnExit(name, "", parent ?? "");
@@ -763,6 +782,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     startedAt,
     pane: name,
     runBound: true,
+    ...account,
   };
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
   // record is still this run's: a previous run's late hook must not reap this pane or report it to that run's parent.
@@ -840,6 +860,8 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // remain-on-exit removed it (#240). Reporters close a pane only once its report is posted, or when it has nobody to
   // report to, so a pane they closed had its status reported already, and this report, under the same id, is not posted.
   const ending = seen === "gone" ? undefined : seen;
+  // The hook, the watcher and the spawner can each reach here; only the one that posts the exit report restarts the child.
+  const firstReport = !posted(exitReportId(record));
   if (to) {
     // The message id makes the post idempotent: the hook, the watcher and the spawner can each report one exit, and the
     // first to post decides its text. A reporter that stops before posting leaves the pane, and its status, to the next.
@@ -867,6 +889,76 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
       // A parent kiln cannot reach right now can still read the message from its mailbox.
     }
   }
+  if (firstReport && ending?.status !== undefined && ending.status !== 0 && record.brief !== undefined)
+    await failOver(record, ending.output, to);
   // Provider conversations can be resumed independently of this pane. Exit hooks cannot
   // bind a remote interrupt/archive to its generation, so only explicit close does that.
+}
+
+/** What a restarted child is told. A resumed Claude conversation already holds its own history. */
+function handoffPrompt(record: Saved, output: string | undefined, resumed: boolean): string {
+  if (resumed)
+    return "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
+  const last = output?.trim();
+  return [
+    record.brief,
+    `A previous run of this task stopped because its ${record.agent} account${record.account ? ` ${record.account}` : ""} reached its usage limit. Continue from where it stopped, without redoing finished work.`,
+    last ? `Its last output:\n\n${last}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * A child that exited on its account's usage limit is started again on the next account with headroom, and its parent is
+ * told which way it went. The limit is read from the provider's signal ({@link detectLimit}), never from the child's
+ * output. Claude resumes the same conversation, since mclaude's accounts share one transcript store; Codex, Muse and
+ * OpenCode keep conversations per account, so they start fresh with the original brief and the child's last output.
+ */
+async function failOver(record: Saved, output: string | undefined, to: string): Promise<void> {
+  const settings = loadSettings();
+  forgetReads();
+  const now = Date.now();
+  const quota = await readQuota(now, settings.accounts).catch(() => []);
+  const hit = detectLimit(record, now, quota);
+  if (!hit) return;
+  if (hit.resetsAt !== undefined) recordSpent(record.agent, record.account, hit.resetsAt);
+  const identity = `${record.agent}:${record.id}`;
+  const tried = [...(record.tried?.split(",").filter(Boolean) ?? []), record.account ?? defaultAccount];
+  const reset = hit.resetsAt === undefined ? "" : `, which resets ${new Date(hit.resetsAt).toISOString()}`;
+  const stopped = `Child ${identity} stopped on the usage limit of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
+  let report: string;
+  try {
+    const route = await routeNew(record.agent, settings.accounts, undefined, tried, now);
+    const conversation = record.agent === "claude" ? claudeConversation(record.id) : undefined;
+    const resume = conversation
+      ? { id: record.id, codeMode: conversation.codeMode, title: conversation.title }
+      : undefined;
+    const child = await spawnAgent(
+      {
+        agent: record.agent,
+        dir: record.cwd,
+        title: record.title,
+        prompt: handoffPrompt(record, output, resume !== undefined),
+        account: route.name,
+        tried,
+        resume,
+      },
+      to || undefined,
+    );
+    report = `${stopped} Restarted on ${route.name ?? "its next account"} as ${child}: ${
+      resume
+        ? "the same conversation resumed, since Claude accounts share their transcripts"
+        : "a fresh run given the original brief and the child's last output, since this agent keeps conversations per account"
+    }.`;
+  } catch (error) {
+    report = `${stopped} It was not restarted: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (!to) return;
+  try {
+    post(spawnReportSender(identity), to, report, undefined, undefined, `failover:${exitReportId(record)}`);
+    await flush([]);
+  } catch {
+    // The report stays in the mailbox for the parent to read.
+  }
 }

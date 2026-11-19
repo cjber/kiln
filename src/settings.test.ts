@@ -51,3 +51,26 @@ test("the README settings example matches the shipped defaults", async () => {
   expect(example).not.toBeNull();
   expect(parseSettings(example?.[1] ?? "", "README.md")).toEqual(defaults);
 });
+
+test("[[accounts]] lists extra logins and rejects what kiln cannot honour", () => {
+  const settings = parseSettings(
+    `[[accounts]]\nagent = "codex"\nname = "work"\nhome = "/srv/codex-work"\n[[accounts]]\nagent = "muse"\nname = "alt"\nhome = "/srv/muse-alt"\n`,
+    "config.toml",
+  );
+  expect(settings.accounts).toEqual([
+    { agent: "codex", name: "work", home: "/srv/codex-work" },
+    { agent: "muse", name: "alt", home: "/srv/muse-alt" },
+  ]);
+  expect(defaults.accounts).toEqual([]);
+  const bad = (body: string) => () => parseSettings(`[[accounts]]\n${body}`, "config.toml");
+  expect(bad('agent = "claude"\nname = "a"\nhome = "/x"')).toThrow("mclaude");
+  expect(bad('agent = "pi"\nname = "a"\nhome = "/x"')).toThrow("must be codex, muse or opencode");
+  expect(bad('agent = "codex"\nname = "default"\nhome = "/x"')).toThrow("accounts.name");
+  expect(bad('agent = "codex"\nname = "a"')).toThrow("accounts.home is required");
+  expect(bad('agent = "codex"\nname = "a"\nhome = "/x"\nplan = "max"')).toThrow('unknown setting "accounts.plan"');
+  expect(() =>
+    parseSettings(
+      `[[accounts]]\nagent = "codex"\nname = "a"\nhome = "/x"\n[[accounts]]\nagent = "codex"\nname = "a"\nhome = "/y"\n`,
+    ),
+  ).toThrow("listed twice");
+});
