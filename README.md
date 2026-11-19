@@ -7,7 +7,7 @@
 
 </div>
 
-kiln opens native Claude, Codex, OpenCode, Pi and Muse terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+kiln opens native Claude, Codex, OpenCode, Pi, Muse and Antigravity terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 
 Claude and Codex keep their own TUIs for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity.
 
@@ -27,7 +27,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Install Claude Code, Codex CLI, OpenCode, Pi or Muse, and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
+Install Claude Code, Codex CLI, OpenCode, Pi, Muse or Antigravity CLI (`agy`), and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
 
 ## Set up with your agent
 
@@ -62,7 +62,7 @@ impersonate a session. `kiln msg send --json` prints one `{to, delivered, reason
 
 `kiln msg interrupt <name>` stops a session's turn in progress, the way pressing Escape in it would:
 it presses Escape in a Claude session kiln started, and asks Codex's shared daemon or OpenCode's
-service to stop the turn. A session that is not working is left alone. Pi sessions, Muse sessions
+service to stop the turn. A session that is not working is left alone. Pi sessions, Antigravity sessions, Muse sessions
 (Muse never reports whether it is working, so kiln cannot tell a turn from an idle prompt), and Claude
 sessions kiln did not start, cannot be interrupted. A message sent afterwards arrives as soon as the
 session is idle, so `interrupt` followed by `send` redirects an agent mid-task.
@@ -91,6 +91,11 @@ interactive Muse session shows its activity as unknown; messages still reach it 
 through Muse's own session messaging. Kiln cannot read a Muse transcript, so `kiln msg view`
 has nothing to show for a Muse session: a Muse child answers by messaging its parent, and
 its exit report carries its last output.
+An Antigravity child runs as `agy -p` and is listed as `working` until it exits. Antigravity reports its
+status in its own summary database, so an interactive `agy` session shows working or idle once its first
+prompt creates the conversation; before that it is listed without a status. `kiln msg view` has nothing
+to show for it, because kiln cannot read its transcript, so an agy child answers by messaging its parent
+or through its exit report.
 Exiting removes the child's pane and keeps its provider conversation available to resume:
 `kiln msg spawn claude --resume <name>` carries on an exited Claude child in the directory it began
 in, with its title, and records the caller as its parent again.
@@ -115,6 +120,7 @@ Messages are kept in `$XDG_STATE_HOME/kiln/mailbox.sqlite` for seven days. Kiln 
 | Codex on its shared daemon | input to its active turn while working, or a new turn when idle; approvals still wait |
 | Claude started by kiln | pasted into its terminal once it is idle and its prompt box holds no draft |
 | Muse | delivered through Muse's own session messaging right away |
+| Antigravity started by kiln | pasted into its terminal once it is idle |
 
 Anything else, and a message whose recipient never becomes idle, waits for `kiln msg inbox`. A send delivers pending messages for its recipients; unrelated recipients deliver concurrently on each refresh of the list or phone server while one runs. Kiln never types into a session that is working, asking a question, or open in a terminal, where it could join a prompt you are writing. A sender can send at most 20 messages to one recipient in ten minutes. The `kiln` skill teaches agents to use these commands.
 

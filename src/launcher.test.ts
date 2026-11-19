@@ -212,7 +212,14 @@ test("a first prompt is the agent's own argument and never reads as an option or
   expect(agentCommand("opencode", settings, undefined, "-x").at(-1)).toBe("--prompt=-x");
   expect(agentCommand("pi", settings, undefined, "go").slice(-2)).toEqual(["--", "go"]);
   expect(agentCommand("muse", settings, undefined, "go")).toEqual(["muse", "--", "go"]);
+  expect(agentCommand("agy", settings, undefined, "--help")).toEqual(["agy", "--prompt-interactive=--help"]);
   expect(agentCommand("codex", settings)).toEqual(["codex"]);
+});
+
+test("an agy resume names its conversation with --conversation", () => {
+  const id = "01a1ee06-1787-71c3-b858-29eb0cd46d25";
+  expect(agentCommand("agy", defaults, id)).toEqual(["agy", "--conversation", id]);
+  expect(agentCommand("agy", defaults, id, "go")).toEqual(["agy", "--conversation", id, "--prompt-interactive=go"]);
 });
 
 test("a muse resume follows the muse word, after any wrapper, and takes no prompt", () => {

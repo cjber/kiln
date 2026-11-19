@@ -51,6 +51,8 @@ test("the caller's own session id wins over one it inherited from the agent that
   expect(processAgent(["/home/u/.local/bin/muse", "exec"])).toBe("muse");
   expect(processAgent(["/home/u/.local/bin/muse-bin-1.4.23", "resume", "x"])).toBe("muse");
   expect(callerIdentity({ MUSE_SESSION_ID: "m1" }, "muse")).toBe("muse:m1");
+  expect(processAgent(["agy", "-p", "x"])).toBe("agy");
+  expect(callerIdentity({ ANTIGRAVITY_CONVERSATION_ID: "a1" }, "agy")).toBe("agy:a1");
   expect(callerIdentity({ MUSE_SESSION_ID: "m1", CLAUDE_CODE_SESSION_ID: "c1" }, null)).toBeUndefined();
   expect(processAgent(["/opt/codex/bin/codex", "app-server"])).toBe("codex");
   expect(processAgent(["node", "/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"])).toBe("pi");
@@ -128,6 +130,11 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
   expect(route(session({ agent: "muse", activity: "working" }))).toEqual({ push: "muse" });
   expect("inbox" in route(session({ agent: "muse", activity: "working", museExec: true }))).toBe(true);
   expect("inbox" in route(session({ agent: "muse", id: undefined }))).toBe(true);
+  // agy has no push transport: kiln types into its own pane once its summary row says idle.
+  expect(route(session({ agent: "agy", activity: "idle" }))).toEqual({ push: "tmux" });
+  expect(route(session({ agent: "agy", activity: "working" }))).toEqual({ wait: "Agy is working" });
+  expect("inbox" in route(session({ agent: "agy", activity: "idle", agyExec: true }))).toBe(true);
+  expect("inbox" in route(session({ agent: "agy", activity: "idle", place: { kind: "elsewhere" } }))).toBe(true);
 });
 
 test("flush types each deliverable message once, framed with its sender, and keeps the rest", async () => {

@@ -179,6 +179,8 @@ test("a chosen model is passed to every provider's headless command", () => {
     "model",
     "work",
   ]);
+  // agy names its own conversation, so a print-mode run carries no id of kiln's.
+  expect(headlessCommand(["agy"], "agy", "", "work", undefined, "m")).toEqual(["agy", "-p", "work", "--model", "m"]);
   // `exec` follows the muse word, not the whole configured command: options before it never start a session.
   expect(headlessCommand(["muse", "--provider", "echo"], "muse", "id", "work")).toEqual([
     "muse",

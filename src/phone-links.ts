@@ -62,5 +62,7 @@ export function phoneHandoff(session: Session, codexHost?: string, opencodeLink?
       return { reason: "Open this Pi session in kiln on your computer" };
     case "muse":
       return { reason: "Open this Muse session in kiln on your computer" };
+    case "agy":
+      return { reason: "Open this agy session in kiln on your computer" };
   }
 }

@@ -281,7 +281,7 @@ test("children retain the parent thread when duplicate terminal clients are remo
     place: { kind: "elsewhere" },
   };
   const inside: Session = { ...outside, pid: 2, place: { kind: "kiln", name: "parent" } };
-  for (const agent of ["claude", "codex", "opencode", "pi", "muse"] as const) {
+  for (const agent of ["claude", "codex", "opencode", "pi", "muse", "agy"] as const) {
     const child: Session = {
       agent,
       id: "child",

@@ -4,16 +4,16 @@ import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import type { Question } from "./opencode";
 
-export type Agent = "claude" | "codex" | "opencode" | "pi" | "muse";
+export type Agent = "claude" | "codex" | "opencode" | "pi" | "muse" | "agy";
 
-export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi", "muse"];
+export const agents: readonly Agent[] = ["claude", "codex", "opencode", "pi", "muse", "agy"];
 
 /** Whether a name is a session's full kiln id, `agent:id`, which needs no discovery to address. */
 export const isFullName = (name: string) => agents.some((agent) => name.startsWith(`${agent}:`));
 
 /** The name shown to people; ids stay lowercase for matching, filtering and sorting. */
 export function agentName(agent: Agent): string {
-  return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi", muse: "Muse" }[agent];
+  return { claude: "Claude", codex: "Codex", opencode: "OpenCode", pi: "Pi", muse: "Muse", agy: "Agy" }[agent];
 }
 
 /** What a session is doing, as far as anyone can tell: `waiting` means it stopped to ask you something. */
@@ -69,6 +69,8 @@ export type Session = {
   codexExec?: boolean;
   /** A headless `muse exec` run: it holds no live session host, so Muse's session messaging cannot reach it. */
   museExec?: boolean;
+  /** A headless `agy -p` run: it takes no further input, and its process holds the one turn. */
+  agyExec?: boolean;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
   /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */

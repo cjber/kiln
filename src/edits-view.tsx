@@ -33,6 +33,7 @@ export const agentColor: Record<Agent, string> = {
   opencode: color.fgBright,
   pi: color.purple,
   muse: color.yellow,
+  agy: color.peach,
 };
 
 /** Line backgrounds: the turn being reviewed, lines written since the view opened, the cursor and a selection. */

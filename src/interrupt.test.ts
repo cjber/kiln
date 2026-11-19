@@ -37,6 +37,8 @@ test("a kiln pane takes Escape; elsewhere each agent is stopped through its own 
     // A working exec run in a kiln pane has no input for Escape to reach.
     session({ agent: "codex", codexExec: true }),
     session({ agent: "muse", museExec: true }),
+    session({ agent: "agy", agyExec: true }),
+    session({ agent: "agy", place: { kind: "elsewhere" } }),
     session({ agent: "muse", place: { kind: "elsewhere" } }),
     session({ agent: "opencode" }),
     session({ agent: "pi", place: { kind: "elsewhere" } }),
