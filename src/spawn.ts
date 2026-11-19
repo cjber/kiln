@@ -680,9 +680,10 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     // A run that failed before starting its thread never read the prompt, so the spawn fails with its reason rather than
     // printing an id for a child that is already gone. Nothing is recorded yet, so its exit hook reports nothing.
     const failed = thread ? undefined : await settledExit(name);
-    if (failed && failed.status !== 0) {
+    if (failed) {
       kill(name);
       release();
+      clearMountPoints(worktreeMetadata(options.dir));
       const reason = failed.output.trim();
       throw new Error(`Codex exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`);
     }

@@ -213,41 +213,50 @@ test("a Codex child runs outside a git repository, and a Muse child loads its wo
   ]);
 });
 
-test("a Codex spawn that exits before starting its thread fails with the reason, leaving nothing behind (#270)", async () => {
-  const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME };
-  const root = join(paneDir, "codex-refused");
-  const state = join(root, "state");
-  mkdirSync(join(root, "config", "kiln"), { recursive: true });
-  const codex = join(root, "codex.sh");
-  writeFileSync(codex, "#!/bin/sh\necho 'Not inside a trusted directory.'\nexit 1\n", { mode: 0o755 });
-  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\ncodex = [${JSON.stringify(codex)}]\n`);
-  Bun.env.XDG_STATE_HOME = state;
-  Bun.env.XDG_CONFIG_HOME = join(root, "config");
-  try {
-    await expect(spawnAgent({ agent: "codex", dir: root, prompt: "go" }, "claude:parent")).rejects.toThrow(
-      "Codex exited with status 1 before it started:\nNot inside a trusted directory.",
-    );
-    // No pane, outbox or exit report is left for a child that never ran.
-    const listed = Bun.spawnSync(["tmux", "-L", `kiln-spawn-${process.pid}`, "list-sessions", "-F", "#{session_name}"]);
-    expect(
-      listed.stdout
-        .toString()
-        .split("\n")
-        .filter((session) => session.startsWith("codex-")),
-    ).toEqual([]);
-    const outboxes = join(outboxPath("none"), "..");
-    expect(existsSync(outboxes) ? readdirSync(outboxes) : []).toEqual([]);
-    expect(peekUnread("claude:parent")).toHaveLength(0);
-  } finally {
-    for (const [key, value] of [
-      ["XDG_STATE_HOME", saved.state],
-      ["XDG_CONFIG_HOME", saved.config],
-    ] as const) {
-      if (value === undefined) delete Bun.env[key];
-      else Bun.env[key] = value;
+for (const status of [1, 0]) {
+  test(`a Codex spawn that exits with status ${status} before starting its thread fails with the reason, leaving nothing behind (#270)`, async () => {
+    const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME };
+    const root = join(paneDir, `codex-refused-${status}`);
+    const state = join(root, "state");
+    mkdirSync(join(root, "config", "kiln"), { recursive: true });
+    const codex = join(root, "codex.sh");
+    writeFileSync(codex, `#!/bin/sh\necho 'Not inside a trusted directory.'\nexit ${status}\n`, { mode: 0o755 });
+    writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\ncodex = [${JSON.stringify(codex)}]\n`);
+    Bun.env.XDG_STATE_HOME = state;
+    Bun.env.XDG_CONFIG_HOME = join(root, "config");
+    try {
+      await expect(spawnAgent({ agent: "codex", dir: root, prompt: "go" }, "claude:parent")).rejects.toThrow(
+        `Codex exited with status ${status} before it started:\nNot inside a trusted directory.`,
+      );
+      // No pane, outbox or exit report is left for a child that never ran.
+      const listed = Bun.spawnSync([
+        "tmux",
+        "-L",
+        `kiln-spawn-${process.pid}`,
+        "list-sessions",
+        "-F",
+        "#{session_name}",
+      ]);
+      expect(
+        listed.stdout
+          .toString()
+          .split("\n")
+          .filter((session) => session.startsWith("codex-")),
+      ).toEqual([]);
+      const outboxes = join(outboxPath("none"), "..");
+      expect(existsSync(outboxes) ? readdirSync(outboxes) : []).toEqual([]);
+      expect(peekUnread("claude:parent")).toHaveLength(0);
+    } finally {
+      for (const [key, value] of [
+        ["XDG_STATE_HOME", saved.state],
+        ["XDG_CONFIG_HOME", saved.config],
+      ] as const) {
+        if (value === undefined) delete Bun.env[key];
+        else Bun.env[key] = value;
+      }
     }
-  }
-}, 40_000);
+  }, 40_000);
+}
 
 test("an exit hook quotes its command for tmux and a report names the reason", () => {
   expect(exitHook(["/home/me/bin/kiln", "msg", "exit", "claude-1", "claude:child", "claude:parent"])).toBe(
