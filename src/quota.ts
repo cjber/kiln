@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { type Account, defaultAccount } from "./accounts";
 import { codexHome, codexRateLimits } from "./codex";
-import { opencodeAllowance } from "./opencode-usage";
+import { museRecentLimit } from "./muse-limit";
+import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
 import { spentUntil } from "./spent";
 import { color } from "./tui";
 
@@ -189,16 +190,21 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     ...named("codex").map((account) => codexAccount(now, account.home)),
   ]);
   const codexNames = named("codex").length ? [defaultAccount, ...named("codex").map((account) => account.name)] : [];
+  // Muse's sessions stay in its default data home whatever account ran them, so its recent limit is the default's.
+  const museLimit = museRecentLimit(now);
   const withoutNumbers = (agent: "muse"): QuotaAccount[] =>
-    named(agent).length
-      ? [defaultAccount, ...named(agent).map((account) => account.name)].map((name) => ({
-          agent,
-          name,
-          disabled: false,
-          windows: [],
-          source: "none",
-        }))
-      : [{ agent, disabled: false, windows: [], source: "none" }];
+    (named(agent).length ? [defaultAccount, ...named(agent).map((account) => account.name)] : [undefined]).map(
+      (name) => ({
+        agent,
+        name,
+        disabled: false,
+        windows: [],
+        ...(museLimit?.resetsAt !== undefined && (name === undefined || name === defaultAccount)
+          ? { spentUntil: museLimit.resetsAt }
+          : {}),
+        source: "none" as const,
+      }),
+    );
   const opencodeHomes = [
     { name: named("opencode").length ? defaultAccount : undefined, home: undefined },
     ...named("opencode").map((account) => ({ name: account.name, home: account.home })),
@@ -228,6 +234,12 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     const until = Math.max(spentUntil(account.agent, account.name, now) ?? 0, account.spentUntil ?? 0);
     return until > now ? { ...account, spentUntil: until } : account;
   });
+}
+
+/** Drop the cached provider reads, so the next one is fresh: a run just ended on a limit and the footer must say so. */
+export function forgetReads(): void {
+  codexReads.clear();
+  forgetAllowances();
 }
 
 export type FooterSegment = { text: string; fg: string };

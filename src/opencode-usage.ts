@@ -92,3 +92,7 @@ export async function opencodeAllowance(
   reads.set(dataHome, { at: now, allowance });
   return allowance;
 }
+
+export function forgetAllowances(): void {
+  reads.clear();
+}
