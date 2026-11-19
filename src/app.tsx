@@ -7,6 +7,7 @@ import { closeSession, createSession, type Outcome, openSession, sessionAction }
 import { post } from "./mailbox";
 import { flushInBackground, reachable, terminal } from "./messages";
 import { nativeNotifications } from "./notifications";
+import { type QuotaAccount, quotaFooter, readQuota } from "./quota";
 import { type DetailPart, newestFirst, sessionDetail } from "./session-detail";
 import {
   resolveSelection,
@@ -159,9 +160,18 @@ type AppProps = {
   loadSessions?: () => Promise<Session[]>;
   /** Pull requests for session branches; demo and test lists look none up unless given one. */
   prs?: ReturnType<typeof pullRequests>;
+  /** Plan usage for the footer; tests and screenshots give fixed numbers instead of reading the machine's. */
+  loadQuota?: () => Promise<QuotaAccount[]>;
 };
 
-export function App({ initialSettings, onQuit, loadSessions, initialNotice = "", prs: givenPrs }: AppProps) {
+export function App({
+  initialSettings,
+  onQuit,
+  loadSessions,
+  initialNotice = "",
+  prs: givenPrs,
+  loadQuota = readQuota,
+}: AppProps) {
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [sessions, getSessions, setSessions] = useLatest<Session[]>([]);
@@ -172,6 +182,8 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
   const [order, getOrder, setOrder] = useLatest(initialSettings.sort);
   const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(Date.now());
+  const [quota, setQuota] = useState<QuotaAccount[]>([]);
+  const readQuotaNow = loadQuota ?? (loadSessions ? async () => [] : readQuota);
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState(initialNotice);
   const [problem, setProblem] = useState("");
@@ -249,6 +261,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     if (refreshing.current) return;
     refreshing.current = true;
     try {
+      void readQuotaNow().then(setQuota, () => {});
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
@@ -273,6 +286,7 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
     }
   }, [
     discover,
+    readQuotaNow,
     view,
     getSettings,
     getSelection,
@@ -619,6 +633,16 @@ export function App({ initialSettings, onQuit, loadSessions, initialNotice = "",
           ))}
         </text>
       ) : null}
+      {quotaFooter(quota, width - 2, now).map((line) => (
+        <text key={line.map((segment) => segment.text).join("")} wrapMode="none">
+          {line.map((segment, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: segments are a fixed sequence rebuilt each frame
+            <span key={index} fg={segment.fg}>
+              {segment.text}
+            </span>
+          ))}
+        </text>
+      ))}
       {current ? (
         <text fg={color.comment}>
           {fit(

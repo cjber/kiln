@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **The session list shows how much of each agent's plan is used.** A line at the bottom reads `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`: each Claude account from mclaude's last usage read, with its five-hour and weekly windows, and Codex's weekly window from its daemon. A window past 85% adds when it resets, a read older than 30 minutes is dimmed, and a disabled mclaude account is left out. Muse and OpenCode publish no usage kiln can read, so they are listed without numbers.
 - **`kiln attach <name>` opens a session's terminal from the command line.** It does what `Enter` does on a row in the list, for the name `kiln msg list` prints or one of its aliases, so a launcher or desktop panel can open a session without knowing its tmux name. An unknown name exits 1.
 
 ## [0.30.6] - 2026-11-19
