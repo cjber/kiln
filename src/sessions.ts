@@ -242,16 +242,20 @@ export type Discovered = {
   stale: boolean;
 };
 
-/** While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. */
+/**
+ * While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. A source
+ * that lists only part of its rows returns them with its own problem.
+ */
 export function keepLast<A extends unknown[]>(
-  load: (...args: A) => Promise<Session[]>,
+  load: (...args: A) => Promise<Session[] | Omit<Discovered, "stale">>,
   name: string,
 ): (...args: A) => Promise<Discovered> {
   let last: Session[] = [];
   return async (...args) => {
     try {
-      last = await load(...args);
-      return { sessions: last, problem: "", stale: false };
+      const found = await load(...args);
+      last = Array.isArray(found) ? found : found.sessions;
+      return { sessions: last, problem: Array.isArray(found) ? "" : found.problem, stale: false };
     } catch {
       last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
       return { sessions: last, problem: `${name} unavailable; showing the last successful list`, stale: true };

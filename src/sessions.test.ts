@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  keepLast,
   nestSessions,
   openable,
   type Session,
@@ -177,4 +178,10 @@ test("a parent whose turn ended is still working while a subagent works", () => 
     undefined,
     undefined,
   ]);
+});
+
+test("a source listing only part of its rows passes its problem on without marking the list stale", async () => {
+  const row: Session = { agent: "codex", id: "t", cwd: "/repo", startedAt: 1, place: { kind: "kiln", name: "codex" } };
+  const found = await keepLast(async () => ({ sessions: [row], problem: "Stopped sessions unavailable: busy" }), "x")();
+  expect(found).toEqual({ sessions: [row], problem: "Stopped sessions unavailable: busy", stale: false });
 });

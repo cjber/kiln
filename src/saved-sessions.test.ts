@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   attachParents,
   forget,
@@ -176,6 +176,31 @@ test("the saved list is stored, and forgetting removes one session from it", () 
   expect(ids()).toEqual(["a", "b"]);
   forget(running, path);
   expect(ids()).toEqual(["b"]);
+});
+
+test("a state file a newer kiln gave another column still lists the sessions a restart stopped", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  const terminal: Session = { ...running, agent: "codex" };
+  recordSpawn({ agent: "opencode", id: "child", cwd: "/repo", parent: "codex:a", startedAt: 2 }, path);
+  restartStopped([terminal], path);
+  const db = new Database(path);
+  db.exec("ALTER TABLE sessions ADD COLUMN future TEXT; UPDATE sessions SET boot = 'earlier';");
+  db.close();
+  // The child from the earlier boot is dropped, so the list is written back into the wider table.
+  expect(restartStopped([], path).map((session) => session.id)).toEqual(["a"]);
+  expect(
+    new Database(path, { readonly: true })
+      .query<{ id: string }, []>("SELECT id FROM sessions")
+      .all()
+      .map((row) => row.id),
+  ).toEqual(["a"]);
+});
+
+test("a state file that cannot be read is an error, not an empty list", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, "not a database");
+  expect(() => restartStopped([], path)).toThrow();
 });
 
 test("a parent recorded for a spawn survives reconciliation and reaches the session", () => {

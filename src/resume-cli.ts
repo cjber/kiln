@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { resumeStopped } from "./launcher";
 import { sessionTitle } from "./session-list";
-import { listSessions, type Session, sessionIdentity } from "./sessions";
+import { discovery, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
 
 const resumeUsage = `usage: kiln resume <name...|--all> [--prompt TEXT]
@@ -27,7 +27,10 @@ export async function runResumeCli(args: string[]): Promise<number> {
     options: { all: { type: "boolean" }, prompt: { type: "string" } },
   });
   const settings = loadSettings();
-  const stopped = (await listSessions({ kitty: false })).filter((session) => session.place.kind === "saved");
+  // A listing that could not read the saved sessions would read as none stopped, so it fails instead.
+  const found = await discovery()({ kitty: false });
+  if (found.problem) throw new Error(found.problem);
+  const stopped = found.sessions.filter((session) => session.place.kind === "saved");
   if (!values.all && !positionals.length) {
     for (const session of stopped) console.log(`${sessionIdentity(session)}  ${sessionTitle(session)}`);
     if (!stopped.length) console.log("no stopped sessions");
