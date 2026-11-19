@@ -538,7 +538,13 @@ export function App({
   const showStatus = width >= 30;
   // The pull request column only appears once something has one, and only where the title keeps its room.
   const showPr = width >= 72 && pulls.size > 0;
-  const titleWidth = Math.max(1, width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0));
+  // The account column appears once a session runs on a named account, where the title keeps its room.
+  const accountWidth = Math.min(12, Math.max(0, ...sessions.map((session) => (session.account ?? "").length)) + 2);
+  const showAccount = width >= 60 && accountWidth > 2;
+  const titleWidth = Math.max(
+    1,
+    width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0) - (showAccount ? accountWidth : 0),
+  );
   const currentPr = current && pulls.get(sessionIdentity(current));
   const needsInput = sessions.filter((session) => session.activity === "waiting").length;
   const header = headerLine(width - 2, sessions.length, order, needsInput, filter);
@@ -568,7 +574,7 @@ export function App({
       <box flexDirection="column" flexGrow={1}>
         {visible.length ? (
           <text wrapMode="none" fg={color.comment}>
-            {`  ${"harness".padEnd(9)}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(8) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
+            {`  ${"harness".padEnd(9)}${showAccount ? "account".padEnd(accountWidth) : ""}${"task".padEnd(titleWidth + 2)}${showStatus ? "status".padEnd(12) : ""}${showPr ? "pr".padEnd(8) : ""}${showUpdated ? "updated".padStart(8) : ""}`}
           </text>
         ) : null}
         {visible.length ? (
@@ -593,6 +599,11 @@ export function App({
                 <text wrapMode="none">
                   <span fg={active ? color.peach : color.comment}>{active ? (open ? "⌄ " : "› ") : "  "}</span>
                   <span fg={agentColor[session.agent]}>{agentName(session.agent).padEnd(9)}</span>
+                  {showAccount ? (
+                    <span fg={color.fgDim}>
+                      {fit(session.account ?? "", accountWidth - 1, "end").padEnd(accountWidth)}
+                    </span>
+                  ) : null}
                   <span fg={toneColor[sessionStatus(session).tone]}>{fitted}</span>
                   {count ? <span fg={color.comment}>{count}</span> : null}
                   <span fg={toneColor[sessionStatus(session).tone]}>

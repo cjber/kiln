@@ -73,6 +73,8 @@ export type Session = {
   agyExec?: boolean;
   /** The OpenCode background service holds this conversation, so its web UI can open it. */
   opencodeService?: boolean;
+  /** The agent account this session runs on, when its agent has more than one. */
+  account?: string;
   /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */
   branch?: string;
   place: Place;

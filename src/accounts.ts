@@ -123,3 +123,28 @@ export async function runLoginCli(args: readonly string[], settings: Settings): 
   });
   return await child.exited;
 }
+
+/**
+ * The account a running agent process was started on, read from the environment it inherited: Claude's own
+ * `MCLAUDE_ACCOUNT` (mclaude's id, named by `claudeNames`), or the config home of a configured account. An agent run on
+ * its default home, or one with no configured accounts, has no account to show.
+ */
+export function accountOf(
+  agent: string,
+  environment: Readonly<Record<string, string | undefined>>,
+  accounts: readonly Account[],
+  claudeNames: ReadonlyMap<string, string>,
+): string | undefined {
+  if (agent === "claude") {
+    const id = environment.MCLAUDE_ACCOUNT;
+    return id ? (claudeNames.get(id) ?? id) : undefined;
+  }
+  if (!isAccountAgent(agent)) return undefined;
+  const own = accounts.filter((account) => account.agent === agent);
+  if (!own.length) return undefined;
+  const home = environment[Object.keys(accountEnv(own[0] as Account))[0] as string];
+  return (
+    own.find((account) => home !== undefined && resolve(expandHome(account.home)) === resolve(home))?.name ??
+    defaultAccount
+  );
+}
