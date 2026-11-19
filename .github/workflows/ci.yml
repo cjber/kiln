@@ -22,6 +22,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # tmux below 3.7 can close a dead pane before reading its last output, which the exit report tests check.
+      - name: Build tmux 3.8
+        working-directory: ${{ runner.temp }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bison libevent-dev libncurses-dev pkg-config
+          curl -sSfL --retry 5 --retry-all-errors --max-time 120 -o tmux.tar.gz https://github.com/tmux/tmux/releases/download/3.8/tmux-3.8.tar.gz
+          echo "e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e  tmux.tar.gz" | sha256sum -c -
+          tar -xzf tmux.tar.gz
+          cd tmux-3.8
+          ./configure --prefix=/usr/local
+          make -j"$(nproc)"
+          sudo make install
+          tmux -V
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
       - run: bunx tsc --noEmit -p .

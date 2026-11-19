@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln resume` reports a saved session list it cannot read.** When kiln could not read or update its saved sessions file, `kiln resume` printed `no stopped sessions` and the list showed none, so sessions a restart stopped looked lost. One cause was a sessions file that a newer kiln had given an extra column, which an older kiln could not write to. kiln now writes its rows into such a file, and `kiln resume` exits with `Stopped sessions unavailable:` and the reason, which the list and the phone also show. Running sessions are still listed.
+- **tmux below 3.7 can drop the last output lines of a spawned child's exit report.** The README now says so. The exit status is still reported correctly.
+
 ## [0.30.5] - 2026-11-18
 
 - **A spawned child can message its parent and commit from inside its sandbox.** A Codex or Claude child started with `kiln msg spawn` runs its commands in its agent's sandbox, which hides the other sessions, so `kiln msg send <parent>` exited with `cannot see the sessions running outside it`, and a Codex child in a git worktree could not commit because Codex kept the worktree's git metadata read-only. The child's `send` now leaves the message in an outbox kiln grants it, and kiln delivers it from outside the sandbox, as from that child. A Codex child is also granted its worktree's git directory and the repository's objects, refs and logs, but not its hooks or config. Outside a spawn, a sandboxed `send` that names its recipient in full waits in the mailbox for kiln's list or phone server to deliver it. A message to a name kiln cannot resolve comes back to the child with the reason, and an interactive Claude child is granted the outbox through its sandbox settings, so it never stops at a prompt to trust the folder.

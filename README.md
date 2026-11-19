@@ -71,7 +71,9 @@ session is idle, so `interrupt` followed by `send` redirects an agent mid-task.
 and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command. When a child's process exits, kiln messages its parent with
-the exit status and the last output, so a child that stops on a usage limit is not lost.
+the exit status and the last output, so a child that stops on a usage limit is not lost. With
+tmux below 3.7, the report can miss the last lines of output, because tmux can close the pane
+before it has read them; the exit status is still right.
 A child usually runs in its agent's sandbox, which hides the other sessions from it. Its
 `kiln msg send` then leaves the message in an outbox kiln grants it, and kiln delivers it from
 outside the sandbox. Elsewhere, a sandboxed `send` that names its recipient in full (`claude:<id>`)
