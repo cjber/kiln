@@ -1,6 +1,6 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
-import { agyProcesses } from "./agy";
 import { accountOf } from "./accounts";
+import { agyProcesses } from "./agy";
 import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claudeTranscript } from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
