@@ -20,13 +20,14 @@ import { App } from "../src/app";
 import type { DashboardRow, DashboardSnapshot, PullRequest } from "../src/dashboard";
 import type { Ledger } from "../src/edits";
 import { EditsView } from "../src/edits-view";
+import type { QuotaAccount } from "../src/quota";
 import { nestSessions, type Session } from "../src/sessions";
 import { defaults } from "../src/settings";
 import type { Skill } from "../src/skills";
 import { SkillsView } from "../src/skills-view";
 
 const cols = 92;
-const rows = 14;
+const rows = 15;
 const cell = { width: 9, height: 20 };
 const pad = 20;
 const background = "#121113";
@@ -42,6 +43,25 @@ Date.now = () => 1_800_000_000_000;
 const minutes = (count: number) => Date.now() - count * 60_000;
 const code = (repo: string) => join(homedir(), "code", repo);
 const kiln = (name: string) => ({ kind: "kiln", name }) as const;
+
+const window = (label: string, percent: number, hours: number) => ({
+  label,
+  percent,
+  resetsAt: Date.now() + hours * 3_600_000,
+});
+const demoQuota: QuotaAccount[] = [
+  {
+    agent: "claude",
+    name: "work",
+    disabled: false,
+    windows: [window("5h", 50, 3), window("wk", 38, 90)],
+    source: "mclaude",
+  },
+  { agent: "claude", name: "home", disabled: false, windows: [window("wk", 0, 90)], source: "mclaude" },
+  { agent: "codex", disabled: false, windows: [window("wk", 34, 120)], source: "codex-daemon" },
+  { agent: "muse", disabled: false, windows: [], source: "none" },
+  { agent: "opencode", disabled: false, windows: [], source: "none" },
+];
 
 const demo: Session[] = [
   {
@@ -231,6 +251,7 @@ async function shoot(
       <App
         initialSettings={defaults}
         onQuit={() => {}}
+        loadQuota={async () => demoQuota}
         loadSessions={async () =>
           nestSessions(
             name === "unavailable"
