@@ -6,7 +6,9 @@ import { listSessions, sessionIdentity } from "./sessions";
 
 /** `kiln close`: what `x` does on a row, for every session named. No names lists the ones it can close. */
 export async function runCloseCli(names: string[]): Promise<number> {
-  const closable = (await listSessions({ kitty: false })).filter((session) => !("reason" in sessionAction(session)));
+  const closable = (await listSessions({ kitty: false }, true)).filter(
+    (session) => !("reason" in sessionAction(session)),
+  );
   if (!names.length) {
     for (const session of closable) console.log(`${sessionIdentity(session)}  ${sessionTitle(session)}`);
     if (!closable.length) console.log("no sessions kiln can close");

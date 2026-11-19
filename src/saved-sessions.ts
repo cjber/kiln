@@ -199,8 +199,11 @@ export function reconcile(
   };
 }
 
+/** Columns are named, so a state file a newer kiln gave more columns still takes this kiln's rows. */
 function insert(db: Database, item: Saved): void {
-  db.query("INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  db.query(
+    "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
     item.agent,
     item.id,
     item.cwd,
@@ -221,35 +224,30 @@ function savedConversation(item: Saved): boolean {
   return item.agent !== "claude" || findClaudeTranscript(item.id, item.cwd) !== undefined;
 }
 
-/** Save what is running and return the sessions a restart stopped. */
+/** Save what is running and return the sessions a restart stopped. Throws when the state file cannot be used. */
 export function restartStopped(sessions: readonly Session[], path = statePath()): Session[] {
   const boot = bootId();
   if (!boot) return [];
-  try {
-    const db = open(path);
-    return db
-      .transaction(() => {
-        const before = read(db);
-        const result = reconcile(
-          before,
-          sessions,
-          boot,
-          Date.now(),
-          (pid) => existsSync(`/proc/${pid}`),
-          processStartTicks,
-          savedConversation,
-        );
-        if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
-          db.exec("DELETE FROM sessions");
-          for (const item of result.saved) insert(db, item);
-        }
-        return result.stopped;
-      })
-      .immediate();
-  } catch {
-    // An unwritable or busy state file costs the next restart its rows, not this list.
-    return [];
-  }
+  const db = open(path);
+  return db
+    .transaction(() => {
+      const before = read(db);
+      const result = reconcile(
+        before,
+        sessions,
+        boot,
+        Date.now(),
+        (pid) => existsSync(`/proc/${pid}`),
+        processStartTicks,
+        savedConversation,
+      );
+      if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
+        db.exec("DELETE FROM sessions");
+        for (const item of result.saved) insert(db, item);
+      }
+      return result.stopped;
+    })
+    .immediate();
 }
 
 /** Record a child started by `kiln msg spawn`, so its parent survives process ancestry and daemon lookup. */

@@ -242,16 +242,20 @@ export type Discovered = {
   stale: boolean;
 };
 
-/** While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. */
+/**
+ * While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. A source
+ * that lists only part of its rows returns them with its own problem.
+ */
 export function keepLast<A extends unknown[]>(
-  load: (...args: A) => Promise<Session[]>,
+  load: (...args: A) => Promise<Session[] | Omit<Discovered, "stale">>,
   name: string,
 ): (...args: A) => Promise<Discovered> {
   let last: Session[] = [];
   return async (...args) => {
     try {
-      last = await load(...args);
-      return { sessions: last, problem: "", stale: false };
+      const found = await load(...args);
+      last = Array.isArray(found) ? found : found.sessions;
+      return { sessions: last, problem: Array.isArray(found) ? "" : found.problem, stale: false };
     } catch {
       last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
       return { sessions: last, problem: `${name} unavailable; showing the last successful list`, stale: true };
@@ -290,10 +294,16 @@ export function discovery() {
   };
 }
 
-/** One observation, for callers that would rather fail than show a stale list. */
-export async function listSessions(options: Parameters<ReturnType<typeof discovery>>[0] = {}): Promise<Session[]> {
+/**
+ * One observation, for callers that would rather fail than show a stale list. A caller that acts on stopped sessions
+ * passes `withStopped`, so a list missing them fails too rather than reading as none stopped.
+ */
+export async function listSessions(
+  options: Parameters<ReturnType<typeof discovery>>[0] = {},
+  withStopped = false,
+): Promise<Session[]> {
   const found = await discovery()(options);
-  if (found.stale) throw new Error(found.problem);
+  if (found.stale || (withStopped && found.problem)) throw new Error(found.problem);
   return found.sessions;
 }
 

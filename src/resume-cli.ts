@@ -27,7 +27,7 @@ export async function runResumeCli(args: string[]): Promise<number> {
     options: { all: { type: "boolean" }, prompt: { type: "string" } },
   });
   const settings = loadSettings();
-  const stopped = (await listSessions({ kitty: false })).filter((session) => session.place.kind === "saved");
+  const stopped = (await listSessions({ kitty: false }, true)).filter((session) => session.place.kind === "saved");
   if (!values.all && !positionals.length) {
     for (const session of stopped) console.log(`${sessionIdentity(session)}  ${sessionTitle(session)}`);
     if (!stopped.length) console.log("no stopped sessions");

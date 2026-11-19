@@ -781,8 +781,11 @@ function stamped<Process extends { pid: number }>(process: Process): Process & {
   return { ...process, processStart: processStartTicks(process.pid) };
 }
 
-/** `kitty: false` skips the window lookup, for callers that only count sessions. */
-export async function listNativeSessions({ kitty = true } = {}): Promise<Session[]> {
+/**
+ * `kitty: false` skips the window lookup, for callers that only count sessions. A state file that cannot be used costs
+ * only the stopped rows, and says why in `problem`.
+ */
+export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessions: Session[]; problem: string }> {
   const readCodex = async () => {
     const processes = (await codexProcesses()).map(stamped).map((process) => ({
       ...process,
@@ -854,9 +857,16 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<Session
     return inherited && inherited !== sessionIdentity(session) ? { ...session, spawnParent: inherited } : session;
   });
   const listed = [...sessions, ...nested];
-  const found = attachParents([...listed, ...restartStopped(listed)]);
+  let stopped: Session[] = [];
+  let problem = "";
+  try {
+    stopped = restartStopped(listed);
+  } catch (error) {
+    problem = `Stopped sessions unavailable: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const found = attachParents([...listed, ...stopped]);
   rememberParents(found);
-  return closeFinishedChildren(found);
+  return { sessions: await closeFinishedChildren(found), problem };
 }
 
 /**
