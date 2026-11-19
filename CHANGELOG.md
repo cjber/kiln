@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+- **A Codex child starts outside a git repository.** `kiln msg spawn codex` run from a folder that is neither a git repository nor trusted by Codex printed a child id, and the child exited at once with `Not inside a trusted directory and --skip-git-repo-check was not specified`. kiln now passes `--skip-git-repo-check`, and a Codex child that exits before it starts its thread fails the spawn with its exit status and output instead of printing an id.
+- **A Muse child loads its workspace's rules.** `kiln msg spawn muse` started Muse with the workspace untrusted, so the child skipped the folder's AGENTS.md, its project skills and delegation, which a Claude or Codex child in the same folder loads. kiln now passes `--trust-workspace`, which trusts the folder for that run only and saves nothing.
+
 ## [0.30.5] - 2026-11-18
 
 - **A spawned child can message its parent and commit from inside its sandbox.** A Codex or Claude child started with `kiln msg spawn` runs its commands in its agent's sandbox, which hides the other sessions, so `kiln msg send <parent>` exited with `cannot see the sessions running outside it`, and a Codex child in a git worktree could not commit because Codex kept the worktree's git metadata read-only. The child's `send` now leaves the message in an outbox kiln grants it, and kiln delivers it from outside the sandbox, as from that child. A Codex child is also granted its worktree's git directory and the repository's objects, refs and logs, but not its hooks or config. Outside a spawn, a sandboxed `send` that names its recipient in full waits in the mailbox for kiln's list or phone server to deliver it. A message to a name kiln cannot resolve comes back to the child with the reason, and an interactive Claude child is granted the outbox through its sandbox settings, so it never stops at a prompt to trust the folder.
