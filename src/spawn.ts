@@ -14,7 +14,7 @@ import { piExtensionPath } from "./pi-status";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
-import { ended, exists, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
+import { ended, exists, hasExited, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--interactive] -- <prompt>`;
@@ -147,9 +147,9 @@ export function headlessCommand(
       ];
     case "codex": {
       // Codex refuses a directory that is neither a git repository nor one its config trusts, and the spawner chose
-      // this one. The flag may appear only once, so one the configured command passes already is kept.
-      const anywhere = command.includes("--skip-git-repo-check") ? [] : ["--skip-git-repo-check"];
-      return [...command, "exec", ...anywhere, ...chosen, ...granted, prompt];
+      // this one. The flag belongs to `exec` and may appear only once, so one the configured command passes moves there.
+      const skip = "--skip-git-repo-check";
+      return [...command.filter((word) => word !== skip), "exec", skip, ...chosen, ...granted, prompt];
     }
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
@@ -486,7 +486,24 @@ const codexThreadWaitMs = 30_000;
 export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs): Promise<string | undefined> {
   for (const deadline = Date.now() + waitMs; ; await Bun.sleep(25)) {
     const thread = codexThreadId(pid);
-    if (thread || !existsSync(`/proc/${pid}`) || Date.now() >= deadline) return thread;
+    // An exited run that tmux has not reaped yet is gone too, so a lost SIGCHLD does not hold the wait to its deadline.
+    if (thread || hasExited(pid) !== false || Date.now() >= deadline) return thread;
+  }
+}
+
+/** How long a spawn waits for tmux to read the status of a command that has exited. */
+const exitReadWaitMs = 1_000;
+
+/**
+ * The exit of a pane whose command has ended, or undefined while it runs or once its session is gone. A command that has
+ * exited before tmux read its status (`exiting`, see {@link paneState}) has it on a later read, so that is waited for.
+ */
+async function settledExit(name: string): Promise<{ status: number; output: string } | undefined> {
+  for (const deadline = Date.now() + exitReadWaitMs; ; await Bun.sleep(25)) {
+    const seen = paneState(name);
+    if (seen === "gone") return undefined;
+    if (!("waiting" in seen)) return seen;
+    if (seen.waiting !== "exiting" || Date.now() >= deadline) return undefined;
   }
 }
 
@@ -659,21 +676,21 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       throw new Error(`could not start ${agentName("codex")}`);
     }
     const pid = await panePid(name);
-    if (!pid) {
-      release();
-      throw new Error("could not find the Codex process kiln started");
-    }
-    const startedAt = processStartedAt(pid);
-    const thread = await spawnedCodexThread(pid);
+    const thread = pid ? await spawnedCodexThread(pid) : undefined;
     // A run that failed before starting its thread never read the prompt, so the spawn fails with its reason rather than
     // printing an id for a child that is already gone. Nothing is recorded yet, so its exit hook reports nothing.
-    const failed = thread ? undefined : ended(name);
+    const failed = thread ? undefined : await settledExit(name);
     if (failed && failed.status !== 0) {
       kill(name);
       release();
       const reason = failed.output.trim();
       throw new Error(`Codex exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`);
     }
+    if (!pid) {
+      release();
+      throw new Error("could not find the Codex process kiln started");
+    }
+    const startedAt = processStartedAt(pid);
     // The thread id names the rollout, which stays readable after the process exits. A run that hangs before starting
     // its thread has no rollout, and keeps the name of its process.
     const id = thread ?? `${pid}:${startedAt}`;

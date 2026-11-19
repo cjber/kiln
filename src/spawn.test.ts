@@ -193,11 +193,11 @@ test("a chosen model is passed to every provider's headless command", () => {
 });
 
 test("a Codex child runs outside a git repository, and a Muse child loads its workspace's rules (#270, #271)", () => {
-  // Codex refuses the flag twice, so one the configured command passes is not repeated.
+  // Codex takes the flag once and only after `exec`, so one the configured command passes moves there.
   expect(headlessCommand(["codex", "--skip-git-repo-check"], "codex", "", "go")).toEqual([
     "codex",
-    "--skip-git-repo-check",
     "exec",
+    "--skip-git-repo-check",
     "go",
   ]);
   // `--trust-workspace` is an option of `muse exec`, so it follows `exec` after any wrapper.
@@ -227,7 +227,14 @@ test("a Codex spawn that exits before starting its thread fails with the reason,
     await expect(spawnAgent({ agent: "codex", dir: root, prompt: "go" }, "claude:parent")).rejects.toThrow(
       "Codex exited with status 1 before it started:\nNot inside a trusted directory.",
     );
-    // No pane, record, outbox or exit report is left for a child that never ran.
+    // No pane, outbox or exit report is left for a child that never ran.
+    const listed = Bun.spawnSync(["tmux", "-L", `kiln-spawn-${process.pid}`, "list-sessions", "-F", "#{session_name}"]);
+    expect(
+      listed.stdout
+        .toString()
+        .split("\n")
+        .filter((session) => session.startsWith("codex-")),
+    ).toEqual([]);
     const outboxes = join(outboxPath("none"), "..");
     expect(existsSync(outboxes) ? readdirSync(outboxes) : []).toEqual([]);
     expect(peekUnread("claude:parent")).toHaveLength(0);
