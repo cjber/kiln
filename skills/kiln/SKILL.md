@@ -75,6 +75,11 @@ transcript, so end its brief with a `kiln msg send` back.
 printed: `kiln msg spawn claude --resume claude:<id> -- "carry on from where you stopped"`. It runs
 in the directory the conversation began in, keeps its title, and records you as its parent again.
 
+`--account NAME` pins the account a child runs on; without it kiln picks the account with the most
+headroom and never one at its limit. If the child hits a usage limit, kiln starts the work on another
+account and messages you which way it went: Claude resumes the same conversation, the others start
+fresh with the brief and the last output.
+
 When an OpenCode child stops to ask a question, kiln sends you the question as a message from the
 child, since nobody else can see it. Your `kiln msg send <child>` reply answers it, so answer it
 rather than leaving the child waiting. Do not wait on a child in the foreground: you cannot take its
