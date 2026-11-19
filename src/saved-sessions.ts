@@ -24,6 +24,12 @@ export type Saved = {
   pane?: string;
   /** Its spawn bound the exit hook and watcher to this run's start time; an older kiln's hooks name no run. */
   runBound?: boolean;
+  /** The account `kiln msg spawn` started it on, when its agent has several. */
+  account?: string;
+  /** The prompt its spawn was given, kept so a run that stops on a usage limit can be restarted with it. */
+  brief?: string;
+  /** Accounts this brief already ran out of allowance on, comma separated, so a restart never returns to one. */
+  tried?: string;
 };
 
 /**
@@ -58,13 +64,16 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, account TEXT, brief TEXT, tried TEXT, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
     if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
     if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
     if (!columns.some((column) => column.name === "runBound"))
       db.exec("ALTER TABLE sessions ADD COLUMN runBound INTEGER");
+    for (const column of ["account", "brief", "tried"])
+      if (!columns.some((existing) => existing.name === column))
+        db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
     databases.set(path, db);
   }
   return db;
@@ -85,6 +94,9 @@ function read(db: Database): Saved[] {
       goneAt: row.goneAt ?? undefined,
       pane: row.pane ?? undefined,
       runBound: row.runBound ? true : undefined,
+      account: row.account ?? undefined,
+      brief: row.brief ?? undefined,
+      tried: row.tried ?? undefined,
     }));
 }
 
@@ -262,13 +274,16 @@ export function recordSpawn(
     pid?: number;
     pane?: string;
     runBound?: boolean;
+    account?: string;
+    brief?: string;
+    tried?: string;
   },
   path = statePath(),
 ): void {
   try {
     open(path)
       .query(
-        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound)",
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound, account, brief, tried) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound), account = COALESCE(excluded.account, sessions.account), brief = COALESCE(excluded.brief, sessions.brief), tried = COALESCE(excluded.tried, sessions.tried)",
       )
       .run(
         item.agent,
@@ -281,6 +296,9 @@ export function recordSpawn(
         item.parent ?? null,
         item.pane ?? null,
         item.runBound ? 1 : null,
+        item.account ?? null,
+        item.brief ?? null,
+        item.tried ?? null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
@@ -304,6 +322,9 @@ export function spawnRecord(pane: string, path = statePath()): Saved | undefined
           goneAt: row.goneAt ?? undefined,
           pane: row.pane ?? undefined,
           runBound: row.runBound ? true : undefined,
+          account: row.account ?? undefined,
+          brief: row.brief ?? undefined,
+          tried: row.tried ?? undefined,
         }
       : undefined;
   } catch {
