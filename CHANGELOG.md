@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.30.6] - 2026-11-19
+
 - **A Codex child starts outside a git repository.** `kiln msg spawn codex` run from a folder that is neither a git repository nor trusted by Codex printed a child id, and the child exited at once with `Not inside a trusted directory and --skip-git-repo-check was not specified`. kiln now passes `--skip-git-repo-check`, and a Codex child that exits before it starts its thread fails the spawn with its exit status and output instead of printing an id.
 - **A Muse child loads its workspace's rules.** `kiln msg spawn muse` started Muse with the workspace untrusted, so the child skipped the folder's AGENTS.md, its project skills and delegation, which a Claude or Codex child in the same folder loads. kiln now passes `--trust-workspace`, which trusts the folder for that run only and saves nothing.
 - **`kiln resume` reports a saved session list it cannot read.** When kiln could not read or update its saved sessions file, `kiln resume` printed `no stopped sessions` and the list showed none, so sessions a restart stopped looked lost. One cause was a sessions file that a newer kiln had given an extra column, which an older kiln could not write to. kiln now writes its rows into such a file, and `kiln resume` and `kiln close` exit with `Stopped sessions unavailable:` and the reason, which the list and the phone also show. Running sessions are still listed.
