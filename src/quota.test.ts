@@ -73,3 +73,29 @@ describe("footer", () => {
     expect(text(quotaFooter([near], 78, now))).toEqual(["claude a 96%·5h ↻1h20"]);
   });
 });
+
+describe("OpenCode Go allowance", () => {
+  test("a recorded usage response gives the three windows and the limit the provider reports", async () => {
+    const { parseGoUsage } = await import("./opencode-usage");
+    const body = await Bun.file(join(import.meta.dir, "fixtures", "opencode", "go-usage.json")).json();
+    const allowance = parseGoUsage(body);
+    expect(allowance?.windows.map((w) => [w.label, w.percent])).toEqual([
+      ["5h", 0],
+      ["wk", 5],
+      ["mo", 100],
+    ]);
+    expect(allowance?.limitedUntil).toBe(Date.parse("2026-12-02T09:46:55.000Z"));
+    expect(parseGoUsage({ error: "x" })).toBeUndefined();
+  });
+
+  test("a spent account shows when it resets, in red", () => {
+    const spent: QuotaAccount = {
+      agent: "opencode",
+      disabled: false,
+      windows: [{ label: "mo", percent: 100, resetsAt: Date.parse("2026-12-02T09:46:55Z") }],
+      spentUntil: Date.parse("2026-12-02T09:46:55Z"),
+      source: "opencode-go",
+    };
+    expect(text(quotaFooter([spent], 120, now))).toEqual(["opencode spent ↻Dec 2 100%·mo ↻12d10h"]);
+  });
+});

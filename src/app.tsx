@@ -1,5 +1,6 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Account } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
 import { agentColor, EditsView } from "./edits-view";
@@ -161,7 +162,7 @@ type AppProps = {
   /** Pull requests for session branches; demo and test lists look none up unless given one. */
   prs?: ReturnType<typeof pullRequests>;
   /** Plan usage for the footer; tests and screenshots give fixed numbers instead of reading the machine's. */
-  loadQuota?: () => Promise<QuotaAccount[]>;
+  loadQuota?: (accounts: Account[]) => Promise<QuotaAccount[]>;
 };
 
 export function App({
@@ -170,7 +171,7 @@ export function App({
   loadSessions,
   initialNotice = "",
   prs: givenPrs,
-  loadQuota = readQuota,
+  loadQuota = (accounts) => readQuota(Date.now(), accounts),
 }: AppProps) {
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
@@ -183,7 +184,8 @@ export function App({
   const [expanded, getExpanded, setExpanded] = useLatest<ReadonlySet<string>>(new Set());
   const [now, setNow] = useState(Date.now());
   const [quota, setQuota] = useState<QuotaAccount[]>([]);
-  const readQuotaNow = loadQuota ?? (loadSessions ? async () => [] : readQuota);
+  const readQuotaNow =
+    loadQuota ?? (loadSessions ? async () => [] : (accounts: Account[]) => readQuota(Date.now(), accounts));
   const [pendingSession, getPendingSession, setPendingSession] = useLatest<Session | undefined>(undefined);
   const [notice, setNotice] = useState(initialNotice);
   const [problem, setProblem] = useState("");
@@ -261,7 +263,7 @@ export function App({
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      void readQuotaNow().then(setQuota, () => {});
+      void readQuotaNow(getSettings().accounts).then(setQuota, () => {});
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
