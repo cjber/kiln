@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "id": "pvdrfbhu",
+  "alias": "cjberragan",
+  "disabled": false,
+  "usage": {
+    "lastGood": {
+      "five_hour": null,
+      "seven_day": {
+        "utilization": 0,
+        "resets_at": "2026-11-26T10:00:00.136928+00:00"
+      },
+      "limits": [
+        {
+          "kind": "weekly_all",
+          "percent": 0,
+          "resets_at": "2026-11-26T10:00:00.136928+00:00",
+          "group": "weekly"
+        },
+        {
+          "kind": "weekly_scoped",
+          "percent": 0,
+          "resets_at": "2026-11-26T10:00:00+00:00",
+          "group": "weekly",
+          "scope": {
+            "model": {
+              "id": null,
+              "display_name": "Fable"
+            }
+          }
+        }
+      ],
+      "extra_usage": {
+        "is_enabled": false,
+        "spend_limit_reached": false
+      }
+    },
+    "fetchedAt": "2026-11-19T23:12:43.927Z"
+  }
+}

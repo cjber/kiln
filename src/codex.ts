@@ -245,6 +245,24 @@ export async function codexRemoteHost(): Promise<{ id?: string; problem?: string
   }
 }
 
+type DaemonLimit = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
+
+/** The account's plan limits as the daemon reports them now; undefined when no daemon runs or it cannot answer. */
+export async function codexRateLimits(): Promise<
+  { primary: DaemonLimit | null; secondary: DaemonLimit | null; planType: string | null } | undefined
+> {
+  const socket = controlSocket();
+  if (!existsSync(socket)) return undefined;
+  try {
+    const reply = await rpc<{
+      rateLimits: { primary: DaemonLimit | null; secondary: DaemonLimit | null; planType: string | null };
+    }>(socket, (call) => call("account/rateLimits/read", {}));
+    return reply.rateLimits;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Stop the thread's turn in progress. Returns false when it has none, so there was nothing to stop. */
 export async function interruptCodexSession(threadId: string): Promise<boolean> {
   return rpc(controlSocket(), async (call) => {
