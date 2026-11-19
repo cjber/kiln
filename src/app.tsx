@@ -315,7 +315,8 @@ export function App({
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
   const visible = visibleSessions(rows);
   const current = visible[resolveSelection(visible, selection).index];
-  const pageSize = Math.max(1, height - (mode === "agent" ? 5 : 4));
+  const footer = useMemo(() => quotaFooter(quota, width - 2, now), [quota, width, now]);
+  const pageSize = Math.max(1, height - footer.length - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
   const shown = viewport(rows, Math.max(0, selectedRow), pageSize);
 
@@ -539,8 +540,12 @@ export function App({
   // The pull request column only appears once something has one, and only where the title keeps its room.
   const showPr = width >= 72 && pulls.size > 0;
   // The account column appears once a session runs on a named account, where the title keeps its room.
-  const accountWidth = Math.min(12, Math.max(0, ...sessions.map((session) => (session.account ?? "").length)) + 2);
-  const showAccount = width >= 60 && accountWidth > 2;
+  const accountWidth = Math.max(
+    9,
+    Math.min(14, Math.max(0, ...sessions.map((session) => (session.account ?? "").length)) + 2),
+  );
+  const anyAccount = sessions.some((session) => session.account !== undefined);
+  const showAccount = width >= 60 && anyAccount;
   const titleWidth = Math.max(
     1,
     width - 38 + (showUpdated ? 0 : 8) + (showStatus ? 0 : 12) - (showPr ? 8 : 0) - (showAccount ? accountWidth : 0),
@@ -646,7 +651,7 @@ export function App({
           ))}
         </text>
       ) : null}
-      {quotaFooter(quota, width - 2, now).map((line) => (
+      {footer.map((line) => (
         <text key={line.map((segment) => segment.text).join("")} wrapMode="none">
           {line.map((segment, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: segments are a fixed sequence rebuilt each frame
