@@ -82,8 +82,11 @@ worktree may also write that worktree's git metadata, so it can commit there; li
 in a worktree, it can then move any branch of the repository.
 A Codex child runs as `codex exec`, which works through one turn and exits: it is listed as
 `working` while its process runs and leaves the list when it exits. It is not on Codex's shared
-daemon, so messages to it wait in its mailbox and it cannot be interrupted.
-A Muse child runs as `muse exec` the same way. Muse publishes no session status, so an
+daemon, so messages to it wait in its mailbox and it cannot be interrupted. It runs with
+`--skip-git-repo-check`, so it starts in a folder outside a git repository, and a Codex child that
+exits before it starts fails the spawn with its status and output.
+A Muse child runs as `muse exec --trust-workspace` the same way, so it loads the folder's
+AGENTS.md and project skills for that run without saving the trust. Muse publishes no session status, so an
 interactive Muse session shows its activity as unknown; messages still reach it at once
 through Muse's own session messaging. Kiln cannot read a Muse transcript, so `kiln msg view`
 has nothing to show for a Muse session: a Muse child answers by messaging its parent, and
