@@ -294,10 +294,16 @@ export function discovery() {
   };
 }
 
-/** One observation, for callers that would rather fail than show a stale list. */
-export async function listSessions(options: Parameters<ReturnType<typeof discovery>>[0] = {}): Promise<Session[]> {
+/**
+ * One observation, for callers that would rather fail than show a stale list. A caller that acts on stopped sessions
+ * passes `withStopped`, so a list missing them fails too rather than reading as none stopped.
+ */
+export async function listSessions(
+  options: Parameters<ReturnType<typeof discovery>>[0] = {},
+  withStopped = false,
+): Promise<Session[]> {
   const found = await discovery()(options);
-  if (found.stale) throw new Error(found.problem);
+  if (found.stale || (withStopped && found.problem)) throw new Error(found.problem);
   return found.sessions;
 }
 

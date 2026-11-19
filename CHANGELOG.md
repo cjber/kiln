@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **`kiln resume` reports a saved session list it cannot read.** When kiln could not read or update its saved sessions file, `kiln resume` printed `no stopped sessions` and the list showed none, so sessions a restart stopped looked lost. One cause was a sessions file that a newer kiln had given an extra column, which an older kiln could not write to. kiln now writes its rows into such a file, and `kiln resume` exits with `Stopped sessions unavailable:` and the reason, which the list and the phone also show. Running sessions are still listed.
+- **`kiln resume` reports a saved session list it cannot read.** When kiln could not read or update its saved sessions file, `kiln resume` printed `no stopped sessions` and the list showed none, so sessions a restart stopped looked lost. One cause was a sessions file that a newer kiln had given an extra column, which an older kiln could not write to. kiln now writes its rows into such a file, and `kiln resume` and `kiln close` exit with `Stopped sessions unavailable:` and the reason, which the list and the phone also show. Running sessions are still listed.
 - **tmux below 3.7 can drop the last output lines of a spawned child's exit report.** The README now says so. The exit status is still reported correctly.
 
 ## [0.30.5] - 2026-11-18
