@@ -615,6 +615,11 @@ async function shootDashboard(): Promise<void> {
       lastActiveAt: minutesAgo(3),
       startedAt: minutesAgo(31),
     }),
+    row("agy:review", "Review the spawn flow", "Agy", "idle", "kiln", "cb/agy-harness", {
+      changes: 2,
+      lastActiveAt: minutesAgo(5),
+      startedAt: minutesAgo(22),
+    }),
   );
 
   const history = Array.from({ length: 73 }, (_, index) => {

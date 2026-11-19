@@ -1,6 +1,6 @@
 ---
 name: kiln
-description: Messages other running Claude, Codex, OpenCode, Pi and Muse sessions through kiln, changes kiln's TOML config, and repairs its shared skills. Use to hand work to or ask another agent session, when a prompt starts with "[kiln message from", to change kiln settings, or to fix missing skill links.
+description: Messages other running Claude, Codex, OpenCode, Pi, Muse and Antigravity sessions through kiln, changes kiln's TOML config, and repairs its shared skills. Use to hand work to or ask another agent session, when a prompt starts with "[kiln message from", to change kiln settings, or to fix missing skill links.
 ---
 
 # kiln
@@ -14,7 +14,7 @@ shared skills and their Claude or Pi links. Messaging other sessions is below.
 `kiln msg` reaches any running session kiln lists. A message is stored first, then delivered
 through the recipient's provider or typed into its terminal when safe. Working Claude sessions
 and Codex daemon sessions receive input in their active turn; a Muse session takes a message
-through Muse's own session messaging; approvals still wait. A session without a push
+through Muse's own session messaging; an Antigravity session kiln started takes it typed once idle; approvals still wait. A session without a push
 transport reads its messages with `kiln msg inbox`.
 
 ### Resuming after a restart
@@ -35,7 +35,7 @@ server (`case "$TMUX" in */kiln,*) echo kiln;; esac` prints `kiln`). Anywhere el
 the way you normally would; kiln still nests it under you while it is listed.
 
 In a kiln session, start work that should run as its own session with `kiln msg spawn`, never with a
-raw `opencode run`, `claude -p`, `codex exec`, `pi -p` or `muse exec` in Bash:
+raw `opencode run`, `claude -p`, `codex exec`, `pi -p`, `muse exec` or `agy -p` in Bash:
 
 ```sh
 kiln msg spawn opencode --dir ~/repo --title "fix the tests" -- "run the API tests and fix what fails"
@@ -67,6 +67,9 @@ a second implementation opinion beside your own, or the reviewer a Claude or Cod
 is not. It runs one headless turn and shows as `working` like a Codex child. Kiln cannot read a
 Muse transcript, so a Muse child's brief always ends by having it message its answer back with
 `kiln msg send`; its exit report is the fallback, not the answer.
+
+An Antigravity child (`kiln msg spawn agy`) is the same shape: one headless `agy -p` turn, no readable
+transcript, so end its brief with a `kiln msg send` back.
 
 `--resume <id>` (Claude only) carries on a child's conversation after it has exited, by the id spawn
 printed: `kiln msg spawn claude --resume claude:<id> -- "carry on from where you stopped"`. It runs

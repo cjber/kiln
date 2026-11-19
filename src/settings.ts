@@ -44,7 +44,7 @@ export const defaults: Settings = {
   cloud: true,
   notifications: true,
   claudeCloud: false,
-  agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"], muse: ["muse"] },
+  agents: { claude: ["claude"], codex: ["codex"], opencode: ["opencode"], pi: ["pi"], muse: ["muse"], agy: ["agy"] },
   phoneWrite: false,
   prMessages: false,
   editMessages: true,
@@ -98,6 +98,7 @@ codex = ["codex"]
 opencode = ["opencode"]
 pi = ["pi"]
 muse = ["muse"]
+agy = ["agy"]
 
 # Let paired phones start sessions in your directories and send prompts to running ones.
 # A phone that can do this can run code on this computer.

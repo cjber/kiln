@@ -32,10 +32,10 @@ class WriteTest {
     fun startOptionsKeepTheMachineOrderAndDropUnknownAgents() {
         val options =
             parseStartOptions(
-                """{"directories":["/b","/a"],"agents":["codex","gemini","pi","muse"]}"""
+                """{"directories":["/b","/a"],"agents":["codex","gemini","pi","muse","agy"]}"""
             )
         assertEquals(listOf("/b", "/a"), options.directories)
-        assertEquals(listOf(Agent.CODEX, Agent.PI, Agent.MUSE), options.agents)
+        assertEquals(listOf(Agent.CODEX, Agent.PI, Agent.MUSE, Agent.AGY), options.agents)
         assertEquals(
             listOf("/home/me/kiln"),
             matchingDirectories(listOf("/home/me/kiln", "/home/me/notes"), "Me KI"),

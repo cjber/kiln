@@ -114,6 +114,8 @@ export function promptArguments(agent: Agent, prompt: string | undefined): strin
       return ["--", prompt];
     case "opencode":
       return [`--prompt=${prompt}`];
+    case "agy":
+      return [`--prompt-interactive=${prompt}`];
   }
 }
 
@@ -164,6 +166,8 @@ export function agentCommand(
       const at = afterMuseWord(command);
       return [...command.slice(0, at), "resume", resume, ...command.slice(at)];
     }
+    case "agy":
+      return [...command, ...(resume ? ["--conversation", resume] : []), ...first];
   }
 }
 

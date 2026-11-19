@@ -1,4 +1,5 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
+import { agyProcesses } from "./agy";
 import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claudeTranscript } from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
@@ -795,7 +796,7 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessi
     return withCodexThreads(processes, threads);
   };
   const ownedPanes = panes();
-  const [claude, owned, windows, codex, codexExec, pi, opencode, muse] = await Promise.all([
+  const [claude, owned, windows, codex, codexExec, pi, opencode, muse, agy] = await Promise.all([
     claudeSessions(ownedPanes),
     ownedPanes,
     kitty ? kittyWindows() : [],
@@ -804,8 +805,17 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessi
     piProcesses().then((processes) => processes.map(stamped)),
     readOpencode(),
     museProcesses().then((processes) => processes.map(stamped)),
+    agyProcesses().then((processes) => processes.map(stamped)),
   ]);
-  const running = [...claude.processes, ...codex.processes, ...codexExec, ...opencode.processes, ...pi, ...muse];
+  const running = [
+    ...claude.processes,
+    ...codex.processes,
+    ...codexExec,
+    ...opencode.processes,
+    ...pi,
+    ...muse,
+    ...agy,
+  ];
   const headless = [...codex.headless, ...opencode.headless, ...claude.finished];
 
   const places = new Map<number, Place>();

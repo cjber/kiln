@@ -28,6 +28,7 @@ export function cloudLink(agent: Agent, id: string, source?: unknown): string | 
     case "opencode":
     case "pi":
     case "muse":
+    case "agy":
       return undefined;
   }
 }

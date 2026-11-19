@@ -10,6 +10,8 @@ verbatim.
 ## [Unreleased]
 
 - **The session list shows how much of each agent's plan is used.** A line at the bottom reads `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`: each Claude account from mclaude's last usage read, with its five-hour and weekly windows, and Codex's weekly window from its daemon. A window past 85% adds when it resets, a read older than 30 minutes is dimmed, and a disabled mclaude account is left out. Muse and OpenCode publish no usage kiln can read, so they are listed without numbers.
+
+- **Antigravity is a sixth agent kiln opens, lists and messages.** Sessions from the Antigravity CLI (`agy`) join the list, the dashboard, the phone and `kiln msg`: `n` starts one in a directory, `[agents] agy` sets its command, and `kiln msg spawn agy` runs a headless `agy -p` child that shows as working while it runs and reports its exit to its parent. An interactive session shows working or idle from Antigravity's own summary database, and appears without a status or id until its first prompt creates the conversation. Messages are typed into an agy session kiln started once it is idle. kiln cannot read an Antigravity transcript, so `kiln msg view` shows nothing for it and an agy child answers by messaging its parent.
 - **`kiln attach <name>` opens a session's terminal from the command line.** It does what `Enter` does on a row in the list, for the name `kiln msg list` prints or one of its aliases, so a launcher or desktop panel can open a session without knowing its tmux name. An unknown name exits 1.
 
 ## [0.30.6] - 2026-11-19

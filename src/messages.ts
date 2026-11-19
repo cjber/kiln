@@ -41,12 +41,14 @@ const sessionVariables: Record<Agent, string> = {
   opencode: "OPENCODE_SESSION_ID",
   pi: "PI_SESSION_ID",
   muse: "MUSE_SESSION_ID",
+  agy: "ANTIGRAVITY_CONVERSATION_ID",
 };
 
 /** Which agent a process is, from its argv; Pi is a Node script. */
 export function processAgent(args: readonly string[]): Agent | undefined {
   const name = basename(args[0] ?? "");
   if (name === "claude" || name === "codex" || name === "opencode") return name;
+  if (name === "agy") return "agy";
   if (name === "muse" || name.startsWith("muse-bin-")) return "muse";
   if (name === "pi" || args.slice(0, 2).some((arg) => arg.includes("/pi-coding-agent/"))) return "pi";
   return undefined;
@@ -160,6 +162,12 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
       // Muse's own session messaging queues a message with its live session, as Claude's inbox does.
       if (session.museExec) return { inbox: "it is a headless muse exec run, with no live session to message" };
       return session.id !== undefined ? { push: "muse" } : { inbox: "kiln does not know its Muse session id" };
+    case "agy":
+      // agy has no push transport: kiln types into a terminal it started once the turn ends, which its summary row reports.
+      if (session.agyExec) return { inbox: "it is a headless agy -p run, with no terminal to type into" };
+      return session.place.kind === "kiln"
+        ? (busy() ?? { push: "tmux" })
+        : { inbox: "kiln can only type into agy sessions it started" };
   }
 }
 
@@ -170,6 +178,7 @@ export function interruption(session: Session): Interruption {
   // An exec run has no terminal input, even in a kiln pane, and is not on the shared daemon.
   if (session.codexExec) return { unsupported: "a codex exec run takes no input" };
   if (session.museExec) return { unsupported: "a muse exec run takes no input" };
+  if (session.agyExec) return { unsupported: "an agy -p run takes no input" };
   // Muse never reports whether it is working, so Escape could land on an idle prompt and clear a draft.
   if (session.agent === "muse")
     return { unsupported: "Muse does not report when it is working, so kiln cannot tell a turn from an idle prompt" };
@@ -186,6 +195,8 @@ export function interruption(session: Session): Interruption {
         : { unsupported: "OpenCode's background service holds no conversation for it" };
     case "pi":
       return { unsupported: "kiln can only press keys in Pi sessions it started" };
+    case "agy":
+      return { unsupported: "kiln can only press keys in agy sessions it started" };
   }
 }
 

@@ -87,7 +87,7 @@ export const short: Session[] = [
   },
 ];
 
-const agents = ["claude", "codex", "opencode", "pi", "muse"] as const;
+const agents = ["claude", "codex", "opencode", "pi", "muse", "agy"] as const;
 const titles = [
   "Refactor the session discovery so that every provider reports activity through one shared seam",
   "修复登录页面的布局问题",

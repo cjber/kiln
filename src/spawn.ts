@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, st
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { claudeCommand, promptArguments } from "./launcher";
@@ -153,6 +154,9 @@ export function headlessCommand(
     }
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
+    case "agy":
+      // Print mode runs one turn and exits; its answer is what the pane prints, so the exit report carries it.
+      return [...command, "-p", prompt, ...chosen];
     case "muse": {
       // `exec` directly follows the muse word, after any wrapper: root options before it never start a session.
       const at = afterMuseWord(command);
@@ -282,6 +286,7 @@ export function spawnGrants(agent: Agent, dir: string, outbox: string): string[]
     case "opencode":
     case "pi":
     case "muse":
+    case "agy":
       return [];
   }
 }
@@ -484,8 +489,17 @@ const codexThreadWaitMs = 30_000;
  * lock until it exits, so the lock names the thread exactly. Undefined when the process exits, or hangs, first.
  */
 export async function spawnedCodexThread(pid: number, waitMs = codexThreadWaitMs): Promise<string | undefined> {
+  return spawnedConversation(pid, codexThreadId, waitMs);
+}
+
+/** The conversation a spawned run holds open once it starts one; an Antigravity run names its own, as Codex does. */
+export async function spawnedConversation(
+  pid: number,
+  find: (pid: number) => string | undefined,
+  waitMs = codexThreadWaitMs,
+): Promise<string | undefined> {
   for (const deadline = Date.now() + waitMs; ; await Bun.sleep(25)) {
-    const thread = codexThreadId(pid);
+    const thread = find(pid);
     // An exited run that tmux has not reaped yet is gone too, so a lost SIGCHLD does not hold the wait to its deadline.
     if (thread || hasExited(pid) !== false || Date.now() >= deadline) return thread;
   }
@@ -655,9 +669,10 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     };
   };
 
-  if (options.agent === "codex") {
-    // Codex exec names its own thread only after it starts, so the pane is named before the id is known.
-    const name = `codex-${crypto.randomUUID()}`;
+  if (options.agent === "codex" || options.agent === "agy") {
+    const agent = options.agent;
+    // These agents name their own conversation only after they start, so the pane is named before the id is known.
+    const name = `${agent}-${crypto.randomUUID()}`;
     const { env, writable, release } = outbox(name);
     // The exit hook names the pane; the record made below supplies the id once the thread exists.
     const hook = exitHook(exitReporter("exit", name, "", parent ?? ""));
@@ -665,7 +680,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       !start(
         name,
         options.dir,
-        headlessCommand(command, "codex", "", options.prompt, undefined, options.model, undefined, writable),
+        headlessCommand(command, agent, "", options.prompt, undefined, options.model, undefined, writable),
         title,
         false,
         hook,
@@ -673,30 +688,35 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       )
     ) {
       release();
-      throw new Error(`could not start ${agentName("codex")}`);
+      throw new Error(`could not start ${agentName(agent)}`);
     }
     const pid = await panePid(name);
-    const thread = pid ? await spawnedCodexThread(pid) : undefined;
+    const thread = pid
+      ? await spawnedConversation(pid, agent === "codex" ? codexThreadId : agyConversationId)
+      : undefined;
     // A run that failed before starting its thread never read the prompt, so the spawn fails with its reason rather than
     // printing an id for a child that is already gone. Nothing is recorded yet, so its exit hook reports nothing.
     const failed = thread ? undefined : await settledExit(name);
-    if (failed) {
+    // A finished agy run that exited cleanly before its conversation was seen still answered; its exit report says so.
+    if (failed && (agent === "codex" || failed.status !== 0)) {
       kill(name);
       release();
-      clearMountPoints(worktreeMetadata(options.dir));
+      if (agent === "codex") clearMountPoints(worktreeMetadata(options.dir));
       const reason = failed.output.trim();
-      throw new Error(`Codex exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`);
+      throw new Error(
+        `${agentName(agent)} exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`,
+      );
     }
     if (!pid) {
       release();
-      throw new Error("could not find the Codex process kiln started");
+      throw new Error(`could not find the ${agentName(agent)} process kiln started`);
     }
     const startedAt = processStartedAt(pid);
     // The thread id names the rollout, which stays readable after the process exits. A run that hangs before starting
     // its thread has no rollout, and keeps the name of its process.
     const id = thread ?? `${pid}:${startedAt}`;
     recordSpawn({
-      agent: "codex",
+      agent,
       id,
       cwd: options.dir,
       title,
@@ -707,7 +727,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     });
     watchInBackground(name, "", parent ?? "");
     if (ended(name)) await reportSpawnExit(name, "", parent ?? "");
-    return `codex:${id}`;
+    return `${agent}:${id}`;
   }
 
   const id = options.resume?.id ?? (options.agent === "opencode" ? newOpencodeSessionId() : crypto.randomUUID());

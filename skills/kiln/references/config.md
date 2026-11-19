@@ -16,9 +16,9 @@ Supported top-level settings:
   existing login. Enable alongside `cloud` for Claude cloud rows.
 - `pr_messages`: boolean, default `false`; `kiln serve` messages a session's agent when its pull
   request's checks fail, it conflicts, gets a review or merges. Needs `gh` and the `kiln setup` service.
-- `[agents]`: `claude`, `codex`, `opencode`, `pi` and `muse` are arrays of command arguments. An empty
+- `[agents]`: `claude`, `codex`, `opencode`, `pi`, `muse` and `agy` are arrays of command arguments. An empty
   array hides that harness from new-session choices. Keep arguments separate;
-  these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex`, `opencode`, `pi` and `muse`.
+  these are executed directly, not through a shell. Each launches its native TUI. Defaults are `claude`, `codex`, `opencode`, `pi`, `muse` and `agy`.
 
 Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;
@@ -35,8 +35,8 @@ The bundled `kiln` skill is maintained by kiln. `kiln skills sync` refreshes it 
 installed executable; TUI startup does the same. To customise these instructions,
 copy them into a separately named user or project skill.
 
-Claude, Codex, OpenCode, Pi and Muse use their native desktop TUIs. Kiln observes provider
+Claude, Codex, OpenCode, Pi, Muse and Antigravity use their native desktop TUIs. Kiln observes provider
 status updates without starting a second agent. Phone sessions open verified
-provider app links, with a browser fallback. OpenCode, Pi and Muse sessions open on the PC.
+provider app links, with a browser fallback. OpenCode, Pi, Muse and Antigravity sessions open on the PC.
 `remote_control` enables provider-native remote access for new sessions;
 `detach_key` and `status_bar` apply to native tmux sessions and the cloud viewer.

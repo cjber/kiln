@@ -141,7 +141,8 @@ private fun demo(
             Agent.CLAUDE -> claude
             Agent.OPENCODE,
             Agent.PI,
-            Agent.MUSE -> null
+            Agent.MUSE,
+            Agent.AGY -> null
         },
         when (agent) {
             Agent.CODEX -> "Open ChatGPT, then choose this thread"
@@ -149,6 +150,7 @@ private fun demo(
             Agent.OPENCODE -> "Open this OpenCode session in kiln on your computer"
             Agent.PI -> "Open this Pi session in kiln on your computer"
             Agent.MUSE -> "Open this Muse session in kiln on your computer"
+            Agent.AGY -> "Open this agy session in kiln on your computer"
         },
         agent != Agent.CODEX,
         parent,
