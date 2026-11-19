@@ -145,14 +145,29 @@ export function headlessCommand(
         ...chosen,
         prompt,
       ];
-    case "codex":
-      return [...command, "exec", ...chosen, ...granted, prompt];
+    case "codex": {
+      // Codex refuses a directory that is neither a git repository nor one its config trusts, and the spawner chose
+      // this one. The flag may appear only once, so one the configured command passes already is kept.
+      const anywhere = command.includes("--skip-git-repo-check") ? [] : ["--skip-git-repo-check"];
+      return [...command, "exec", ...anywhere, ...chosen, ...granted, prompt];
+    }
     case "pi":
       return [...command, "-p", "--session-id", id, ...chosen, "-e", piExtensionPath(), prompt];
     case "muse": {
       // `exec` directly follows the muse word, after any wrapper: root options before it never start a session.
       const at = afterMuseWord(command);
-      return [...command.slice(0, at), "exec", ...command.slice(at), "--session-id", id, ...chosen, prompt];
+      // Muse skips an untrusted workspace's AGENTS.md, project skills and delegation, which a Claude or Codex child in
+      // the same folder loads. `--trust-workspace` trusts it for this run only and saves nothing.
+      return [
+        ...command.slice(0, at),
+        "exec",
+        "--trust-workspace",
+        ...command.slice(at),
+        "--session-id",
+        id,
+        ...chosen,
+        prompt,
+      ];
     }
   }
 }
@@ -649,9 +664,19 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       throw new Error("could not find the Codex process kiln started");
     }
     const startedAt = processStartedAt(pid);
-    // The thread id names the rollout, which stays readable after the process exits. A run that ends or hangs before
-    // starting its thread has no rollout, and keeps the name of its process.
-    const id = (await spawnedCodexThread(pid)) ?? `${pid}:${startedAt}`;
+    const thread = await spawnedCodexThread(pid);
+    // A run that failed before starting its thread never read the prompt, so the spawn fails with its reason rather than
+    // printing an id for a child that is already gone. Nothing is recorded yet, so its exit hook reports nothing.
+    const failed = thread ? undefined : ended(name);
+    if (failed && failed.status !== 0) {
+      kill(name);
+      release();
+      const reason = failed.output.trim();
+      throw new Error(`Codex exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`);
+    }
+    // The thread id names the rollout, which stays readable after the process exits. A run that hangs before starting
+    // its thread has no rollout, and keeps the name of its process.
+    const id = thread ?? `${pid}:${startedAt}`;
     recordSpawn({
       agent: "codex",
       id,

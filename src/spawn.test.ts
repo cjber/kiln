@@ -142,6 +142,7 @@ test("a chosen model is passed to every provider's headless command", () => {
   expect(headlessCommand(["codex"], "codex", "", "work", undefined, "gpt-5")).toEqual([
     "codex",
     "exec",
+    "--skip-git-repo-check",
     "--model",
     "gpt-5",
     "work",
@@ -171,6 +172,7 @@ test("a chosen model is passed to every provider's headless command", () => {
   expect(headlessCommand(["muse"], "muse", "id", "work", undefined, "model")).toEqual([
     "muse",
     "exec",
+    "--trust-workspace",
     "--session-id",
     "id",
     "--model",
@@ -181,6 +183,7 @@ test("a chosen model is passed to every provider's headless command", () => {
   expect(headlessCommand(["muse", "--provider", "echo"], "muse", "id", "work")).toEqual([
     "muse",
     "exec",
+    "--trust-workspace",
     "--provider",
     "echo",
     "--session-id",
@@ -188,6 +191,56 @@ test("a chosen model is passed to every provider's headless command", () => {
     "work",
   ]);
 });
+
+test("a Codex child runs outside a git repository, and a Muse child loads its workspace's rules (#270, #271)", () => {
+  // Codex refuses the flag twice, so one the configured command passes is not repeated.
+  expect(headlessCommand(["codex", "--skip-git-repo-check"], "codex", "", "go")).toEqual([
+    "codex",
+    "--skip-git-repo-check",
+    "exec",
+    "go",
+  ]);
+  // `--trust-workspace` is an option of `muse exec`, so it follows `exec` after any wrapper.
+  expect(headlessCommand(["env", "A=1", "muse"], "muse", "id", "go")).toEqual([
+    "env",
+    "A=1",
+    "muse",
+    "exec",
+    "--trust-workspace",
+    "--session-id",
+    "id",
+    "go",
+  ]);
+});
+
+test("a Codex spawn that exits before starting its thread fails with the reason, leaving nothing behind (#270)", async () => {
+  const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME };
+  const root = join(paneDir, "codex-refused");
+  const state = join(root, "state");
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  const codex = join(root, "codex.sh");
+  writeFileSync(codex, "#!/bin/sh\necho 'Not inside a trusted directory.'\nexit 1\n", { mode: 0o755 });
+  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\ncodex = [${JSON.stringify(codex)}]\n`);
+  Bun.env.XDG_STATE_HOME = state;
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  try {
+    await expect(spawnAgent({ agent: "codex", dir: root, prompt: "go" }, "claude:parent")).rejects.toThrow(
+      "Codex exited with status 1 before it started:\nNot inside a trusted directory.",
+    );
+    // No pane, record, outbox or exit report is left for a child that never ran.
+    const outboxes = join(outboxPath("none"), "..");
+    expect(existsSync(outboxes) ? readdirSync(outboxes) : []).toEqual([]);
+    expect(peekUnread("claude:parent")).toHaveLength(0);
+  } finally {
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+}, 40_000);
 
 test("an exit hook quotes its command for tmux and a report names the reason", () => {
   expect(exitHook(["/home/me/bin/kiln", "msg", "exit", "claude-1", "claude:child", "claude:parent"])).toBe(
@@ -1136,6 +1189,7 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",
       "exec",
+      "--skip-git-repo-check",
       "--add-dir",
       "/a",
       "--add-dir",
