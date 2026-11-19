@@ -8,6 +8,7 @@ const usage = `usage: kiln            open the session list
        kiln resume <name...|--all> [--prompt TEXT]
                                   resume sessions a restart stopped, one at a time; no names lists them
        kiln reconnect <name>      reconnect an unknown Codex Kiln pane using its existing thread id
+       kiln attach <name>         open a session's terminal, as Enter does in the list; name as in kiln msg list
        kiln close [name...]       close, archive or forget sessions as x does in the list; no names lists them
        kiln serve [--port 7437] [--origin https://host | --local]
                                   start phone access; --local skips tunnel setup and the invitation
@@ -199,6 +200,15 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return await runResumeCli(args.slice(1));
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "resume failed"}`);
+      return 2;
+    }
+  }
+  if (command === "attach") {
+    try {
+      const { runAttachCli } = await import("./attach-cli");
+      return await runAttachCli(args.slice(1));
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "attach failed"}`);
       return 2;
     }
   }

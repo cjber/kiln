@@ -175,6 +175,8 @@ Peer access trusts the local operating-system user: any program running as that 
 | `r` | Refresh |
 | `q` | Quit the list |
 
+`kiln attach <name>` does what `Enter` does on a row: it attaches this terminal to the session, or resumes a stopped one. `<name>` is the whole name `kiln msg list` prints (`agent:id`, or its process alias). It exits 1 and says why when no session has that name or it cannot be opened.
+
 `kiln close` lists the sessions `x` can close, and `kiln close <name...>` closes them without the list: a kiln session's terminal closes, an OpenCode or Codex daemon conversation is archived, a Claude background job is stopped and removed and a stopped row is forgotten. A name is the whole `agent:id` or a unique prefix of it or of the id. It exits 1 and says why when one could not be closed.
 
 Directory headings are orange. Sessions needing permission are yellow, ready sessions are muted green, and working sessions use subdued text. The header counts input requests even when children are collapsed. Open a yellow session to answer in the provider TUI.

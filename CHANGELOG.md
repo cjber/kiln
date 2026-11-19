@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln attach <name>` opens a session's terminal from the command line.** It does what `Enter` does on a row in the list, for the name `kiln msg list` prints or one of its aliases, so a launcher or desktop panel can open a session without knowing its tmux name. An unknown name exits 1.
+
 ## [0.30.6] - 2026-11-19
 
 - **A Codex child starts outside a git repository.** `kiln msg spawn codex` run from a folder that is neither a git repository nor trusted by Codex printed a child id, and the child exited at once with `Not inside a trusted directory and --skip-git-repo-check was not specified`. kiln now passes `--skip-git-repo-check`, and a Codex child that exits before it starts its thread fails the spawn with its exit status and output instead of printing an id.
