@@ -41,6 +41,18 @@ describe("routing", () => {
     expect(chooseRoute("claude", full, configured, later + 1).env.CLAUDE_CONFIG_DIR).toBeDefined();
   });
 
+  test("an account whose login has ended is never chosen, and naming it says how to sign in", () => {
+    const ended = [claude("default", [0], { needsLogin: true }), claude("jenny", [50]), claude("work", [70])];
+    expect(chooseRoute("claude", ended, configured, now).name).toBe("jenny");
+    expect(() => chooseRoute("claude", ended, configured, now, "default")).toThrow(
+      "claude account default is signed out; sign in with claude auth login",
+    );
+    const all = [claude("jenny", [0], { needsLogin: true })];
+    expect(() => chooseRoute("claude", all, configured, now)).toThrow(
+      "every claude account is signed out; run kiln login claude jenny",
+    );
+  });
+
   test("--account picks by name and rejects an unknown one", () => {
     expect(chooseRoute("claude", accounts, configured, now, "jenny").env).toEqual({
       CLAUDE_CONFIG_DIR: join(home, "jenny"),

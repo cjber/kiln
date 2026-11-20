@@ -43,6 +43,11 @@ describe("footer", () => {
     ]);
   });
 
+  test("an account whose login has ended shows login instead of its last numbers", () => {
+    const ended: QuotaAccount[] = [{ ...accounts[0], needsLogin: true }, accounts[1]];
+    expect(text(quotaFooter(ended, 78, now))).toEqual(["claude jenny login  cjberragan 0%·wk"]);
+  });
+
   test("wraps onto a second line rather than cutting an agent", () => {
     expect(text(quotaFooter(accounts, 50, now))).toEqual([
       "claude jenny 50%·5h 38%·wk  cjberragan 0%·wk",

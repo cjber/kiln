@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { type Account, defaultAccount } from "./accounts";
-import { claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
+import { claudeNeedsLogin, claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
 import { codexHome, codexRateLimits } from "./codex";
 import { museRecentLimit } from "./muse-limit";
 import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
@@ -20,6 +20,8 @@ export type QuotaAccount = {
   windows: QuotaWindow[];
   /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
   spentUntil?: number;
+  /** Its login has ended and nothing but signing in again brings it back, so no run can start on it. */
+  needsLogin?: boolean;
   /** When the provider's numbers were read, ms; absent when they are live. */
   fetchedAt?: number;
   /** Where the numbers came from, for diagnosing a wrong one. */
@@ -185,6 +187,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
         name,
         windows: current(usage?.windows ?? [], now),
         ...(usage ? { fetchedAt: usage.fetchedAt } : {}),
+        ...(claudeNeedsLogin(now, home) ? { needsLogin: true } : {}),
         source: usage ? "claude-usage" : "none",
       };
     }),
@@ -228,7 +231,8 @@ function resetDay(resetsAt: number): string {
 /**
  * The footer: `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`, one chunk per
  * agent, wrapped onto at most two lines of `width`. A window past 85% adds when it resets (`96%·5h ↻1h20`);
- * a read older than 30 minutes is dimmed, and an account a run found spent shows `spent ↻Nov 23` in red.
+ * a read older than 30 minutes is dimmed, an account a run found spent shows `spent ↻Nov 23` in red, and one whose
+ * login has ended shows `login` in red instead of numbers.
  */
 export function quotaFooter(accounts: readonly QuotaAccount[], width: number, now: number): FooterSegment[][] {
   const chunks: FooterSegment[][] = [];
@@ -239,6 +243,11 @@ export function quotaFooter(accounts: readonly QuotaAccount[], width: number, no
     for (const account of own) {
       const stale = account.fetchedAt !== undefined && now - account.fetchedAt > staleMs;
       if (account.name) chunk.push({ text: ` ${account.name}`, fg: stale ? color.comment : color.fg });
+      if (account.needsLogin) {
+        // Its last numbers describe a login no run can use.
+        chunk.push({ text: " login", fg: color.red }, { text: " ", fg: color.fg });
+        continue;
+      }
       if (account.spentUntil !== undefined)
         chunk.push({ text: ` spent ↻${resetDay(account.spentUntil)}`, fg: color.red });
       for (const window of account.windows) {

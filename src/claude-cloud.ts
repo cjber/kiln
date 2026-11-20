@@ -96,6 +96,30 @@ export function claudeCloudToken(source: string, now = Date.now()): string | und
   return auth.accessToken;
 }
 
+/**
+ * What a Claude credentials file says of its login. `expired` is an access token past its time with a refresh token
+ * Claude Code renews it from when it next runs; `needsLogin` is a login nothing but signing in again brings back.
+ */
+export type ClaudeLogin = { state: "ok"; token: string } | { state: "expired" | "needsLogin" | "signedOut" };
+
+export function claudeLogin(source: string, now = Date.now()): ClaudeLogin {
+  let auth: { refreshToken?: unknown; refreshTokenExpiresAt?: unknown; expiresAt?: unknown } | undefined;
+  try {
+    auth = JSON.parse(source)?.claudeAiOauth;
+    const token = claudeCloudToken(source, now);
+    return token ? { state: "ok", token } : { state: "signedOut" };
+  } catch {
+    // Not usable now; what is left says whether Claude Code can renew it.
+  }
+  const renewable =
+    typeof auth?.expiresAt === "number" &&
+    auth.expiresAt > 0 &&
+    typeof auth.refreshToken === "string" &&
+    auth.refreshToken !== "" &&
+    !(typeof auth.refreshTokenExpiresAt === "number" && auth.refreshTokenExpiresAt <= now);
+  return { state: renewable ? "expired" : "needsLogin" };
+}
+
 export async function loadClaudeCloud(): Promise<Session[]> {
   if (!Bun.which("claude")) return [];
   const path = join(Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");

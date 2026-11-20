@@ -3,18 +3,18 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
+import { claudeNeedsLogin, claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
 
 const now = Date.parse("2026-11-19T23:15:00Z");
 const body = await Bun.file(join(import.meta.dir, "fixtures", "quota", "claude", "usage.json")).text();
 
-function login(expiresAt = now + 3_600_000) {
+function login(expiresAt = now + 3_600_000, refreshToken?: string) {
   const dir = mkdtempSync(join(tmpdir(), "kiln-claude-usage-"));
   const home = join(dir, "home");
   mkdirSync(home);
   writeFileSync(
     join(home, ".credentials.json"),
-    JSON.stringify({ claudeAiOauth: { accessToken: "token", expiresAt } }),
+    JSON.stringify({ claudeAiOauth: { accessToken: "token", expiresAt, refreshToken } }),
   );
   return { home, state: join(dir, "state") };
 }
@@ -62,4 +62,45 @@ test("a config dir with no login file is signed out", () => {
   const { home } = login();
   expect(claudeSignedIn(home)).toBe(true);
   if (process.platform !== "darwin") expect(claudeSignedIn(join(home, "absent"))).toBe(false);
+});
+
+test("an expired token is Claude Code's to renew, asked at most every half hour, and a refusal means sign in again", async () => {
+  const { home, state } = login(now - 1, "refresh");
+  const { asked, request } = provider();
+  const answers: (boolean | undefined)[] = [undefined, false];
+  const homes: string[] = [];
+  const renew = async (asking: string) => {
+    homes.push(asking);
+    return answers.shift();
+  };
+  expect(await claudeUsage(now, home, state, request, renew)).toBeUndefined();
+  await Bun.sleep(0);
+  // Claude Code gave no answer, so the login is still one it may renew.
+  expect(claudeNeedsLogin(now, home, state)).toBe(false);
+  await claudeUsage(now + 10 * 60_000, home, state, request, renew);
+  expect(homes).toEqual([home]);
+  await claudeUsage(now + 31 * 60_000, home, state, request, renew);
+  await Bun.sleep(0);
+  expect(homes).toEqual([home, home]);
+  expect(claudeNeedsLogin(now + 31 * 60_000, home, state)).toBe(true);
+  expect(asked).toHaveLength(0);
+  // Signing in again writes a live token, and the login is usable whatever was recorded before.
+  writeFileSync(
+    join(home, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "token", expiresAt: now + 2 * 3_600_000, refreshToken: "refresh" },
+    }),
+  );
+  expect(claudeNeedsLogin(now + 32 * 60_000, home, state)).toBe(false);
+  expect((await claudeUsage(now + 32 * 60_000, home, state, request, renew))?.fetchedAt).toBe(now + 32 * 60_000);
+});
+
+test("credentials with nothing to renew from need a login without asking Claude Code", async () => {
+  const dead = login(0);
+  const renew = async () => {
+    throw new Error("not asked");
+  };
+  expect(await claudeUsage(now, dead.home, dead.state, provider().request, renew)).toBeUndefined();
+  expect(claudeNeedsLogin(now, dead.home, dead.state)).toBe(true);
+  expect(claudeNeedsLogin(now, join(dead.home, "absent"), dead.state)).toBe(false);
 });

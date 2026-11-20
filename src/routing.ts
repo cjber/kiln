@@ -43,9 +43,17 @@ function routeFor(account: QuotaAccount, configured: readonly Account[]): Route 
   return { name: own.name, env: accountEnv(own) };
 }
 
+/** How a signed-out account is signed in again: kiln's own login for a configured one, the agent's for its default. */
+function signIn(account: QuotaAccount): string {
+  return account.name === undefined || account.name === defaultAccount
+    ? `sign in with ${account.agent} auth login`
+    : `run kiln login ${account.agent} ${account.name}`;
+}
+
 /**
  * The account a new `agent` run starts on: `requested` by name, else the one with the most headroom. An account at its
- * limit is never chosen, so a run that cannot start says when one resets instead of dying on its first request.
+ * limit is never chosen, so a run that cannot start says when one resets instead of dying on its first request, and
+ * neither is one whose login has ended.
  * `skip` names accounts a failed run already hit its limit on. An agent with a single account needs no pin.
  */
 export function chooseRoute(
@@ -63,11 +71,14 @@ export function chooseRoute(
       if (!own.length) throw new Error(`${agent} has no accounts to pick --account ${requested} from`);
       throw new Error(`no ${agent} account ${requested}; accounts: ${own.map((account) => account.name).join(", ")}`);
     }
+    if (found.needsLogin) throw new Error(`${agent} account ${found.name} is signed out; ${signIn(found)}`);
     if (atLimit(found, now)) throw new Error(`${agent} account ${found.name} is at its limit`);
     return routeFor(found, configured);
   }
   if (!own.length) return { env: {} };
-  const open = own.filter((account) => !atLimit(account, now) && !skip.includes(account.name ?? defaultAccount));
+  const usable = own.filter((account) => !account.needsLogin);
+  if (!usable.length) throw new Error(`every ${agent} account is signed out; ${signIn(own[0] as QuotaAccount)}`);
+  const open = usable.filter((account) => !atLimit(account, now) && !skip.includes(account.name ?? defaultAccount));
   const best = open.toSorted((a, b) => headroom(b) - headroom(a))[0];
   if (!best) {
     const resets = own
