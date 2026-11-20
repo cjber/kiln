@@ -1,0 +1,2 @@
+{"type": "user", "uuid": "u1", "sessionId": "7f0c1c1e-2b6e-4a43-9d0e-0a4f6f3f7f10", "timestamp": "2026-11-19T23:10:00.000Z", "message": {"role": "user", "content": "run the sweep"}}
+{"type": "assistant", "uuid": "a2", "sessionId": "x", "timestamp": "2026-11-19T23:10:04.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "A 429 is a \"rate_limit\" answer."}]}}

@@ -1,0 +1,28 @@
+{
+  "five_hour": {
+    "utilization": 50,
+    "resets_at": "2026-11-20T00:00:00.465871+00:00"
+  },
+  "seven_day": {
+    "utilization": 38,
+    "resets_at": "2026-11-26T09:00:00.465891+00:00"
+  },
+  "limits": [
+    {
+      "kind": "session",
+      "percent": 50,
+      "resets_at": "2026-11-20T00:00:00.465871+00:00",
+      "group": "session"
+    },
+    {
+      "kind": "weekly_all",
+      "percent": 38,
+      "resets_at": "2026-11-26T09:00:00.465891+00:00",
+      "group": "weekly"
+    }
+  ],
+  "extra_usage": {
+    "is_enabled": false,
+    "spend_limit_reached": false
+  }
+}

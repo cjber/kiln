@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { type Account, defaultAccount } from "./accounts";
+import { claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
 import { codexHome, codexRateLimits } from "./codex";
 import { museRecentLimit } from "./muse-limit";
 import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
@@ -17,16 +17,13 @@ export type QuotaAccount = {
   agent: "claude" | "codex" | "muse" | "opencode";
   /** Which of the agent's accounts; absent for an agent with one. */
   name?: string;
-  /** Claude only: mclaude's id for the account, which `MCLAUDE_USE_ACCOUNT` takes. */
-  id?: string;
-  disabled: boolean;
   windows: QuotaWindow[];
   /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
   spentUntil?: number;
   /** When the provider's numbers were read, ms; absent when they are live. */
   fetchedAt?: number;
   /** Where the numbers came from, for diagnosing a wrong one. */
-  source: "mclaude" | "codex-daemon" | "codex-rollout" | "opencode-go" | "none";
+  source: "claude-usage" | "codex-daemon" | "codex-rollout" | "opencode-go" | "none";
 };
 
 const staleMs = 30 * 60_000;
@@ -41,56 +38,6 @@ function windowLabel(minutes: number | null | undefined): string {
 /** A window whose reset time has passed describes a window that no longer exists, so it is not shown. */
 function current(windows: QuotaWindow[], now: number): QuotaWindow[] {
   return windows.filter((window) => window.resetsAt === undefined || window.resetsAt > now);
-}
-
-type McLaudeWindow = { utilization: number; resets_at: string | null } | null | undefined;
-
-/** Every mclaude account's last good usage read, from its state files. */
-export function claudeAccounts(now: number, home = join(homedir(), ".mclaude")): QuotaAccount[] {
-  const dir = join(home, "state");
-  if (!existsSync(dir)) return [];
-  const accounts: QuotaAccount[] = [];
-  for (const file of readdirSync(dir)
-    .filter((name) => name.endsWith(".json"))
-    .sort()) {
-    try {
-      const state = JSON.parse(readFileSync(join(dir, file), "utf8")) as {
-        alias?: string;
-        id?: string;
-        disabled?: boolean;
-        usage?: { lastGood?: { five_hour?: McLaudeWindow; seven_day?: McLaudeWindow }; fetchedAt?: string };
-      };
-      const good = state.usage?.lastGood;
-      const windows = (
-        [
-          ["5h", good?.five_hour],
-          ["wk", good?.seven_day],
-        ] as const
-      ).flatMap(([label, window]) =>
-        window
-          ? [
-              {
-                label,
-                percent: window.utilization,
-                resetsAt: window.resets_at ? Date.parse(window.resets_at) : undefined,
-              },
-            ]
-          : [],
-      );
-      accounts.push({
-        agent: "claude",
-        name: state.alias ?? state.id ?? file.slice(0, -5),
-        id: state.id ?? file.slice(0, -5),
-        disabled: state.disabled === true,
-        windows: current(windows, now),
-        fetchedAt: state.usage?.fetchedAt ? Date.parse(state.usage.fetchedAt) : undefined,
-        source: "mclaude",
-      });
-    } catch {
-      // A state file mclaude is rewriting reads whole on the next refresh.
-    }
-  }
-  return accounts;
 }
 
 type RolloutLimit = { used_percent: number; window_minutes: number | null; resets_at: number | null } | null;
@@ -131,7 +78,6 @@ export function codexRollout(now: number, home = codexHome()): QuotaAccount | un
               );
               return {
                 agent: "codex",
-                disabled: false,
                 windows: current(windows, now),
                 fetchedAt: file.at,
                 source: "codex-rollout",
@@ -155,7 +101,6 @@ export async function codexAccount(now: number, home?: string): Promise<QuotaAcc
   const account: QuotaAccount | undefined = live
     ? {
         agent: "codex",
-        disabled: false,
         windows: current(
           [live.primary, live.secondary].flatMap((limit) =>
             limit
@@ -178,7 +123,8 @@ export async function codexAccount(now: number, home?: string): Promise<QuotaAcc
 }
 
 /**
- * Every agent account's plan usage, as its provider reports it. OpenCode Go's allowance comes from the usage
+ * Every agent account's plan usage, as its provider reports it. Claude's comes from the usage meter Claude Code's own
+ * `/usage` view reads, for each config dir that is signed in. OpenCode Go's allowance comes from the usage
  * endpoint OpenCode's own Console view reads. Muse publishes none kiln can read (`muse usage` answers
  * `server_sent_no_usage`), so it is listed without numbers rather than guessed.
  */
@@ -197,7 +143,6 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       (name) => ({
         agent,
         name,
-        disabled: false,
         windows: [],
         ...(museLimit?.resetsAt !== undefined && (name === undefined || name === defaultAccount)
           ? { spentUntil: museLimit.resetsAt }
@@ -215,7 +160,6 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       return {
         agent: "opencode",
         name,
-        disabled: false,
         windows: current(allowance?.windows ?? [], now),
         ...(allowance?.limitedUntil !== undefined && allowance.limitedUntil > now
           ? { spentUntil: allowance.limitedUntil }
@@ -224,8 +168,29 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       };
     }),
   );
+  const claudeHomes = [
+    // With no Claude accounts configured the one login is whichever config dir kiln's own environment names.
+    named("claude").length
+      ? { name: defaultAccount, home: undefined }
+      : { name: undefined, home: Bun.env.CLAUDE_CONFIG_DIR || undefined },
+    ...named("claude").map((account) => ({ name: account.name, home: account.home })),
+  ];
+  const claude = await Promise.all(
+    claudeHomes.map(async ({ name, home }): Promise<QuotaAccount | undefined> => {
+      // A config dir nobody signed in to is not an account a run could start on.
+      if (!claudeSignedIn(home)) return undefined;
+      const usage = await claudeUsage(now, home);
+      return {
+        agent: "claude",
+        name,
+        windows: current(usage?.windows ?? [], now),
+        ...(usage ? { fetchedAt: usage.fetchedAt } : {}),
+        source: usage ? "claude-usage" : "none",
+      };
+    }),
+  );
   const listed = [
-    ...claudeAccounts(now),
+    ...claude.filter((account) => account !== undefined),
     ...codex.flatMap((account, index) => (account ? [{ ...account, name: codexNames[index] }] : [])),
     ...withoutNumbers("muse"),
     ...opencode,
@@ -238,6 +203,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
 
 /** Drop the cached provider reads, so the next one is fresh: a run just ended on a limit and the footer must say so. */
 export function forgetReads(): void {
+  forgetClaudeUsage();
   codexReads.clear();
   forgetAllowances();
 }
@@ -262,13 +228,12 @@ function resetDay(resetsAt: number): string {
 /**
  * The footer: `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`, one chunk per
  * agent, wrapped onto at most two lines of `width`. A window past 85% adds when it resets (`96%·5h ↻1h20`);
- * a read older than 30 minutes is dimmed, an account a run found spent shows `spent ↻Nov 23` in red, and a disabled
- * account is left out.
+ * a read older than 30 minutes is dimmed, and an account a run found spent shows `spent ↻Nov 23` in red.
  */
 export function quotaFooter(accounts: readonly QuotaAccount[], width: number, now: number): FooterSegment[][] {
   const chunks: FooterSegment[][] = [];
   for (const agent of ["claude", "codex", "muse", "opencode"] as const) {
-    const own = accounts.filter((account) => account.agent === agent && !account.disabled);
+    const own = accounts.filter((account) => account.agent === agent);
     if (!own.length) continue;
     const chunk: FooterSegment[] = [{ text: agent, fg: color.fgDim }];
     for (const account of own) {

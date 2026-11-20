@@ -15,7 +15,7 @@ import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forgetReads, readQuota } from "./quota";
-import { routeNew } from "./routing";
+import { routed, routeNew } from "./routing";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
@@ -769,8 +769,13 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // An interactive Claude waits at its trust dialog, never reading the prompt, in a folder its config has not trusted.
   // Only the directory the spawner named is trusted, in the config dir this spawn runs Claude with. A headless Claude
   // (`-p`) never asks, so this grants an interactive child what a headless one in the same folder already has.
-  const configDir = Bun.env.CLAUDE_CONFIG_DIR || undefined;
-  if (options.interactive) await trustClaudeWorkspace(options.dir, claudeConfig(Bun.env).json);
+  // That is the routed account's, which the command names itself, so the pane's environment cannot put it elsewhere.
+  const configDir =
+    route.env.CLAUDE_CONFIG_DIR ||
+    (route.unset === "CLAUDE_CONFIG_DIR" ? undefined : Bun.env.CLAUDE_CONFIG_DIR) ||
+    undefined;
+  if (options.interactive)
+    await trustClaudeWorkspace(options.dir, claudeConfig({ ...Bun.env, CLAUDE_CONFIG_DIR: configDir }).json);
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A pane whose agent has exited, as one an OOM killer took stays when nothing reaped it, holds nothing to resume
   // beside: its run is reported, as its own reporters would have, and the pane closed so this run can take the name.
@@ -795,14 +800,17 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
     ? interactiveClaudeCommand(launch, id, options.prompt, options.title, options.model, configDir, options.resume)
-    : headlessCommand(
-        launch,
-        options.agent,
-        id,
-        options.prompt,
-        options.agent === "claude" ? options.title : title,
-        options.model,
-        options.resume,
+    : routed(
+        headlessCommand(
+          launch,
+          options.agent,
+          id,
+          options.prompt,
+          options.agent === "claude" ? options.title : title,
+          options.model,
+          options.resume,
+        ),
+        route,
       );
   const run = {
     agent: options.agent,
@@ -943,7 +951,7 @@ function handoffPrompt(record: Saved, output: string | undefined, resumed: boole
 /**
  * A child that exited on its account's usage limit is started again on the next account with headroom, and its parent is
  * told which way it went. The limit is read from the provider's signal ({@link detectLimit}), never from the child's
- * output. Claude resumes the same conversation, since mclaude's accounts share one transcript store; Codex, Muse and
+ * output. Claude resumes the same conversation, since its accounts share one transcript store; Codex, Muse and
  * OpenCode keep conversations per account, so they start fresh with the original brief and the child's last output.
  */
 async function failOver(record: Saved, output: string | undefined, to: string): Promise<void> {

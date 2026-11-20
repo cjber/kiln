@@ -7,7 +7,7 @@ import { focus } from "./kitty";
 import { afterMuseWord } from "./muse";
 import { archiveOpencodeSession, newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
-import { routeNew } from "./routing";
+import { type Route, routed, routeNew } from "./routing";
 import { forget, restoreRow, savedRow } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import { type Agent, agentName, listSessions, type Session } from "./sessions";
@@ -186,7 +186,7 @@ async function launch(
   resume?: string,
   prompt?: string,
   keep = false,
-  account: Record<string, string> = {},
+  route: Pick<Route, "env" | "unset"> = { env: {} },
 ): Promise<Outcome> {
   const name = sessionName(agent, resume);
   if (resume && exists(name)) {
@@ -201,9 +201,9 @@ async function launch(
     if (!command[0] || !Bun.which(command[0])) throw new Error(`${command[0] ?? agentName(agent)} is not on PATH`);
     const remoteProblem = agent === "codex" && settings.remoteControl ? await startCodexRemoteControl() : undefined;
     const codeMode = agent === "claude" && resume !== undefined && claudeCodeMode(cwd, resume);
-    const env = { ...account, ...(codeMode ? { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" } : {}) };
-    if (!start(name, cwd, agentCommand(agent, settings, resume, prompt, codeMode), title, keep, undefined, env))
-      throw new Error(`could not start ${agentName(agent)}`);
+    const env = { ...route.env, ...(codeMode ? { CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: "1" } : {}) };
+    const argv = routed(agentCommand(agent, settings, resume, prompt, codeMode), route);
+    if (!start(name, cwd, argv, title, keep, undefined, env)) throw new Error(`could not start ${agentName(agent)}`);
     if (settings.zoxide) recordDirectory(cwd);
     return { kind: "attach", name, notice: remoteProblem };
   } catch (error) {
@@ -309,7 +309,7 @@ export function codexReconnectCommand(settings: Settings, threadId: string): str
 export async function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
   try {
     const route = await routeNew(agent, settings.accounts);
-    return launch(agent, cwd, settings, `${agent} · ${cwd}`, undefined, undefined, false, route.env);
+    return launch(agent, cwd, settings, `${agent} · ${cwd}`, undefined, undefined, false, route);
   } catch (error) {
     return notice(error instanceof Error ? error.message : "Could not choose an account");
   }

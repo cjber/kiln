@@ -2,8 +2,13 @@ import { type Account, accountEnv, defaultAccount, prepareHome } from "./account
 import { type QuotaAccount, readQuota } from "./quota";
 import type { Agent } from "./sessions";
 
-/** Which account a new run uses: the environment that pins it, and its name for display. */
-export type Route = { name?: string; env: Record<string, string> };
+/** Which account a new run uses: the environment that pins it (`unset` is a variable it must not inherit), and its name for display. */
+export type Route = { name?: string; env: Record<string, string>; unset?: string };
+
+/** `argv` run without the variable the route takes away. tmux can only add to a pane's environment, so `env` removes it. */
+export function routed(argv: string[], route: Pick<Route, "unset">): string[] {
+  return route.unset ? ["env", "-u", route.unset, ...argv] : argv;
+}
 
 /** When the account has allowance again, if the provider says it has none now: a run found it spent, or a window is full. */
 export function limitedUntil(account: QuotaAccount, now: number): number | undefined {
@@ -26,9 +31,12 @@ export function headroom(account: QuotaAccount): number {
 }
 
 function routeFor(account: QuotaAccount, configured: readonly Account[]): Route {
-  if (account.agent === "claude")
-    return account.id ? { name: account.name, env: { MCLAUDE_USE_ACCOUNT: account.id } } : { env: {} };
-  if (account.name === undefined || account.name === defaultAccount) return { name: account.name, env: {} };
+  if (account.name === undefined) return { env: {} };
+  // Claude's default account is `~/.claude`, which Claude Code uses only with its variable unset, and a variable the
+  // launch would inherit (kiln itself running inside a session of another account) would land the run there instead.
+  // The other agents' default is whatever home the environment already names.
+  if (account.name === defaultAccount)
+    return { name: account.name, env: {}, ...(account.agent === "claude" ? { unset: "CLAUDE_CONFIG_DIR" } : {}) };
   const own = configured.find((candidate) => candidate.agent === account.agent && candidate.name === account.name);
   if (!own) return { name: account.name, env: {} };
   prepareHome(own);
@@ -48,9 +56,9 @@ export function chooseRoute(
   requested?: string,
   skip: readonly string[] = [],
 ): Route {
-  const own = quota.filter((account) => account.agent === agent && !account.disabled);
+  const own = quota.filter((account) => account.agent === agent);
   if (requested !== undefined) {
-    const found = own.find((account) => account.name === requested || account.id === requested);
+    const found = own.find((account) => account.name === requested);
     if (!found) {
       if (!own.length) throw new Error(`${agent} has no accounts to pick --account ${requested} from`);
       throw new Error(`no ${agent} account ${requested}; accounts: ${own.map((account) => account.name).join(", ")}`);

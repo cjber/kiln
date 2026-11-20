@@ -1,37 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { claudeAccounts, codexRollout, type QuotaAccount, quotaFooter } from "./quota";
+import { parseClaudeUsage } from "./claude-usage";
+import { codexRollout, type QuotaAccount, quotaFooter } from "./quota";
 
 const fixtures = join(import.meta.dir, "fixtures", "quota");
 const now = Date.parse("2026-11-19T23:15:00Z");
+const window = (label: string, percent: number) => ({ label, percent, resetsAt: now + 3_600_000 });
 const text = (lines: ReturnType<typeof quotaFooter>) => lines.map((line) => line.map((s) => s.text).join(""));
 
 describe("recorded provider data", () => {
-  test("mclaude state files give each account's windows, disabled flag and read time", () => {
-    const accounts = claudeAccounts(now, join(fixtures, "mclaude"));
-    expect(accounts.map((a) => [a.name, a.disabled])).toEqual([
-      ["jenny", false],
-      ["cillian", true],
-      ["cjberragan", false],
+  test("a recorded Claude usage response gives the 5-hour and weekly windows", async () => {
+    const body = await Bun.file(join(fixtures, "claude", "usage.json")).json();
+    expect(parseClaudeUsage(body)).toEqual([
+      { label: "5h", percent: 50, resetsAt: Date.parse("2026-11-20T00:00:00.465871+00:00") },
+      { label: "wk", percent: 38, resetsAt: Date.parse("2026-11-26T09:00:00.465891+00:00") },
     ]);
-    const jenny = accounts.find((a) => a.name === "jenny");
-    expect(jenny?.windows.map((w) => [w.label, w.percent])).toEqual([
-      ["5h", 50],
-      ["wk", 38],
-    ]);
-    expect(jenny?.fetchedAt).toBe(Date.parse("2026-11-19T23:12:43.927Z"));
-    // cjberragan reports no five-hour window at all.
-    expect(accounts.find((a) => a.name === "cjberragan")?.windows.map((w) => w.label)).toEqual(["wk"]);
-  });
-
-  test("a window whose reset time has passed is dropped", () => {
-    const later = Date.parse("2026-11-20T00:30:00Z");
-    expect(
-      claudeAccounts(later, join(fixtures, "mclaude"))
-        .find((a) => a.name === "jenny")
-        ?.windows.map((w) => w.label),
-    ).toEqual(["wk"]);
+    // An account that has not used its 5-hour window reports it as null.
+    expect(parseClaudeUsage({ ...body, five_hour: null })?.map((w) => w.label)).toEqual(["wk"]);
+    expect(parseClaudeUsage({ error: { type: "authentication_error" } })).toBeUndefined();
   });
 
   test("a Codex session record gives the weekly window", () => {
@@ -43,13 +30,14 @@ describe("recorded provider data", () => {
 
 describe("footer", () => {
   const accounts = [
-    ...claudeAccounts(now, join(fixtures, "mclaude")),
+    { agent: "claude", name: "jenny", windows: [window("5h", 50), window("wk", 38)], source: "claude-usage" },
+    { agent: "claude", name: "cjberragan", windows: [window("wk", 0)], source: "claude-usage" },
     codexRollout(now, join(fixtures, "codex")) as QuotaAccount,
-    { agent: "muse", disabled: false, windows: [], source: "none" },
-    { agent: "opencode", disabled: false, windows: [], source: "none" },
+    { agent: "muse", windows: [], source: "none" },
+    { agent: "opencode", windows: [], source: "none" },
   ] satisfies QuotaAccount[];
 
-  test("one line at 80 columns, disabled accounts left out", () => {
+  test("one line at 80 columns, every agent in turn", () => {
     expect(text(quotaFooter(accounts, 78, now))).toEqual([
       "claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode",
     ]);
@@ -66,9 +54,8 @@ describe("footer", () => {
     const near: QuotaAccount = {
       agent: "claude",
       name: "a",
-      disabled: false,
       windows: [{ label: "5h", percent: 96, resetsAt: now + 80 * 60_000 }],
-      source: "mclaude",
+      source: "claude-usage",
     };
     expect(text(quotaFooter([near], 78, now))).toEqual(["claude a 96%·5h ↻1h20"]);
   });
@@ -91,7 +78,6 @@ describe("OpenCode Go allowance", () => {
   test("a spent account shows when it resets, in red", () => {
     const spent: QuotaAccount = {
       agent: "opencode",
-      disabled: false,
       windows: [{ label: "mo", percent: 100, resetsAt: Date.parse("2026-12-02T09:46:55Z") }],
       spentUntil: Date.parse("2026-12-02T09:46:55Z"),
       source: "opencode-go",

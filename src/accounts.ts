@@ -5,8 +5,8 @@ import { basename, join, resolve } from "node:path";
 import { afterMuseWord } from "./muse";
 import type { Settings } from "./settings";
 
-/** Agents whose subscription accounts kiln keeps as separate config homes. Claude's come from mclaude, Pi and agy have one. */
-export const accountAgents = ["codex", "muse", "opencode"] as const;
+/** Agents whose subscription accounts kiln keeps as separate config homes. Pi and agy have one. */
+export const accountAgents = ["claude", "codex", "muse", "opencode"] as const;
 export type AccountAgent = (typeof accountAgents)[number];
 
 /** One login of an agent: `home` is the config home its native CLI is started with. */
@@ -24,13 +24,15 @@ export function expandHome(path: string): string {
 }
 
 /**
- * Where each agent keeps the login its account separates, found in its installed source:
- * Codex reads `CODEX_HOME`; Muse reads its credentials from `$XDG_CONFIG_HOME/muse/auth.json`; OpenCode stores
+ * Where each agent keeps the login its account separates, found in its installed source: Claude Code reads
+ * `CLAUDE_CONFIG_DIR`; Codex reads `CODEX_HOME`; Muse reads its credentials from `$XDG_CONFIG_HOME/muse/auth.json`; OpenCode stores
  * its credentials in the database under `$XDG_DATA_HOME/opencode`. Muse and OpenCode have no variable of their own,
  * so the home is an XDG root and {@link prepareHome} links every other tool's entry back to the real one.
  */
 export function accountEnv(account: Account): Record<string, string> {
   switch (account.agent) {
+    case "claude":
+      return { CLAUDE_CONFIG_DIR: account.home };
     case "codex":
       return { CODEX_HOME: account.home };
     case "muse":
@@ -40,9 +42,20 @@ export function accountEnv(account: Account): Record<string, string> {
   }
 }
 
-/** The directory an agent's default home is, which an account's shared entries are linked from. */
+/** Claude Code's own config dir, which is the `default` Claude account and what every other account shares. */
+export const claudeHome = () => join(homedir(), ".claude");
+
+/** The two files a Claude config dir keeps its login in: the token, and the account it belongs to. */
+const claudeLogin = [".credentials.json", ".claude.json"];
+
+/**
+ * The directory an agent's default home is, which an account's shared entries are linked from. Claude's is fixed:
+ * kiln may itself run inside a Claude session on one of the accounts, whose `CLAUDE_CONFIG_DIR` is not the shared one.
+ */
 function realRoot(agent: AccountAgent): string {
   switch (agent) {
+    case "claude":
+      return claudeHome();
     case "codex":
       return Bun.env.CODEX_HOME ?? join(homedir(), ".codex");
     case "muse":
@@ -64,11 +77,17 @@ function link(target: string, path: string): void {
  * Make `account.home` usable: the login is the one thing an account owns. Muse and OpenCode change an XDG root, which
  * every other tool the agent runs also reads, so each of the real root's other entries is linked in (`gh`, `git`,
  * `zoxide` keep working inside the session). Muse's settings and trust, and Codex's config and instructions, are
- * linked so an account behaves as the default does. Idempotent: it only adds what is missing.
+ * linked so an account behaves as the default does. A Claude account links everything but its login, so every account
+ * has the same settings, skills, memory and transcripts, and a conversation begun on one resumes on another.
+ * Idempotent: it only adds what is missing.
  */
 export function prepareHome(account: Account, root = realRoot(account.agent)): void {
   mkdirSync(account.home, { recursive: true, mode: 0o700 });
   switch (account.agent) {
+    case "claude":
+      for (const entry of existsSync(root) ? readdirSync(root) : [])
+        if (!claudeLogin.includes(entry)) link(join(root, entry), join(account.home, entry));
+      return;
     case "codex":
       for (const entry of ["config.toml", "AGENTS.md", "skills"]) link(join(root, entry), join(account.home, entry));
       return;
@@ -93,6 +112,12 @@ export function loginCommand(agent: AccountAgent, settings: Settings): string[] 
   const command = settings.agents[agent];
   if (!command[0]) throw new Error(`${agent} is hidden in [agents]; give it a command to log in`);
   switch (agent) {
+    case "claude": {
+      // Only Claude Code itself signs in to a config dir; a wrapper that picks accounts of its own cannot be asked to.
+      const at = command.findIndex((word) => basename(word) === "claude");
+      if (at < 0) throw new Error(`[agents] claude is ${command[0]}, not claude; set it to claude to log in`);
+      return [...command.slice(0, at + 1), "auth", "login"];
+    }
     case "codex":
       return [...command.slice(0, command.findIndex((word) => basename(word) === "codex") + 1 || 1), "login"];
     case "muse": {
@@ -108,7 +133,6 @@ export function loginCommand(agent: AccountAgent, settings: Settings): string[] 
 export async function runLoginCli(args: readonly string[], settings: Settings): Promise<number> {
   const [agent, name, ...extra] = args;
   if (!agent || !name || extra.length) throw new Error("usage: kiln login <agent> <name>");
-  if (agent === "claude") throw new Error("Claude accounts are mclaude's: run `mclaude account add`");
   if (!isAccountAgent(agent)) throw new Error(`${agent} has no accounts; accounts are for ${accountAgents.join(", ")}`);
   const account = settings.accounts.find((item) => item.agent === agent && item.name === name);
   if (!account) throw new Error(`no [[accounts]] entry for ${agent} "${name}" in kiln's config`);
@@ -125,20 +149,14 @@ export async function runLoginCli(args: readonly string[], settings: Settings): 
 }
 
 /**
- * The account a running agent process was started on, read from the environment it inherited: Claude's own
- * `MCLAUDE_ACCOUNT` (mclaude's id, named by `claudeNames`), or the config home of a configured account. An agent run on
- * its default home, or one with no configured accounts, has no account to show.
+ * The account a running agent process was started on, read from the environment it inherited: the config home of a
+ * configured account, else the default. An agent with no configured accounts has no account to show.
  */
 export function accountOf(
   agent: string,
   environment: Readonly<Record<string, string | undefined>>,
   accounts: readonly Account[],
-  claudeNames: ReadonlyMap<string, string>,
 ): string | undefined {
-  if (agent === "claude") {
-    const id = environment.MCLAUDE_ACCOUNT;
-    return id ? (claudeNames.get(id) ?? id) : undefined;
-  }
   if (!isAccountAgent(agent)) return undefined;
   const own = accounts.filter((account) => account.agent === agent);
   if (!own.length) return undefined;

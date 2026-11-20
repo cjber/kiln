@@ -32,7 +32,7 @@ export type Settings = {
   editMessages: boolean;
   /** `kiln serve` stops the computer suspending while an agent works; the screens still blank and lock. */
   keepAwake: boolean;
-  /** Extra logins of codex, muse and opencode, each its own config home. Claude's come from mclaude. */
+  /** Extra logins of claude, codex, muse and opencode, each its own config home. */
   accounts: Account[];
 };
 
@@ -102,9 +102,9 @@ pi = ["pi"]
 muse = ["muse"]
 agy = ["agy"]
 
-# More than one login of codex, muse or opencode: each [[accounts]] entry is a config home of its own, and
+# More than one login of claude, codex, muse or opencode: each [[accounts]] entry is a config home of its own, and
 # \`kiln login <agent> <name>\` signs in inside it. A new session or \`kiln msg spawn\` uses the account with the
-# most headroom. The agent's own home stays an account called "default". Claude's accounts come from mclaude.
+# most headroom. The agent's own home stays an account called "default".
 # [[accounts]]
 # agent = "codex"
 # name = "work"
@@ -150,8 +150,7 @@ function parseAccount(path: string, entry: unknown): Account {
     if (!["agent", "name", "home"].includes(key)) fail(path, `unknown setting "accounts.${key}"`);
   const { agent, name, home } = entry as Record<string, unknown>;
   if (typeof agent !== "string" || !agent) fail(path, "an [[accounts]] entry needs an agent");
-  if (agent === "claude") fail(path, "Claude accounts come from mclaude (mclaude account add), not [[accounts]]");
-  if (!isAccountAgent(agent)) fail(path, `accounts.agent "${agent}" must be codex, muse or opencode`);
+  if (!isAccountAgent(agent)) fail(path, `accounts.agent "${agent}" must be claude, codex, muse or opencode`);
   if (typeof name !== "string" || !/^[\w.-]+$/.test(name) || name === "default")
     fail(path, 'accounts.name must be letters, digits, ".", "_" or "-", and not "default"');
   if (typeof home !== "string" || !home) fail(path, `accounts.home is required for ${agent} "${name}"`);

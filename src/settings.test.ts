@@ -54,17 +54,17 @@ test("the README settings example matches the shipped defaults", async () => {
 
 test("[[accounts]] lists extra logins and rejects what kiln cannot honour", () => {
   const settings = parseSettings(
-    `[[accounts]]\nagent = "codex"\nname = "work"\nhome = "/srv/codex-work"\n[[accounts]]\nagent = "muse"\nname = "alt"\nhome = "/srv/muse-alt"\n`,
+    `[[accounts]]\nagent = "codex"\nname = "work"\nhome = "/srv/codex-work"\n[[accounts]]\nagent = "muse"\nname = "alt"\nhome = "/srv/muse-alt"\n[[accounts]]\nagent = "claude"\nname = "work"\nhome = "/srv/claude-work"\n`,
     "config.toml",
   );
   expect(settings.accounts).toEqual([
     { agent: "codex", name: "work", home: "/srv/codex-work" },
     { agent: "muse", name: "alt", home: "/srv/muse-alt" },
+    { agent: "claude", name: "work", home: "/srv/claude-work" },
   ]);
   expect(defaults.accounts).toEqual([]);
   const bad = (body: string) => () => parseSettings(`[[accounts]]\n${body}`, "config.toml");
-  expect(bad('agent = "claude"\nname = "a"\nhome = "/x"')).toThrow("mclaude");
-  expect(bad('agent = "pi"\nname = "a"\nhome = "/x"')).toThrow("must be codex, muse or opencode");
+  expect(bad('agent = "pi"\nname = "a"\nhome = "/x"')).toThrow("must be claude, codex, muse or opencode");
   expect(bad('agent = "codex"\nname = "default"\nhome = "/x"')).toThrow("accounts.name");
   expect(bad('agent = "codex"\nname = "a"')).toThrow("accounts.home is required");
   expect(bad('agent = "codex"\nname = "a"\nhome = "/x"\nplan = "max"')).toThrow('unknown setting "accounts.plan"');
