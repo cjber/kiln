@@ -41,6 +41,11 @@ describe("routing", () => {
     expect(chooseRoute("claude", full, configured, later + 1).env.CLAUDE_CONFIG_DIR).toBeDefined();
   });
 
+  test("default names the one login of an agent with no accounts listed", () => {
+    const one = [{ agent: "claude" as const, windows: [], source: "none" as const }];
+    expect(chooseRoute("claude", one, [], now, "default")).toEqual({ env: {} });
+  });
+
   test("an account whose login has ended is never chosen, and naming it says how to sign in", () => {
     const ended = [claude("default", [0], { needsLogin: true }), claude("jenny", [50]), claude("work", [70])];
     expect(chooseRoute("claude", ended, configured, now).name).toBe("jenny");

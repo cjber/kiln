@@ -970,12 +970,14 @@ export async function moveClaude(
   const spawned = record?.agent === "claude" && record.id === id && record.runBound ? record : undefined;
   const token = spawned ? String(spawned.startedAt) : "";
   const child = `claude:${id}`;
+  // The pane's first command was given the outbox in its environment, which a replaced command does not inherit.
+  const outbox = outboxPath(outboxKey(name, token));
   const command = spawned
-    ? claudeGrants(settings.agents.claude, cwd, spawnGrants("claude", cwd, outboxPath(outboxKey(name, token))))
+    ? claudeGrants(settings.agents.claude, cwd, spawnGrants("claude", cwd, outbox))
     : agentCommand("claude", settings, undefined, undefined, resume.codeMode);
   const argv = interactiveClaudeCommand(command, id, resumedOnAccount, undefined, undefined, configDir, resume);
   const hook = spawned ? exitHook(exitReporter("exit", name, child, spawned.parent ?? "", token)) : undefined;
-  if (!respawn(name, cwd, argv, hook)) return false;
+  if (!respawn(name, cwd, argv, hook, spawned ? { KILN_OUTBOX: outbox } : {})) return false;
   if (!spawned) return (await survives(name, graceMs)) === true;
   const tried = [...(spawned.tried?.split(",").filter(Boolean) ?? []), spawned.account ?? defaultAccount];
   recordSpawn({ ...spawned, account: route.name, tried: tried.join(","), pid: await panePid(name) });

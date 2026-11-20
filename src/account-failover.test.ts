@@ -8,7 +8,7 @@ import type { Session } from "./sessions";
 import { defaults, type Settings } from "./settings";
 import { moveClaude } from "./spawn";
 import { spentUntil } from "./spent";
-import { start } from "./tmux";
+import { respawn, start } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -55,7 +55,7 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
     id,
     title: "limited",
     cwd,
-    startedAt: now,
+    startedAt: now - 2_000,
     account: "default",
     limited: { resetsAt: now + 3_600_000, at: now - 1_000 },
     place: { kind: "kiln", name },
@@ -69,6 +69,16 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
   // The real restart, with a short wait for a command that quits at once.
   const move: typeof moveClaude = (pane, conversation, where, to, settingsGiven) =>
     moveClaude(pane, conversation, where, to, settingsGiven, 500);
+  // A conversation resumed since its refusal, perhaps on another account, has not been refused itself.
+  expect(await failOverLimited([{ ...session, startedAt: now }], settings, now, dir, route, move)).toEqual([]);
+  expect(spentUntil("claude", "default", now)).toBeUndefined();
+  // A restart that fails is reported once and tried again.
+  const broken = async () => false;
+  expect((await failOverLimited([session], settings, now, dir, route, broken)).map((event) => event.kind)).toEqual([
+    "failed",
+  ]);
+  expect(await failOverLimited([session], settings, now, dir, route, broken)).toEqual([]);
+  routes.length = 0;
   const first = await failOverLimited([session], settings, now, dir, route, move);
   expect(first.map((event) => event.kind)).toEqual(["moved"]);
   expect(failoverNotice(first[0] as (typeof first)[number])).toBe(
@@ -88,6 +98,15 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
   // Once the provider's reset has passed the session's own account answers again, and it is left where it is.
   const later = { ...session, limited: { resetsAt: now - 1, at: now + 5 } };
   expect(await failOverLimited([later], settings, now, dir, route, move)).toEqual([]);
+  // A replaced command is given its environment again; tmux does not carry the first command's over.
+  const seen = join(root, "outbox-seen");
+  expect(
+    respawn(name, cwd, ["sh", "-c", `echo "$KILN_OUTBOX" > ${seen}; exec sleep 600`], undefined, {
+      KILN_OUTBOX: "/box",
+    }),
+  ).toBe(true);
+  await until(() => existsSync(seen) && readFileSync(seen, "utf8").length > 0);
+  expect(readFileSync(seen, "utf8").trim()).toBe("/box");
 });
 
 test("a session no account can take is reported once and left in its pane", async () => {

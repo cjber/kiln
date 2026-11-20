@@ -23,7 +23,7 @@ const stateDir = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", 
  * Take `step` of one refusal for this process alone. The list and the phone server both watch the sessions, so each
  * step is a file only one of them can create; a conversation's older refusals are dropped as a new one is first seen.
  */
-function claim(dir: string, id: string, at: number, step: "seen" | "moved"): boolean {
+function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "failed"): boolean {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const own = `${id}.${at}.`;
   try {
@@ -64,6 +64,9 @@ export async function failOverLimited(
       if (session.agent !== "claude" || !limited || limited.resetsAt <= now) continue;
       if (!id || !/^[A-Za-z0-9-]+$/.test(id) || account === undefined) continue;
       if (place.kind !== "kiln" || headlessSpawn(place.name)) continue;
+      // A refusal from before this process started was another run's, perhaps on another account: the conversation
+      // has since been resumed and has not written a record yet.
+      if (limited.at < session.startedAt) continue;
       const first = claim(dir, id, limited.at, "seen");
       if (first) {
         recordSpent("claude", account, limited.resetsAt);
@@ -79,7 +82,12 @@ export async function failOverLimited(
       if (to.name === undefined || !claim(dir, id, limited.at, "moved")) continue;
       // A folder kiln never trusts for Claude, such as the home directory, cannot be restarted unattended.
       const moved = await move(place.name, id, session.cwd, to, settings).catch(() => false);
-      events.push({ kind: moved ? "moved" : "failed", session, to: to.name });
+      if (moved) events.push({ kind: "moved", session, to: to.name });
+      else {
+        // A restart that failed is tried again on the next call, and reported once.
+        rmSync(join(dir, `${id}.${limited.at}.moved`), { force: true });
+        if (claim(dir, id, limited.at, "failed")) events.push({ kind: "failed", session, to: to.name });
+      }
     }
   } finally {
     running = false;
@@ -113,16 +121,22 @@ export function availableAgain(quota: readonly QuotaAccount[], now = Date.now(),
     if (account.disabled || account.needsLogin) continue;
     const path = join(dir, `${account.agent}.${account.name ?? defaultAccount}`);
     const until = limitedUntil(account, now);
-    if (until !== undefined) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      writeFileSync(path, String(until), { mode: 0o600 });
-      continue;
-    }
+    let recorded: number | undefined;
     try {
-      if (Number(readFileSync(path, "utf8")) > now) continue;
-      unlinkSync(path);
+      recorded = Number(readFileSync(path, "utf8"));
     } catch {
       // Never seen at a limit, or the other watcher reported it first.
+    }
+    if (until !== undefined) {
+      // A later read can give an earlier time than the run that hit the limit did; the latest one stands.
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      writeFileSync(path, String(Math.max(until, recorded ?? 0)), { mode: 0o600 });
+      continue;
+    }
+    if (recorded === undefined || recorded > now) continue;
+    try {
+      unlinkSync(path);
+    } catch {
       continue;
     }
     back.push(account.name === undefined ? account.agent : `${account.agent} account ${account.name}`);

@@ -74,14 +74,15 @@ export function chooseRoute(
 ): Route {
   const own = quota.filter((account) => account.agent === agent);
   if (requested !== undefined) {
-    const found = own.find((account) => account.name === requested);
+    // An agent with one login lists it unnamed, and `default` still names it.
+    const found = own.find((account) => (account.name ?? defaultAccount) === requested);
     if (!found) {
       if (!own.length) throw new Error(`${agent} has no accounts to pick --account ${requested} from`);
       throw new Error(`no ${agent} account ${requested}; accounts: ${own.map((account) => account.name).join(", ")}`);
     }
-    if (found.disabled) throw new Error(`${agent} account ${found.name} is disabled in kiln's config`);
-    if (found.needsLogin) throw new Error(`${agent} account ${found.name} is signed out; ${signIn(found)}`);
-    if (atLimit(found, now)) throw new Error(`${agent} account ${found.name} is at its limit`);
+    if (found.disabled) throw new Error(`${agent} account ${requested} is disabled in kiln's config`);
+    if (found.needsLogin) throw new Error(`${agent} account ${requested} is signed out; ${signIn(found)}`);
+    if (atLimit(found, now)) throw new Error(`${agent} account ${requested} is at its limit`);
     return routeFor(found, configured);
   }
   if (!own.length) return { env: {} };

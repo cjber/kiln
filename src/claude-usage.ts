@@ -97,9 +97,12 @@ async function askClaude(home: string): Promise<boolean | undefined> {
       stderr: "ignore",
     });
     const timeout = setTimeout(() => child.kill(), 30_000);
-    const answer = JSON.parse(await new Response(child.stdout).text()) as { loggedIn?: unknown };
-    clearTimeout(timeout);
-    return typeof answer.loggedIn === "boolean" ? answer.loggedIn : undefined;
+    try {
+      const answer = JSON.parse(await new Response(child.stdout).text()) as { loggedIn?: unknown };
+      return typeof answer.loggedIn === "boolean" ? answer.loggedIn : undefined;
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch {
     return undefined;
   }

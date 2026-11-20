@@ -177,11 +177,11 @@ export function claudeCloudSnapshot(
   load: (home: string) => Promise<Session[]> = loadClaudeCloud,
 ) {
   const own = settings.accounts.filter((account) => account.agent === "claude");
-  const logins: { name?: string; home: string }[] = own.length
-    ? [{ name: defaultAccount, home: claudeHome() }, ...own].filter(
-        (login) => !accountDisabled(settings, "claude", login.name),
-      )
-    : [{ home: Bun.env.CLAUDE_CONFIG_DIR || claudeHome() }];
+  const logins = (
+    own.length
+      ? [{ name: defaultAccount, home: claudeHome() }, ...own]
+      : [{ name: undefined, home: Bun.env.CLAUDE_CONFIG_DIR || claudeHome() }]
+  ).filter((login) => !accountDisabled(settings, "claude", login.name));
   const sessions = new Map<string, Session>();
   const problems: string[] = [];
   for (const { name, home } of logins) {
