@@ -12,12 +12,14 @@ import {
   frame,
   HeldForApproval,
   heldBecause,
+  lastExit,
   NotNow,
   processAgent,
   route,
   spawnSender,
   type Transports,
 } from "./messages";
+import type { Saved } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { kiln } from "./tmux";
 
@@ -87,6 +89,23 @@ test("a send to a spawned child that has exited names its exit, not a missing se
     'claude:gone has exited; kiln reported at 2026-11-18T09:30:00.000Z: Child claude:gone exited with status 4 while working on "t".',
   );
   expect(() => findRecipient([], "claude:gnoe", exited)).toThrow("no running session is called claude:gnoe");
+});
+
+test("a resumed child is not refused on the exit report of the run before it (#277)", () => {
+  const report = {
+    id: "exit:claude:back:1000",
+    from: `${spawnSender}:claude:back`,
+    to: "claude:parent",
+    body: "Child claude:back exited with status 137.",
+    createdAt: 2_000,
+  };
+  expect(lastExit("claude:back", report, undefined)).toBe(report);
+  expect(lastExit("claude:back", report, { startedAt: 1_000 } as Saved)).toBe(report);
+  // The resume recorded a run that started after the report, so the report is about a run that is over.
+  expect(lastExit("claude:back", report, { startedAt: 3_000 } as Saved)).toBeUndefined();
+  expect(() =>
+    findRecipient([], "claude:back", () => lastExit("claude:back", report, { startedAt: 3_000 } as Saved)),
+  ).toThrow("no running session is called claude:back");
 });
 
 test("a spawned Codex run answers to the process name its spawn returned and to its thread id", () => {

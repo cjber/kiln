@@ -7,10 +7,12 @@ import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
+import { savedRow } from "./saved-sessions";
 import {
   type Agent,
   agentName,
   answersTo,
+  isFullName,
   type Session,
   sessionDirectory,
   sessionIdentity,
@@ -91,11 +93,25 @@ export function reachable(session: Session): boolean {
   );
 }
 
+/**
+ * A spawned child's last exit report, unless the conversation has been run again since it was written: the report
+ * tells of the run that ended, and a resumed child is a later run that has not.
+ */
+export function lastExit(
+  child: string,
+  report = lastFrom(spawnReportSender(child)),
+  run = isFullName(child)
+    ? savedRow({ agent: child.slice(0, child.indexOf(":")) as Agent, id: child.slice(child.indexOf(":") + 1) })
+    : undefined,
+): Message | undefined {
+  return report && (run === undefined || report.createdAt >= run.startedAt) ? report : undefined;
+}
+
 /** A full name, or a prefix of one or of the bare id that matches a single session. */
 export function findRecipient(
   sessions: readonly Session[],
   name: string,
-  exitReport: (name: string) => Message | undefined = (child) => lastFrom(spawnReportSender(child)),
+  exitReport: (name: string) => Message | undefined = lastExit,
 ): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));

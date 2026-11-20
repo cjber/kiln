@@ -10,6 +10,7 @@ verbatim.
 ## [Unreleased]
 
 - **A session whose agent was killed can be resumed.** When an OOM killer or a `kill -9` ended a spawned Claude and nothing closed its kiln pane, `kiln msg spawn --resume` refused with `already running` and `kiln resume` listed nothing. A pane whose agent has exited no longer counts as running: the spawn reports the old run and replaces the pane, and `kiln resume` lists such a top-level session as stopped.
+- **`kiln msg send` no longer refuses a resumed child on its old exit.** A child resumed after it was killed answered `has exited` with the earlier run's exit report whenever a send could not find it running. kiln now names that report only when no later run of the conversation has started.
 
 ## [0.31.1] - 2026-11-20
 
