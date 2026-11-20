@@ -132,6 +132,20 @@ class ProtocolTest {
                 .rows
                 .single()
         assertEquals(Agent.MUSE, row.agent)
+        assertNull(row.account)
+    }
+
+    @Test
+    fun rowsNameTheirAccount() {
+        val row =
+            parseSnapshot(
+                    """{"version":1,"instance":"i","sequence":1,"updatedAt":1,"problem":"","sessions":[
+                    {"id":"claude:1","agent":"claude","title":"t","cwd":"/w","where":"kiln",
+                    "account":"work","startedAt":1,"handoff":{"reason":"r"}}]}"""
+                )
+                .rows
+                .single()
+        assertEquals("work", row.account)
     }
 
     @Test

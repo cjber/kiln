@@ -20,9 +20,13 @@ export type PushAlert = {
   /**
    * `read` clears the earlier turn alert for the session, once it has been looked at on the computer.
    * `failing` says the session's pull request checks failed, and `failing-cleared` clears that alert
-   * once the stage leaves `failing`. Apps that predate them drop both.
+   * once the stage leaves `failing`. `moved` says the session now runs on another `account` (a usage limit moved it, or it was resumed there), and `available` that
+   * `account` of `agent` has allowance again; its `session` names the account. Apps that predate a
+   * transition drop it.
    */
-  transition: "finished" | "input" | "read" | "failing" | "failing-cleared";
+  transition: "finished" | "input" | "read" | "failing" | "failing-cleared" | "moved" | "available";
+  /** The agent account, on `moved` and `available`; absent on `available` for an agent with one account. */
+  account?: string;
   /** The failing pull request's number, on `failing` and `failing-cleared`. */
   pr?: number;
   /** The snapshot's `updatedAt` for the refresh that saw the change; the phone dedupes on it. */

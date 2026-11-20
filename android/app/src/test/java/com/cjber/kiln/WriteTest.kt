@@ -43,6 +43,27 @@ class WriteTest {
     }
 
     @Test
+    fun startOptionsListAccountsAndDropWhatTheyCannotName() {
+        val options =
+            parseStartOptions(
+                """{"directories":[],"agents":["claude"],"accounts":[
+                {"agent":"claude","name":"home","state":"ok"},
+                {"agent":"claude","name":"work","state":"spent","until":9},
+                {"agent":"gemini","name":"x","state":"ok"},
+                {"agent":"claude","state":"ok"}]}"""
+            )
+        assertEquals(
+            listOf(
+                AccountOption(Agent.CLAUDE, "home", "ok"),
+                AccountOption(Agent.CLAUDE, "work", "spent"),
+            ),
+            options.accounts,
+        )
+        assertEquals("home", accountLabel(options.accounts[0]))
+        assertEquals("work · at limit", accountLabel(options.accounts[1]))
+    }
+
+    @Test
     fun startedSessionsNameAKilnTerminal() {
         assertEquals("claude-abc-1", parseStarted("""{"terminal":"claude-abc-1"}"""))
         assertThrows(IllegalArgumentException::class.java) {

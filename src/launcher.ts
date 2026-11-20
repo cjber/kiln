@@ -357,9 +357,15 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
  * A session a phone asked for, with its first prompt. It always has the provider's remote control on, since the
  * phone follows it there rather than showing a transcript of its own.
  */
-export async function startFromPhone(agent: Agent, cwd: string, prompt: string, settings: Settings): Promise<Outcome> {
+export async function startFromPhone(
+  agent: Agent,
+  cwd: string,
+  prompt: string,
+  settings: Settings,
+  account?: string,
+): Promise<Outcome> {
   try {
-    const route = await routeNew(agent, settings, { cwd });
+    const route = await routeNew(agent, settings, { cwd, requested: account });
     return launch(
       agent,
       cwd,

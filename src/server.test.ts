@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pullRequests } from "./dashboard";
 import { pending } from "./mailbox";
 import { Pairing, serverOrigin, startLimit } from "./pairing";
+import type { PushAlert } from "./push";
 import { offeredDirectories, phoneSession, promptLimit, startServer } from "./server";
 import { keepLast, type Session, sessionParents } from "./sessions";
 import { defaults, type Settings } from "./settings";
@@ -141,6 +142,7 @@ test("a phone registered for pushes keeps discovery checking between idle refres
     interval: 20,
     idleInterval: 60_000,
     pushInterval: 60,
+    quota: async () => [],
     discover: async () => {
       calls++;
       return { sessions: [], problem: "", stale: false };
@@ -151,6 +153,70 @@ test("a phone registered for pushes keeps discovery checking between idle refres
     // Nothing works and no phone watches, yet a short turn between idle refreshes would still be seen.
     expect(calls).toBeGreaterThan(2);
     expect(calls).toBeLessThan(10);
+  } finally {
+    server.stop();
+    pairing.close();
+  }
+});
+
+test("a session listed on another account, and an account with allowance again, are pushed", async () => {
+  const { pairing } = fixture();
+  const paired = pairing.exchange(pairing.invite(), "test");
+  if (!paired) throw new Error("pairing failed");
+  pairing.setPush(paired.device.id, { endpoint: "https://push.example/x", p256dh: "k", auth: "a", machine: "m" });
+  let account = "work";
+  let spentUntil: number | undefined = 4_000_000_000_000;
+  let reads = 0;
+  const pushed: PushAlert[] = [];
+  const server = startServer({
+    port: 0,
+    pairing,
+    seen: async () => new Map(),
+    interval: 20,
+    pushInterval: 20,
+    quotaInterval: 20,
+    settings: () => ({ ...defaults, notifications: false }),
+    push: async (_target, alert) => {
+      pushed.push(alert);
+      return "sent";
+    },
+    quota: async () => {
+      reads++;
+      return [{ agent: "claude", name: "work", windows: [], spentUntil, source: "none" }];
+    },
+    discover: async () => ({
+      sessions: [
+        {
+          agent: "claude",
+          id: "one",
+          title: "Fix",
+          cwd: "/p",
+          account,
+          startedAt: 1,
+          place: { kind: "kiln", name: "c" },
+        },
+      ],
+      problem: "",
+      stale: false,
+    }),
+  });
+  try {
+    const until = async (met: () => boolean) => {
+      for (let waited = 0; !met() && waited < 5_000; waited += 10) await Bun.sleep(10);
+    };
+    await until(() => reads > 0);
+    await Bun.sleep(40);
+    // The first listing and the first read are where things stand, not changes.
+    expect(pushed.filter((alert) => alert.transition === "moved" || alert.transition === "available")).toEqual([]);
+    account = "home";
+    spentUntil = undefined;
+    await until(() => ["moved", "available"].every((kind) => pushed.some((alert) => alert.transition === kind)));
+    expect(pushed.filter((alert) => alert.transition === "moved")).toMatchObject([
+      { session: "claude:one", title: "Fix", agent: "claude", account: "home" },
+    ]);
+    expect(pushed.filter((alert) => alert.transition === "available")).toMatchObject([
+      { session: "account:claude:work", agent: "claude", account: "work" },
+    ]);
   } finally {
     server.stop();
     pairing.close();
@@ -348,7 +414,7 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
   Bun.env.XDG_STATE_HOME = directory;
   const project = mkdtempSync(join(directory, "project-"));
   let current: Settings = { ...defaults, zoxide: false };
-  const started: [string, string, string][] = [];
+  const started: [string, string, string, string?][] = [];
   const delivered: string[] = [];
   const server = startServer({
     port: 0,
@@ -362,10 +428,15 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
       ],
       "Session host",
     ),
-    start: async (agent, cwd, prompt) => {
-      started.push([agent, cwd, prompt]);
+    start: async (agent, cwd, prompt, _settings, account) => {
+      started.push([agent, cwd, prompt, account]);
       return { kind: "attach", name: "claude-new" };
     },
+    quota: async () => [
+      { agent: "claude", name: "default", windows: [], source: "none" },
+      { agent: "claude", name: "work", windows: [], spentUntil: 4_000_000_000_000, source: "none" },
+      { agent: "codex", windows: [], source: "none" },
+    ],
     deliver: async (sessions) => {
       delivered.push(...sessions.map((session) => session.id ?? ""));
       return [];
@@ -397,7 +468,16 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
     expect(await (await call("/v1/directories")).json()).toEqual({
       directories: [project],
       agents: ["claude", "codex", "opencode", "pi", "muse", "agy"],
+      // An agent with one account offers no choice.
+      accounts: [
+        { agent: "claude", name: "default", state: "ok" },
+        { agent: "claude", name: "work", state: "spent", until: 4_000_000_000_000 },
+      ],
     });
+    expect((await call("/v1/sessions", { ...request, account: 7 })).status).toBe(400);
+    // An account at its limit, and one kiln does not have, are refused before the start is counted.
+    expect((await call("/v1/sessions", { ...request, account: "work" })).status).toBe(400);
+    expect((await call("/v1/sessions", { ...request, account: "nobody" })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, directory: "/etc" })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, directory: join(project, "..") })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, agent: "gemini" })).status).toBe(400);
@@ -410,8 +490,10 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
     const ok = await call("/v1/sessions", { ...request, prompt: "x".repeat(promptLimit) });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ terminal: "claude-new" });
-    expect(started.map(([agent, cwd]) => [agent, cwd])).toEqual([["claude", project]]);
+    expect(started.map(([agent, cwd, , account]) => [agent, cwd, account])).toEqual([["claude", project, undefined]]);
     expect(pairing.starts(paired.device.id)).toMatchObject([{ agent: "claude", directory: project }]);
+    expect((await call("/v1/sessions", { ...request, account: "default" })).status).toBe(200);
+    expect(started[1]?.[3]).toBe("default");
 
     expect((await call("/v1/sessions/claude%3Aother/messages", { text: "hi" })).status).toBe(404);
     expect((await call("/v1/sessions/claude%E0%A4%A/messages", { text: "hi" })).status).toBe(400);

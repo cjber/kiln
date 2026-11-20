@@ -103,6 +103,7 @@ fun SessionDetails(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (row.where != Place.CLOUD) DetailField("Directory", tildePath(row.cwd))
                     if (row.branch.isNotBlank()) DetailField("Branch", row.branch)
+                    row.account?.let { DetailField("Account", it) }
                     if (row.pulls.isNotEmpty())
                         DetailField(
                             if (row.pulls.size == 1) "Pull request" else "Pull requests",

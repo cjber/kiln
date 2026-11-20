@@ -490,10 +490,12 @@ class MainActivity : ComponentActivity() {
                 startProblem,
                 starting,
                 dismiss = { newSession = false },
-                start = { agent, directory, prompt ->
+                start = { agent, directory, prompt, account ->
                     starting = true
                     startProblem = ""
-                    connection.startSession(host, agent, directory, prompt) { terminal, problem ->
+                    connection.startSession(host, agent, directory, prompt, account) {
+                        terminal,
+                        problem ->
                         runOnUiThread {
                             starting = false
                             if (terminal != null) {

@@ -134,13 +134,19 @@ class Connection(
         agent: Agent,
         directory: String,
         prompt: String,
+        /** One of the machine's accounts for `agent`, or null to let the machine choose. */
+        account: String?,
         done: (String?, String) -> Unit,
     ) =
         call(
             host,
             "POST",
             "/v1/sessions",
-            JSONObject().put("agent", agent.id).put("directory", directory).put("prompt", prompt),
+            JSONObject()
+                .put("agent", agent.id)
+                .put("directory", directory)
+                .put("prompt", prompt)
+                .putOpt("account", account),
         ) { body, problem ->
             val terminal = body?.let { runCatching { parseStarted(it) }.getOrNull() }
             done(terminal, if (body != null && terminal == null) "Invalid response" else problem)

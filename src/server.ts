@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { hostname } from "node:os";
 import { availableAgain, failOverLimited, failoverNotice } from "./account-failover";
 import { accountDisabled } from "./accounts";
+import { accountRows } from "./accounts-cli";
 import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
 import { collisionWatch, warn } from "./collisions";
@@ -27,7 +28,8 @@ import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
-import { readQuota } from "./quota";
+import { type QuotaAccount, readQuota } from "./quota";
+import { limitedUntil } from "./routing";
 import { sessionTitle } from "./session-list";
 import {
   type Agent,
@@ -159,6 +161,8 @@ export function phoneSession(
     /** The repository a worktree belongs to, which the phone groups by as the list does. */
     repository: session.place.kind === "cloud" ? undefined : sessionRepository(session),
     branch: session.branch,
+    /** Which of its agent's accounts it runs on, when the agent has more than one. */
+    account: session.account,
     activity: session.activity,
     lifecycle: session.lifecycle,
     startedAt: session.startedAt,
@@ -208,6 +212,8 @@ export function startServer({
   collide = collisionWatch(),
   warnEdits = warn,
   awake = () => {},
+  quota = readQuota,
+  quotaInterval = 60_000,
 }: {
   port: number;
   pairing: Pairing;
@@ -241,6 +247,10 @@ export function startServer({
   warnEdits?: typeof warn;
   /** Holds off suspend while `working` is true; `kiln serve` passes `keepAwake()`, see `keep_awake`. */
   awake?: (working: boolean) => void;
+  /** Every agent account's usage, for the accounts a phone may start on and the push when one has allowance again. */
+  quota?: typeof readQuota;
+  /** The least time between two of those reads made for notifications. */
+  quotaInterval?: number;
 }) {
   const writable = () => {
     try {
@@ -309,15 +319,46 @@ export function startServer({
     if (typeof body.directory !== "string" || !offered().includes(body.directory))
       throw new Refusal(400, "Pick a directory from the list");
     const prompt = typedText(body.prompt, "prompt");
+    const account = body.account;
+    if (account !== undefined && (typeof account !== "string" || !account || account.length > 64))
+      throw new Refusal(400, "Invalid account");
+    // Refused before the start is counted, with the reason the sheet shows for that account.
+    if (account !== undefined) {
+      const found = (await offeredAccounts(current)).find((row) => row.agent === agent && row.name === account);
+      if (found?.state !== "ok")
+        throw new Refusal(
+          400,
+          found ? `Account ${account} cannot start a session now` : `No ${agent} account ${account}`,
+        );
+    }
     try {
       pairing.recordStart(device.id, agent, body.directory);
     } catch (error) {
       throw new Refusal(429, error instanceof Error ? error.message : "Too many sessions started");
     }
-    const outcome = await start(agent, body.directory, prompt, current);
+    const outcome = await start(agent, body.directory, prompt, current, account);
     if (outcome.kind !== "attach") throw new Refusal(500, outcome.kind === "notice" ? outcome.text : "Not started");
     void refresh();
     return { terminal: outcome.name };
+  };
+  const quotaWait = 3_000;
+  /** The named accounts a phone may start a session on, each with whether a run can start on it now. */
+  const offeredAccounts = async (current: Settings) => {
+    try {
+      const now = Date.now();
+      // The sheet waits on this answer, so a provider that does not answer in time leaves it without accounts.
+      const read = await Promise.race([
+        quota(now, current.accounts),
+        Bun.sleep(quotaWait).then((): QuotaAccount[] => {
+          throw new Error("quota read timed out");
+        }),
+      ]);
+      return accountRows(read, current, now).flatMap(({ agent, name, state, until }) =>
+        name === undefined ? [] : [{ agent, name, state, until }],
+      );
+    } catch {
+      return [];
+    }
   };
   const sendMessage = async (device: { id: string; name: string }, id: string, request: Request) => {
     writeSettings();
@@ -513,6 +554,7 @@ export function startServer({
           return response({
             directories: offered(),
             agents: agents.filter((agent) => current.agents[agent].length),
+            accounts: await offeredAccounts(current),
           });
         }
         if (request.method === "POST" && path === "/v1/sessions") return response(await startSession(device, request));
@@ -599,6 +641,55 @@ export function startServer({
       pushAll({ ...alert, transition: "read" });
     }
   };
+  /**
+   * The account each session was last seen on; a session listed on another one runs there now, moved by a usage
+   * limit or resumed there. A cloud row is skipped: it is named after whichever login listed it first.
+   */
+  const onAccount = new Map<string, string>();
+  const pushMoved = () => {
+    for (const row of snapshot.sessions) {
+      if (!row.account || row.where === "cloud") continue;
+      const before = onAccount.get(row.id);
+      onAccount.set(row.id, row.account);
+      if (before === undefined || before === row.account) continue;
+      pushAll({
+        v: 1,
+        host: snapshot.host,
+        session: row.id,
+        title: row.title,
+        agent: row.agent,
+        cwd: row.cwd,
+        transition: "moved",
+        account: row.account,
+        at: snapshot.updatedAt,
+      });
+    }
+  };
+  /** The accounts the last quota read found at their limit; one no longer there has allowance again. */
+  let spent = new Set<string>();
+  const pushAvailable = (accounts: readonly QuotaAccount[], at: number) => {
+    // An account this read does not answer for (signed out, or not listed) keeps what the last one said of it.
+    const now = new Set(spent);
+    for (const account of accounts) {
+      if (account.needsLogin) continue;
+      const key = `${account.agent}:${account.name ?? ""}`;
+      now.delete(key);
+      if (limitedUntil(account, at) !== undefined) now.add(key);
+      else if (spent.has(key))
+        pushAll({
+          v: 1,
+          host: snapshot.host,
+          session: `account:${key}`,
+          title: "",
+          agent: account.agent,
+          cwd: "",
+          transition: "available",
+          account: account.name,
+          at,
+        });
+    }
+    spent = now;
+  };
   // Pull request checks turning red, pushed under their own alert so a turn alert never replaces them.
   const failing = failingAlerts();
   function pushing() {
@@ -624,16 +715,19 @@ export function startServer({
           },
           () => {},
         );
-        if (current.notifications && Date.now() - quotaReadAt >= 60_000) {
-          quotaReadAt = Date.now();
-          void readQuota(quotaReadAt, current.accounts).then(
-            (quota) => {
-              const usable = quota.filter((account) => !accountDisabled(current, account.agent, account.name));
-              for (const account of availableAgain(usable))
-                notify("Usage limit reset", `${account} has allowance again`);
-            },
-            () => {},
-          );
+        if ((current.notifications || pushing()) && Date.now() - quotaReadAt >= quotaInterval) {
+          const readAt = Date.now();
+          quotaReadAt = readAt;
+          void quota(readAt, current.accounts)
+            .then((read) => {
+              const usable = read.filter((account) => !accountDisabled(current, account.agent, account.name));
+              if (current.notifications)
+                for (const account of availableAgain(usable))
+                  notify("Usage limit reset", `${account} has allowance again`);
+              pushAvailable(usable, readAt);
+            })
+            // A read that failed, or a pairing closed under it, leaves the last comparison standing.
+            .catch(() => {});
         }
         // A list that failed to load keeps the last decision rather than letting the computer sleep mid-turn.
         awake(keepingAwake() && sessions.some((session) => session.activity === "working"));
@@ -693,6 +787,7 @@ export function startServer({
         transitions(sessions, alerting);
         if (!stale) {
           clearRead();
+          pushMoved();
           for (const alert of failing(snapshot.sessions, snapshot.host, snapshot.updatedAt, alerting)) pushAll(alert);
         }
       } catch {

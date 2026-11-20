@@ -10,6 +10,7 @@ import android.content.Intent
 private const val NEEDS_INPUT = "needs-input"
 private const val TURN_FINISHED = "turn-finished"
 private const val CHECKS_FAILED = "checks-failed"
+private const val ACCOUNTS = "accounts"
 const val WATCHING = "watching"
 const val OPEN_SESSION = "com.cjber.kiln.OPEN_SESSION"
 const val EXTRA_ORIGIN = "origin"
@@ -65,6 +66,10 @@ class RecentAlerts(stored: String, private val limit: Int = 64) {
         fun key(origin: String, alert: FailingAlert) =
             key(origin, "failing\t${alert.session}", alert.at)
 
+        /** An account alert: a session moved to one, or one that has allowance again. */
+        fun accountKey(origin: String, alert: TurnAlert) =
+            key(origin, "account\t${alert.session}", alert.at)
+
         private fun key(origin: String, session: String, at: Long) =
             listOf(origin, session, at.toString()).joinToString("\t").replace('\n', ' ')
     }
@@ -104,6 +109,15 @@ object Alerts {
                             NotificationManager.IMPORTANCE_DEFAULT,
                         )
                         .apply { description = "A session's pull request checks failed" },
+                    NotificationChannel(
+                            ACCOUNTS,
+                            "Accounts",
+                            NotificationManager.IMPORTANCE_DEFAULT,
+                        )
+                        .apply {
+                            description =
+                                "A session moved to another account, or an account has allowance again"
+                        },
                     NotificationChannel(WATCHING, "Watching", NotificationManager.IMPORTANCE_LOW)
                         .apply {
                             description =
@@ -240,6 +254,50 @@ object Alerts {
         )
     }
 
+    /**
+     * The session now runs on [account]. It works again at once, which would read a turn alert, so
+     * this one stays until it is opened or dismissed.
+     */
+    fun showMoved(context: Context, host: Host, alert: TurnAlert, account: String) {
+        if (account.isEmpty()) return
+        if (!firstDelivery(context, RecentAlerts.accountKey(host.origin, alert))) return
+        post(
+            context,
+            host,
+            accountId(host.origin, alert.session),
+            ACCOUNTS,
+            "Moved to account $account",
+            alert.session,
+            alert.agent,
+            alert.title,
+            alert.cwd,
+            alert.at,
+            failing = false,
+            clears = false,
+        )
+    }
+
+    /** [account] of the alert's agent has allowance again; it opens the app, not a session. */
+    fun showAvailable(context: Context, host: Host, alert: TurnAlert, account: String) {
+        if (!firstDelivery(context, RecentAlerts.accountKey(host.origin, alert))) return
+        val agent = agentName(alert.agent)
+        val id = accountId(host.origin, alert.session)
+        post(
+            context,
+            host,
+            id,
+            ACCOUNTS,
+            if (account.isEmpty()) "$agent has allowance again"
+            else "$agent account $account has allowance again",
+            "Its usage limit has reset",
+            openApp(context, id),
+            null,
+        )
+    }
+
+    private fun accountId(origin: String, session: String) =
+        (origin + "\naccount\n" + session).hashCode()
+
     private fun post(
         context: Context,
         host: Host,
@@ -252,27 +310,49 @@ object Alerts {
         cwd: String,
         at: Long,
         failing: Boolean,
+        clears: Boolean = true,
+    ) =
+        post(
+            context,
+            host,
+            id,
+            channel,
+            "${title.ifBlank { "${agentName(agent)} session" }} · $what",
+            "${agentName(agent)} · ${tildePath(cwd)}",
+            openApp(context, id, host.origin to session),
+            // Without its session an alert is never cleared as read on the machine.
+            if (clears)
+                android.os.Bundle().apply {
+                    putString(EXTRA_SESSION, session)
+                    putLong(EXTRA_AT, at)
+                    putBoolean(EXTRA_FAILING, failing)
+                }
+            else null,
+        )
+
+    private fun post(
+        context: Context,
+        host: Host,
+        id: Int,
+        channel: String,
+        heading: String,
+        text: String,
+        open: PendingIntent,
+        extras: android.os.Bundle?,
     ) {
         createChannels(context)
         val notifications = context.getSystemService(NotificationManager::class.java)
-        val name = title.ifBlank { "${agentName(agent)} session" }
         notifications.notify(
             id,
             Notification.Builder(context, channel)
                 .setSmallIcon(R.drawable.icon)
-                .setContentTitle("$name · $what")
-                .setContentText("${agentName(agent)} · ${tildePath(cwd)}")
+                .setContentTitle(heading)
+                .setContentText(text)
                 .setSubText(host.name)
                 .setGroup(host.origin)
                 .setAutoCancel(true)
-                .setContentIntent(openApp(context, id, host.origin to session))
-                .addExtras(
-                    android.os.Bundle().apply {
-                        putString(EXTRA_SESSION, session)
-                        putLong(EXTRA_AT, at)
-                        putBoolean(EXTRA_FAILING, failing)
-                    }
-                )
+                .setContentIntent(open)
+                .apply { if (extras != null) addExtras(extras) }
                 .build(),
         )
         notifications.notify(

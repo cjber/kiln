@@ -30,17 +30,23 @@ enum class PushKind {
     FAILING,
     /** The session's pull request left failing, or the session closed. */
     FAILING_CLEARED,
+    /** The session now runs on [PushAlert.account], moved by a usage limit or resumed there. */
+    MOVED,
+    /** [PushAlert.account] has allowance again; the alert names no session. */
+    AVAILABLE,
 }
 
 /**
  * A push from a machine: which session changed, on the paired machine at [origin]. [pr] is the
- * failing pull request's number on [PushKind.FAILING] and [PushKind.FAILING_CLEARED].
+ * failing pull request's number on [PushKind.FAILING] and [PushKind.FAILING_CLEARED]. [account] is
+ * the agent account on [PushKind.MOVED] and [PushKind.AVAILABLE], empty for an agent with one.
  */
 data class PushAlert(
     val origin: String,
     val alert: TurnAlert,
     val kind: PushKind = PushKind.TURN,
     val pr: Int = 0,
+    val account: String = "",
 ) {
     val read: Boolean
         get() = kind == PushKind.READ
@@ -59,6 +65,8 @@ fun parsePushAlert(source: String): PushAlert? =
                 "read" -> PushKind.READ
                 "failing" -> PushKind.FAILING
                 "failing-cleared" -> PushKind.FAILING_CLEARED
+                "moved" -> PushKind.MOVED
+                "available" -> PushKind.AVAILABLE
                 else -> throw IllegalArgumentException(transition)
             }
         val session = json.getString("session")
@@ -76,6 +84,9 @@ fun parsePushAlert(source: String): PushAlert? =
             kind,
             if (kind == PushKind.FAILING || kind == PushKind.FAILING_CLEARED) json.optInt("pr")
             else 0,
+            if (kind == PushKind.MOVED || kind == PushKind.AVAILABLE)
+                json.optString("account").take(64)
+            else "",
         )
     } catch (_: Exception) {
         null
@@ -184,9 +195,13 @@ object Push {
             else -> {}
         }
         if (!notifyEnabled(context, host.origin) || Alerts.visibleOrigin == host.origin) return
-        if (push.kind == PushKind.FAILING)
-            Alerts.showFailing(context, host, FailingAlert.of(push.alert, push.pr))
-        else Alerts.show(context, host, push.alert)
+        when (push.kind) {
+            PushKind.FAILING ->
+                Alerts.showFailing(context, host, FailingAlert.of(push.alert, push.pr))
+            PushKind.MOVED -> Alerts.showMoved(context, host, push.alert, push.account)
+            PushKind.AVAILABLE -> Alerts.showAvailable(context, host, push.alert, push.account)
+            else -> Alerts.show(context, host, push.alert)
+        }
     }
 
     private fun send(host: Host, registration: PushRegistration?) {

@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The phone knows about agent accounts.** A session's details name the account it runs on. With phone writes on, the New session sheet offers the chosen agent's accounts when it has more than one, marks any that is at its limit, signed out or turned off, and starts on the one you pick; "Any account" leaves the choice to kiln. With notifications on, a phone is told when a session moves to another account and when an account has allowance again, under a new Accounts notification channel. The phone API's rows carry `account`, `GET /v1/directories` lists `accounts` (`agent`, `name`, `state`, and `until` for a spent one), `POST /v1/sessions` accepts `account`, and pushes add the `moved` and `available` transitions, which earlier apps ignore.
+
 ## [0.33.0] - 2026-11-20
 
 - **An interactive Claude session that hits its usage limit moves to another account.** Only a headless `kiln msg spawn` child was restarted before; a session in a terminal stayed stopped. kiln now reads the refusal from the session's transcript and restarts the conversation in its own pane on the account with the most headroom, with a notice in the list and a desktop notification. A spawned child keeps its sandbox grant, outbox and exit report, and one started with `--interactive` comes back interactive. A session started with `--model` returns on the default model. When no account can take the session it stays where it is and the notice says why.
