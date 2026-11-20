@@ -5,7 +5,10 @@ import { sessionTitle } from "./session-list";
 import { type Session, sessionIdentity } from "./sessions";
 import { tilde } from "./tui";
 
-/** One warning for one recipient; `key` names the pair of turns and the file, so it is sent once. */
+/**
+ * One warning for one recipient; `key` names the file, the other session and the recipient's own prompt, so a
+ * recipient hears about each other session once per file until it edits that file again for a new prompt.
+ */
 export type Collision = { to: Session; other: Session; file: string; key: string };
 
 /** The files a session edited while answering its latest prompt: the work it has not handed back yet. */
@@ -16,8 +19,9 @@ function current(ledger: Ledger): Set<string> {
 
 /**
  * Two running sessions editing one file. A collision is a new edit by one session to a file another running session
- * edited while answering its own latest prompt; both hear about it, once per file and pair of turns. Edits a session
- * had made before kiln first read it are history, and warn nobody.
+ * edited while answering its own latest prompt; both hear about it, each once per file and other session for its own
+ * prompt, however often the other one edits the file again. Edits a session had made before kiln first read it are
+ * history, and warn nobody.
  */
 export function collisionWatch() {
   const seen = new Map<string, number>();
@@ -33,14 +37,16 @@ export function collisionWatch() {
       for (const edit of ledger.edits.slice(from))
         for (const [other, theirs] of ledgers) {
           if (other === session || !current(theirs).has(edit.file)) continue;
-          const pair = [`${name}#${edit.turn}`, `${sessionIdentity(other)}#${theirs.turns.length - 1}`]
-            .sort()
-            .join("+");
-          for (const [to, from] of [
-            [session, other],
-            [other, session],
+          for (const [to, from, turn] of [
+            [session, other, edit.turn],
+            [other, session, theirs.turns.length - 1],
           ] as const)
-            found.push({ to, other: from, file: edit.file, key: `edits:${edit.file}:${pair}:${sessionIdentity(to)}` });
+            found.push({
+              to,
+              other: from,
+              file: edit.file,
+              key: `edits:${edit.file}:${sessionIdentity(to)}#${turn}:${sessionIdentity(from)}`,
+            });
         }
     }
     for (const name of seen.keys()) if (!live.some((session) => sessionIdentity(session) === name)) seen.delete(name);

@@ -44,6 +44,25 @@ test("a new edit to a file another running session is working on warns both, onc
   );
 });
 
+test("an edit for a later prompt warns only the session that made it; the other was told already", () => {
+  const claude = session("claude", "a");
+  const codex = session("codex", "b");
+  const ledgers = new Map<Session, Ledger>([
+    [claude, { turns: [{ prompt: "p" }], edits: [edit("1", "/repo/x.ts", 0)] }],
+    [codex, { turns: [{ prompt: "q" }], edits: [] }],
+  ]);
+  const read = (session: Session) => ledgers.get(session) as Ledger;
+  const watch = collisionWatch();
+  watch([claude, codex], read);
+  const codexLedger = ledgers.get(codex) as Ledger;
+  codexLedger.edits.push(edit("2", "/repo/x.ts", 0));
+  const first = watch([claude, codex], read).map((collision) => collision.key);
+  codexLedger.turns.push({ prompt: "q2" });
+  codexLedger.edits.push(edit("3", "/repo/x.ts", 1));
+  const again = watch([claude, codex], read).filter((collision) => !first.includes(collision.key));
+  expect(again.map((collision) => [collision.to.id, collision.other.id])).toEqual([["b", "a"]]);
+});
+
 test("a file another session edited for an earlier prompt, or a stopped session, warns nobody", () => {
   const claude = session("claude", "a");
   const codex = session("codex", "b");

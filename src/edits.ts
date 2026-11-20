@@ -127,7 +127,10 @@ function prompt(scan: Scan, items: readonly Item[]) {
 
 const turnOf = (scan: Scan) => scan.ledger.turns.length - 1;
 
-/** A Claude record: a typed prompt starts a turn; an edit's result carries its file and hunks. */
+/**
+ * A Claude record: a typed prompt starts a turn, and so does a message another session sent (`kiln msg`), which Claude
+ * marks meta; an edit's result carries its file and hunks.
+ */
 function claudeRecord({ scan, record }: Collect) {
   if (record.type !== "user") return;
   const result = record.toolUseResult as Record<string, unknown> | undefined;
@@ -148,6 +151,11 @@ function claudeRecord({ scan, record }: Collect) {
       if (hunks.length)
         scan.ledger.edits.push({ id, at, file: result.filePath, change: "update", hunks, turn: turnOf(scan) });
     }
+    return;
+  }
+  const content = (record.message as { content?: unknown } | undefined)?.content;
+  if ((record.origin as { kind?: unknown } | undefined)?.kind === "peer" && typeof content === "string") {
+    if (content.trim()) scan.ledger.turns.push({ prompt: content.trim(), at: timestamp(record.timestamp) });
     return;
   }
   prompt(scan, recordItems(record));

@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **An overlap notice no longer repeats for a file a session edited once.** kiln-autopilot told a Claude session that another session "is also editing" a file "which you changed for your current prompt" again each time any other session edited that file, long after the first session had moved on. A message from another session, such as a coordinator's next brief, now starts a new prompt for that session, so a file changed for an earlier one is not described as current. Each session hears about another one editing a file once, and again only after it edits that file for a new prompt.
+
 ## [0.31.2] - 2026-11-20
 
 - **A session whose agent was killed can be resumed.** When an OOM killer or a `kill -9` ended a spawned Claude and nothing closed its kiln pane, `kiln msg spawn --resume` refused with `already running` and `kiln resume` listed nothing. A pane whose agent has exited no longer counts as running: the spawn reports the old run and replaces the pane, and `kiln resume` lists such a top-level session as stopped.
