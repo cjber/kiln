@@ -1,37 +1,42 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 
+import { findClaudeTranscript } from "./claude-inbox";
 import { type LimitHit, museLimit } from "./muse-limit";
 import type { QuotaAccount } from "./quota";
 import { limitedUntil } from "./routing";
 import type { Agent } from "./sessions";
 
-/** A run that ended because its account has no allowance left, and when the provider says it has some again, ms. */
-
 /**
- * Whether a headless Claude run stopped on a rate limit. Under mclaude the run's Claude Code `StopFailure` hook (matcher
- * `rate_limit`) writes `StopFailure-<ms>.json` into the launch's limits directory, naming the session and the account.
+ * Whether a Claude run stopped on its account's usage limit. Claude Code writes the provider's refusal into the
+ * conversation's transcript as an assistant record with `error: "rate_limit"`, and `quotaLimits.resetsAt` (seconds)
+ * says when the window that refused it resets. Only a record written since `startedAt` is this run's: a resumed
+ * conversation still holds the one that ended its previous run.
  */
-export function claudeLimit(
-  id: string,
-  startedAt: number,
-  limits = join(homedir(), ".mclaude", "limits"),
-): LimitHit | undefined {
-  if (!existsSync(limits)) return undefined;
-  for (const launch of readdirSync(limits)) {
-    const dir = join(limits, launch);
+export function claudeLimit(id: string, startedAt: number, path = findClaudeTranscript(id)): LimitHit | undefined {
+  if (!path) return undefined;
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  const lines = text.split("\n");
+  for (let index = lines.length - 1; index >= 0; index--) {
+    if (!lines[index]?.includes('"rate_limit"')) continue;
     try {
-      if (statSync(dir).mtimeMs < startedAt) continue;
-      for (const file of readdirSync(dir).filter((name) => name.startsWith("StopFailure-") && name.endsWith(".json"))) {
-        const record = JSON.parse(readFileSync(join(dir, file), "utf8")) as {
-          payload?: { session_id?: string; error?: string };
-          receivedAt?: string | number;
-        };
-        if (record.payload?.session_id === id && record.payload.error === "rate_limit") return {};
-      }
+      const record = JSON.parse(lines[index] as string) as {
+        error?: unknown;
+        isApiErrorMessage?: unknown;
+        timestamp?: unknown;
+        quotaLimits?: { resetsAt?: unknown };
+      };
+      if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) continue;
+      if (typeof record.timestamp !== "string" || !(Date.parse(record.timestamp) >= startedAt)) return undefined;
+      // A refusal with no window behind it is the provider being busy, which another account would not cure.
+      const resetsAt = record.quotaLimits?.resetsAt;
+      return typeof resetsAt === "number" ? { resetsAt: resetsAt * 1000 } : undefined;
     } catch {
-      // A record mclaude is writing reads whole on the next call.
+      // A line Claude is still writing is not a record yet.
     }
   }
   return undefined;
@@ -55,8 +60,8 @@ export function providerLimit(
 
 /**
  * Whether a child that exited nonzero stopped on its account's usage limit, from the provider's own signal: Muse's
- * session log, Claude's `StopFailure` record, or (for Claude, Codex and OpenCode) the account's usage, read fresh in
- * `quota`, which shows it full or rate-limited. Output text is never searched.
+ * session log, the refusal in Claude's transcript, or (for Claude, Codex and OpenCode) the account's usage, read fresh
+ * in `quota`, which shows it full or rate-limited. Output text is never searched.
  */
 export function detectLimit(
   record: { agent: Agent; id: string; account?: string; startedAt: number },
@@ -67,8 +72,10 @@ export function detectLimit(
   switch (record.agent) {
     case "muse":
       return museLimit(record.id);
-    case "claude":
-      return claudeLimit(record.id, record.startedAt) ? { resetsAt: reported?.resetsAt } : reported;
+    case "claude": {
+      const refused = claudeLimit(record.id, record.startedAt);
+      return refused ? { resetsAt: refused.resetsAt ?? reported?.resetsAt } : reported;
+    }
     case "codex":
     case "opencode":
       return reported;

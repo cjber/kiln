@@ -17,7 +17,6 @@ import {
   opencodeWorkdir,
 } from "./opencode";
 import { piStatus } from "./pi-status";
-import { claudeAccounts } from "./quota";
 import { attachParents, rememberParents, restartStopped } from "./saved-sessions";
 import {
   type Activity,
@@ -917,9 +916,6 @@ function withAccounts(sessions: Session[]): Session[] {
     // A settings file that does not load is reported by the list itself; sessions just show no account.
     return sessions;
   }
-  const claudeNames = new Map(
-    claudeAccounts(Date.now()).flatMap((account) => (account.id && account.name ? [[account.id, account.name]] : [])),
-  );
   return sessions.map((session) => {
     if (session.pid === undefined) return session;
     try {
@@ -928,7 +924,7 @@ function withAccounts(sessions: Session[]): Session[] {
           .split("\0")
           .map((entry) => [entry.slice(0, entry.indexOf("=")), entry.slice(entry.indexOf("=") + 1)]),
       );
-      const account = accountOf(session.agent, environment, accounts, claudeNames);
+      const account = accountOf(session.agent, environment, accounts);
       return account ? { ...session, account } : session;
     } catch {
       // The process is gone or not ours to read: no account to show.

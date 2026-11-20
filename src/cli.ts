@@ -22,7 +22,7 @@ const usage = `usage: kiln            open the session list
        kiln edits [name] [--json|--follow]
                                   what each prompt changed; --follow streams new edits as JSON lines
        kiln blame <file> [--json] which session and prompt wrote each line of a file
-       kiln login <agent> <name>  sign in to a codex, muse or opencode account from [[accounts]]
+       kiln login <agent> <name>  sign in to a claude, codex, muse or opencode account from [[accounts]]
        kiln skills list|share|sync    manage shared skills
        kiln msg list|send|inbox|whoami|spawn    let running agents message and start each other
        kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>

@@ -1,9 +1,0 @@
-{
-  "payload": {
-    "session_id": "7f0c1c1e-2b6e-4a43-9d0e-0a4f6f3f7f10",
-    "hook_event_name": "StopFailure",
-    "error": "rate_limit"
-  },
-  "accountId": "pvdrfbhu",
-  "receivedAt": "2026-11-19T23:12:58.000Z"
-}

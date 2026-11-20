@@ -3,10 +3,11 @@ import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { accountEnv, loginCommand, prepareHome } from "./accounts";
+import { accountEnv, accountOf, loginCommand, prepareHome } from "./accounts";
 import { defaults } from "./settings";
 
 test("each agent's account is the variable its own CLI reads", () => {
+  expect(accountEnv({ agent: "claude", name: "a", home: "/h" })).toEqual({ CLAUDE_CONFIG_DIR: "/h" });
   expect(accountEnv({ agent: "codex", name: "a", home: "/h" })).toEqual({ CODEX_HOME: "/h" });
   expect(accountEnv({ agent: "muse", name: "a", home: "/h" })).toEqual({ XDG_CONFIG_HOME: "/h" });
   expect(accountEnv({ agent: "opencode", name: "a", home: "/h" })).toEqual({ XDG_DATA_HOME: "/h" });
@@ -15,6 +16,13 @@ test("each agent's account is the variable its own CLI reads", () => {
 test("login runs the native login after the configured command", () => {
   expect(loginCommand("codex", defaults)).toEqual(["codex", "login"]);
   expect(loginCommand("opencode", defaults)).toEqual(["opencode", "auth", "login"]);
+  expect(
+    loginCommand("claude", { ...defaults, agents: { ...defaults.agents, claude: ["claude", "--chrome"] } }),
+  ).toEqual(["claude", "auth", "login"]);
+  // A wrapper that keeps its own accounts cannot be logged in through kiln.
+  expect(() =>
+    loginCommand("claude", { ...defaults, agents: { ...defaults.agents, claude: ["mclaude", "--chrome"] } }),
+  ).toThrow("[agents] claude is mclaude, not claude");
   expect(loginCommand("muse", { ...defaults, agents: { ...defaults.agents, muse: ["env", "A=1", "muse"] } })).toEqual([
     "env",
     "A=1",
@@ -36,4 +44,30 @@ test("a Muse home links every other tool's config back, and owns only its login"
   expect(readlinkSync(join(home, "gh"))).toBe(join(real, "gh"));
   expect(readlinkSync(join(home, "muse", "settings.json"))).toBe(join(real, "muse", "settings.json"));
   expect(() => lstatSync(join(home, "muse", "auth.json"))).toThrow();
+});
+
+test("a Claude home shares everything but its login with the default config dir", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-home-"));
+  const real = join(dir, "claude");
+  mkdirSync(real);
+  writeFileSync(join(real, "settings.json"), "{}");
+  writeFileSync(join(real, ".credentials.json"), "secret");
+  writeFileSync(join(real, ".claude.json"), "{}");
+  const home = join(dir, "account");
+  prepareHome({ agent: "claude", name: "a", home }, real);
+  // An entry the shared dir gains later is linked on the next launch.
+  mkdirSync(join(real, "skills"));
+  prepareHome({ agent: "claude", name: "a", home }, real);
+  // The transcript store is shared even when the default config dir never held a conversation.
+  for (const entry of ["projects", "sessions", "settings.json", "skills"])
+    expect(readlinkSync(join(home, entry))).toBe(join(real, entry));
+  expect(() => lstatSync(join(home, ".credentials.json"))).toThrow();
+  expect(() => lstatSync(join(home, ".claude.json"))).toThrow();
+});
+
+test("a running Claude is named by its config dir, and one in an unlisted dir has no name", () => {
+  const accounts = [{ agent: "claude" as const, name: "work", home: "/srv/claude-work" }];
+  expect(accountOf("claude", { CLAUDE_CONFIG_DIR: "/srv/claude-work" }, accounts)).toBe("work");
+  expect(accountOf("claude", {}, accounts)).toBe("default");
+  expect(accountOf("claude", { CLAUDE_CONFIG_DIR: "/srv/elsewhere" }, accounts)).toBeUndefined();
 });
