@@ -20,7 +20,7 @@ export type PushAlert = {
   /**
    * `read` clears the earlier turn alert for the session, once it has been looked at on the computer.
    * `failing` says the session's pull request checks failed, and `failing-cleared` clears that alert
-   * once the stage leaves `failing`. `moved` says the session now runs on `account`, and `available` that
+   * once the stage leaves `failing`. `moved` says the session now runs on another `account` (a usage limit moved it, or it was resumed there), and `available` that
    * `account` of `agent` has allowance again; its `session` names the account. Apps that predate a
    * transition drop it.
    */

@@ -30,7 +30,7 @@ enum class PushKind {
     FAILING,
     /** The session's pull request left failing, or the session closed. */
     FAILING_CLEARED,
-    /** The session now runs on [PushAlert.account], after its own reached a usage limit. */
+    /** The session now runs on [PushAlert.account], moved by a usage limit or resumed there. */
     MOVED,
     /** [PushAlert.account] has allowance again; the alert names no session. */
     AVAILABLE,

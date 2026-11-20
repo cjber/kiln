@@ -166,6 +166,7 @@ test("a session listed on another account, and an account with allowance again, 
   pairing.setPush(paired.device.id, { endpoint: "https://push.example/x", p256dh: "k", auth: "a", machine: "m" });
   let account = "work";
   let spentUntil: number | undefined = 4_000_000_000_000;
+  let reads = 0;
   const pushed: PushAlert[] = [];
   const server = startServer({
     port: 0,
@@ -179,7 +180,10 @@ test("a session listed on another account, and an account with allowance again, 
       pushed.push(alert);
       return "sent";
     },
-    quota: async () => [{ agent: "claude", name: "work", windows: [], spentUntil, source: "none" }],
+    quota: async () => {
+      reads++;
+      return [{ agent: "claude", name: "work", windows: [], spentUntil, source: "none" }];
+    },
     discover: async () => ({
       sessions: [
         {
@@ -197,12 +201,16 @@ test("a session listed on another account, and an account with allowance again, 
     }),
   });
   try {
-    await Bun.sleep(80);
+    const until = async (met: () => boolean) => {
+      for (let waited = 0; !met() && waited < 5_000; waited += 10) await Bun.sleep(10);
+    };
+    await until(() => reads > 0);
+    await Bun.sleep(40);
     // The first listing and the first read are where things stand, not changes.
     expect(pushed.filter((alert) => alert.transition === "moved" || alert.transition === "available")).toEqual([]);
     account = "home";
     spentUntil = undefined;
-    await Bun.sleep(80);
+    await until(() => ["moved", "available"].every((kind) => pushed.some((alert) => alert.transition === kind)));
     expect(pushed.filter((alert) => alert.transition === "moved")).toMatchObject([
       { session: "claude:one", title: "Fix", agent: "claude", account: "home" },
     ]);
@@ -467,6 +475,9 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
       ],
     });
     expect((await call("/v1/sessions", { ...request, account: 7 })).status).toBe(400);
+    // An account at its limit, and one kiln does not have, are refused before the start is counted.
+    expect((await call("/v1/sessions", { ...request, account: "work" })).status).toBe(400);
+    expect((await call("/v1/sessions", { ...request, account: "nobody" })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, directory: "/etc" })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, directory: join(project, "..") })).status).toBe(400);
     expect((await call("/v1/sessions", { ...request, agent: "gemini" })).status).toBe(400);
@@ -481,8 +492,8 @@ test("phone writes pass the gate only when on, for an offered directory, an enab
     expect(await ok.json()).toEqual({ terminal: "claude-new" });
     expect(started.map(([agent, cwd, , account]) => [agent, cwd, account])).toEqual([["claude", project, undefined]]);
     expect(pairing.starts(paired.device.id)).toMatchObject([{ agent: "claude", directory: project }]);
-    expect((await call("/v1/sessions", { ...request, account: "work" })).status).toBe(200);
-    expect(started[1]?.[3]).toBe("work");
+    expect((await call("/v1/sessions", { ...request, account: "default" })).status).toBe(200);
+    expect(started[1]?.[3]).toBe("default");
 
     expect((await call("/v1/sessions/claude%3Aother/messages", { text: "hi" })).status).toBe(404);
     expect((await call("/v1/sessions/claude%E0%A4%A/messages", { text: "hi" })).status).toBe(400);

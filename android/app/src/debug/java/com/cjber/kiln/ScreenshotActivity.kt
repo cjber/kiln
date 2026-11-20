@@ -37,7 +37,23 @@ class ScreenshotActivity : ComponentActivity() {
                         immersiveScreenshot = true,
                         screenshotReady = { Log.i("KilnScreenshot", READY) },
                     )
-                else if (screen == "pair")
+                else if (screen == "start") {
+                    NewSessionSheet(
+                        StartOptions(
+                            listOf("/home/demo/code/atlas", "/home/demo/code/kiln"),
+                            listOf(Agent.CLAUDE, Agent.CODEX, Agent.OPENCODE),
+                            listOf(
+                                AccountOption(Agent.CLAUDE, "home", "ok"),
+                                AccountOption(Agent.CLAUDE, "work", "spent"),
+                            ),
+                        ),
+                        problem = "",
+                        busy = false,
+                        dismiss = {},
+                        start = { _, _, _, _ -> },
+                    )
+                    LaunchedEffect(Unit) { Log.i("KilnScreenshot", READY) }
+                } else if (screen == "pair")
                     PairingScreen(
                         error = "",
                         onDismissError = {},

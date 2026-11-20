@@ -322,6 +322,15 @@ export function startServer({
     const account = body.account;
     if (account !== undefined && (typeof account !== "string" || !account || account.length > 64))
       throw new Refusal(400, "Invalid account");
+    // Refused before the start is counted, with the reason the sheet shows for that account.
+    if (account !== undefined) {
+      const found = (await offeredAccounts(current)).find((row) => row.agent === agent && row.name === account);
+      if (found?.state !== "ok")
+        throw new Refusal(
+          400,
+          found ? `Account ${account} cannot start a session now` : `No ${agent} account ${account}`,
+        );
+    }
     try {
       pairing.recordStart(device.id, agent, body.directory);
     } catch (error) {
@@ -332,11 +341,19 @@ export function startServer({
     void refresh();
     return { terminal: outcome.name };
   };
+  const quotaWait = 3_000;
   /** The named accounts a phone may start a session on, each with whether a run can start on it now. */
   const offeredAccounts = async (current: Settings) => {
     try {
       const now = Date.now();
-      return accountRows(await quota(now, current.accounts), current, now).flatMap(({ agent, name, state, until }) =>
+      // The sheet waits on this answer, so a provider that does not answer in time leaves it without accounts.
+      const read = await Promise.race([
+        quota(now, current.accounts),
+        Bun.sleep(quotaWait).then((): QuotaAccount[] => {
+          throw new Error("quota read timed out");
+        }),
+      ]);
+      return accountRows(read, current, now).flatMap(({ agent, name, state, until }) =>
         name === undefined ? [] : [{ agent, name, state, until }],
       );
     } catch {
@@ -624,11 +641,14 @@ export function startServer({
       pushAll({ ...alert, transition: "read" });
     }
   };
-  /** The account each session was last seen on; a session listed on another one has been moved there. */
+  /**
+   * The account each session was last seen on; a session listed on another one runs there now, moved by a usage
+   * limit or resumed there. A cloud row is skipped: it is named after whichever login listed it first.
+   */
   const onAccount = new Map<string, string>();
   const pushMoved = () => {
     for (const row of snapshot.sessions) {
-      if (!row.account) continue;
+      if (!row.account || row.where === "cloud") continue;
       const before = onAccount.get(row.id);
       onAccount.set(row.id, row.account);
       if (before === undefined || before === row.account) continue;
@@ -696,16 +716,16 @@ export function startServer({
         if ((current.notifications || pushing()) && Date.now() - quotaReadAt >= quotaInterval) {
           const readAt = Date.now();
           quotaReadAt = readAt;
-          void quota(readAt, current.accounts).then(
-            (read) => {
+          void quota(readAt, current.accounts)
+            .then((read) => {
               const usable = read.filter((account) => !accountDisabled(current, account.agent, account.name));
               if (current.notifications)
                 for (const account of availableAgain(usable))
                   notify("Usage limit reset", `${account} has allowance again`);
               pushAvailable(usable, readAt);
-            },
-            () => {},
-          );
+            })
+            // A read that failed, or a pairing closed under it, leaves the last comparison standing.
+            .catch(() => {});
         }
         // A list that failed to load keeps the last decision rather than letting the computer sleep mid-turn.
         awake(keepingAwake() && sessions.some((session) => session.activity === "working"));

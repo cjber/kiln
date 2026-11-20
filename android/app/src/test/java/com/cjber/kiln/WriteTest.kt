@@ -60,7 +60,7 @@ class WriteTest {
             options.accounts,
         )
         assertEquals("home", accountLabel(options.accounts[0]))
-        assertEquals("work · at its limit", accountLabel(options.accounts[1]))
+        assertEquals("work · at limit", accountLabel(options.accounts[1]))
     }
 
     @Test

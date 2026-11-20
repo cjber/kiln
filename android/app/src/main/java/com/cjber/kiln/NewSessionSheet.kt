@@ -29,7 +29,7 @@ fun accountLabel(option: AccountOption): String =
     else
         "${option.name} · ${
             when (option.state) {
-                "spent" -> "at its limit"
+                "spent" -> "at limit"
                 "login" -> "signed out"
                 "disabled" -> "off"
                 else -> "unavailable"
@@ -91,24 +91,27 @@ fun NewSessionSheet(
                 }
             }
             val accounts = options.accounts.filter { it.agent == chosen }
+            // An account that stopped being usable while the sheet was open is no longer the
+            // choice.
+            val picked = account?.takeIf { name -> accounts.any { it.name == name && it.usable } }
             if (accounts.isNotEmpty())
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     FilterChip(
-                        selected = account == null,
+                        selected = picked == null,
                         onClick = { account = null },
                         label = { Text("Any account") },
-                        modifier = Modifier.semantics { selected = account == null },
+                        modifier = Modifier.semantics { selected = picked == null },
                     )
                     accounts.forEach { option ->
                         FilterChip(
-                            selected = account == option.name,
+                            selected = picked == option.name,
                             onClick = { account = option.name },
                             enabled = option.usable,
                             label = { Text(accountLabel(option)) },
-                            modifier = Modifier.semantics { selected = account == option.name },
+                            modifier = Modifier.semantics { selected = picked == option.name },
                         )
                     }
                 }
@@ -168,7 +171,7 @@ fun NewSessionSheet(
             Button(
                 onClick = {
                     val path = directory ?: return@Button
-                    start(chosen ?: return@Button, path, prompt.trim(), account)
+                    start(chosen ?: return@Button, path, prompt.trim(), picked)
                 },
                 enabled = !busy && chosen != null && directory != null && prompt.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
