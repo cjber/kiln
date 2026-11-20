@@ -112,9 +112,8 @@ export async function withConfigLock<T>(path: string, work: (owned: () => boolea
 /**
  * Mark the folder covering `dir` trusted in the Claude config file at `path`, with its imports from outside it allowed
  * unless they were decided before, keeping every other key, under Claude's own config lock. Returns true when it wrote,
- * false when there was nothing to change. Throws for the home
- * directory and the filesystem root, which kiln never trusts, and for a file that does not parse, which it never
- * replaces. The write goes to a temporary file renamed over the original, so a reader sees the whole old file or the
+ * false when there was nothing to change. Throws for the home directory and the filesystem root, which kiln never
+ * trusts, and for a file that does not parse, which it never replaces. The write goes to a temporary file renamed over the original, so a reader sees the whole old file or the
  * whole new one, and running Claude sessions load it.
  */
 export async function trustClaudeWorkspace(dir: string, path: string): Promise<boolean> {
@@ -147,12 +146,16 @@ export function writeTrust(path: string, key: string, owned: () => boolean): boo
   const project = record(projects[key] ?? {}, `projects["${key}"]`, path);
   // A trusted folder may still import files from outside it, which Claude asks about once in its own dialog that a
   // spawned session has no one to answer. Trusting the folder covers what it imports; a decision already made stands.
-  const imports =
-    project.hasClaudeMdExternalIncludesWarningShown === true
-      ? {}
-      : { hasClaudeMdExternalIncludesApproved: true, hasClaudeMdExternalIncludesWarningShown: true };
-  if (project.hasTrustDialogAccepted === true && !Object.keys(imports).length) return false;
-  projects[key] = { ...project, hasTrustDialogAccepted: true, ...imports };
+  const importsDecided = project.hasClaudeMdExternalIncludesWarningShown === true;
+  if (project.hasTrustDialogAccepted === true && importsDecided) return false;
+  projects[key] = {
+    ...project,
+    hasTrustDialogAccepted: true,
+    ...(!importsDecided && {
+      hasClaudeMdExternalIncludesApproved: true,
+      hasClaudeMdExternalIncludesWarningShown: true,
+    }),
+  };
   config.projects = projects;
   mkdirSync(dirname(target), { recursive: true });
   const temporary = `${target}.kiln-${process.pid}-${crypto.randomUUID()}`;

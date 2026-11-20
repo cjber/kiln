@@ -125,9 +125,8 @@ function resumable(session: Session): session is Session & { id: string } {
  * whose process is gone in the same boot was closed and is dropped; one from an earlier boot was cut off
  * by the restart, and stays as a stopped row until it is seen running again or forgotten. A top-level row whose spawn
  * pane `paneEnded` still finds dead was cut off in this boot, as an OOM kill leaves it when nothing reaped the pane,
- * and is stopped too. A row whose conversation its
- * provider lists as finished, or whose conversation `hasConversation` cannot find, is dropped: there is nothing a
- * restart cut off to resume.
+ * and is stopped too. A row whose conversation its provider lists as finished, or whose conversation `hasConversation`
+ * cannot find, is dropped: there is nothing a restart cut off to resume.
  */
 export function reconcile(
   saved: readonly Saved[],

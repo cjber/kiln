@@ -771,9 +771,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A pane whose agent has exited, as one an OOM killer took stays when nothing reaped it, holds nothing to resume
   // beside: its run is reported, as its own reporters would have, and the pane closed so this run can take the name.
-  const previousRun = endedPane(name) && spawnRecord(name);
-  if (previousRun) await reportSpawnExit(name, "", "", previousRun.runBound ? String(previousRun.startedAt) : "");
-  if (endedPane(name)) kill(name);
+  if (endedPane(name)) {
+    const previousRun = spawnRecord(name);
+    if (previousRun) await reportSpawnExit(name, "", "", previousRun.runBound ? String(previousRun.startedAt) : "");
+    kill(name);
+  }
   // A conversation still running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const startedAt = Date.now();
