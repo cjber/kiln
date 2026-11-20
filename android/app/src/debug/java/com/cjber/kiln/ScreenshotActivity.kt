@@ -189,15 +189,16 @@ private val demoProgress =
 private val demoRows =
     listOf(
             demo(
-                "claude:101",
-                Agent.CLAUDE,
-                "Cache map tiles",
-                "/home/demo/code/atlas",
-                Activity.WORKING,
-                2,
-                42,
-                "feat/tile-cache",
-            ),
+                    "claude:101",
+                    Agent.CLAUDE,
+                    "Cache map tiles",
+                    "/home/demo/code/atlas",
+                    Activity.WORKING,
+                    2,
+                    42,
+                    "feat/tile-cache",
+                )
+                .copy(account = "work"),
             demo(
                 "codex:102",
                 Agent.CODEX,
