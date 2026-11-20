@@ -33,6 +33,16 @@ export const spawnSender = "kiln-spawn";
 /** Each child reports under its own name, so one busy parent can collect more than the per-sender send limit. */
 export const spawnReportSender = (child: string) => `${spawnSender}:${child}`;
 
+/**
+ * Whether delivered text is one of kiln's own notices (an overlap or pull request warning, a child's exit report), which
+ * hand a session no new work. It reads the header `frame` writes, the only place a transcript names the sender: Claude
+ * records a peer message's sender as "unknown" and puts one line of its own before the header.
+ */
+export function kilnNotice(text: string): boolean {
+  const header = text.split("\n", 2).find((line) => line.startsWith("[kiln message from "));
+  return [autopilotSender, spawnSender].some((sender) => header?.startsWith(`[kiln message from ${sender}`));
+}
+
 /** The name a message typed on a paired phone carries. */
 export const phoneSender = (device: string) => `phone:${device}`;
 

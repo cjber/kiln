@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { codexItems, type Item, opencodeDatabase, piItems, recordItems, transcriptFile } from "./conversation";
+import { codexItems, type Item, opencodeDatabase, piItems, recordItems, texts, transcriptFile } from "./conversation";
+import { kilnNotice } from "./messages";
 import type { Session } from "./sessions";
 
 /** One hunk of a unified diff: `lines` start with ` ` (context), `-` (removed) or `+` (added). */
@@ -121,13 +122,21 @@ const resolved = (scan: Scan, path: string) => (isAbsolute(path) ? path : scan.c
 
 type Collect = { scan: Scan; record: Record<string, unknown> };
 
+/** A prompt starts a turn unless it is one of kiln's own notices, which would otherwise end the turn it warns about. */
+function startTurn(ledger: Ledger, prompt: string, at: number | undefined) {
+  if (!kilnNotice(prompt)) ledger.turns.push({ prompt, at });
+}
+
 function prompt(scan: Scan, items: readonly Item[]) {
-  for (const item of items) if (item.kind === "you") scan.ledger.turns.push({ prompt: item.text, at: item.at });
+  for (const item of items) if (item.kind === "you") startTurn(scan.ledger, item.text, item.at);
 }
 
 const turnOf = (scan: Scan) => scan.ledger.turns.length - 1;
 
-/** A Claude record: a typed prompt starts a turn; an edit's result carries its file and hunks. */
+/**
+ * A Claude record: a typed prompt starts a turn, and so does a message delivered through kiln (`kiln msg`), which Claude
+ * marks meta; an edit's result carries its file and hunks.
+ */
 function claudeRecord({ scan, record }: Collect) {
   if (record.type !== "user") return;
   const result = record.toolUseResult as Record<string, unknown> | undefined;
@@ -148,6 +157,13 @@ function claudeRecord({ scan, record }: Collect) {
       if (hunks.length)
         scan.ledger.edits.push({ id, at, file: result.filePath, change: "update", hunks, turn: turnOf(scan) });
     }
+    return;
+  }
+  if ((record.origin as { kind?: unknown } | undefined)?.kind === "peer") {
+    const text = texts((record.message as { content?: unknown } | undefined)?.content, "text")
+      .join("\n")
+      .trim();
+    if (text) startTurn(scan.ledger, text, timestamp(record.timestamp));
     return;
   }
   prompt(scan, recordItems(record));
@@ -346,7 +362,7 @@ export function opencodeLedger(
       seq = row.seq;
       if (row.type === "user") {
         if (typeof data.text === "string" && data.text.trim())
-          ledger.turns.push({ prompt: data.text.trim(), at: timestamp(time.created) });
+          startTurn(ledger, data.text.trim(), timestamp(time.created));
         continue;
       }
       if (row.type !== "assistant" || !Array.isArray(data.content)) continue;

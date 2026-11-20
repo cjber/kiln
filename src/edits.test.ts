@@ -62,6 +62,81 @@ describe("scanEdits", () => {
     expect(ledger.edits[1]?.hunks[0]?.lines).toEqual(["+x", "+y"]);
   });
 
+  test("Claude: a message from another session starts a turn; a background task notice does not", () => {
+    const path = jsonl("claude-peer.jsonl", [
+      { type: "user", uuid: "u1", promptSource: "typed", message: { content: "append to the queue" } },
+      {
+        type: "user",
+        uuid: "r1",
+        message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+        toolUseResult: {
+          type: "update",
+          filePath: "/repo/queue.md",
+          structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [" a", "+b"] }],
+        },
+      },
+      {
+        type: "user",
+        uuid: "n1",
+        isMeta: true,
+        origin: { kind: "task-notification" },
+        promptSource: "system",
+        message: { content: "<task-notification>done</task-notification>" },
+      },
+      {
+        type: "user",
+        uuid: "m1",
+        isMeta: true,
+        origin: { kind: "peer", from: "unknown" },
+        promptSource: "system",
+        message: {
+          content: "Another Claude session sent a message:\n[kiln message from claude:x]\n\nnext hourly sweep",
+        },
+      },
+    ]);
+    const { ledger } = scanEdits(path, "claude");
+    expect(ledger.turns.map((turn) => turn.prompt)).toEqual([
+      "append to the queue",
+      "Another Claude session sent a message:\n[kiln message from claude:x]\n\nnext hourly sweep",
+    ]);
+    expect(ledger.edits.map((edit) => edit.turn)).toEqual([0]);
+  });
+
+  test("kiln's own notices start no turn: an overlap warning to Claude or Codex, a child's exit report", () => {
+    const peer = (uuid: string, content: unknown) => ({
+      type: "user",
+      uuid,
+      isMeta: true,
+      origin: { kind: "peer", from: "unknown" },
+      promptSource: "system",
+      message: { content },
+    });
+    const claude = jsonl("claude-notices.jsonl", [
+      { type: "user", uuid: "u1", promptSource: "typed", message: { content: "edit x" } },
+      peer(
+        "w1",
+        "Another Claude session sent a message:\n[kiln message from kiln-autopilot]\n\ncodex:b is also editing",
+      ),
+      peer("w2", "Another Claude session sent a message:\n[kiln message from kiln-spawn:claude:c]\n\nchild done"),
+      peer("m1", [
+        { type: "text", text: "Another Claude session sent a message:\n[kiln message from phone:Pixel 9]\n\ngo" },
+      ]),
+    ]);
+    expect(scanEdits(claude, "claude").ledger.turns.map((turn) => turn.prompt)).toEqual([
+      "edit x",
+      "Another Claude session sent a message:\n[kiln message from phone:Pixel 9]\n\ngo",
+    ]);
+    const message = (text: string) => ({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+    });
+    const codex = jsonl("codex-notices.jsonl", [
+      message("edit x"),
+      message("[kiln message from kiln-autopilot]\n\nclaude:a is also editing"),
+    ]);
+    expect(scanEdits(codex, "codex").ledger.turns.map((turn) => turn.prompt)).toEqual(["edit x"]);
+  });
+
   test("reads only what was appended, and a line still being written waits", () => {
     const path = jsonl("growing.jsonl", [
       { type: "user", uuid: "u1", promptSource: "typed", message: { content: "first" } },
