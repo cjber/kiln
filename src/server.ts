@@ -668,10 +668,12 @@ export function startServer({
   /** The accounts the last quota read found at their limit; one no longer there has allowance again. */
   let spent = new Set<string>();
   const pushAvailable = (accounts: readonly QuotaAccount[], at: number) => {
-    const now = new Set<string>();
+    // An account this read does not answer for (signed out, or not listed) keeps what the last one said of it.
+    const now = new Set(spent);
     for (const account of accounts) {
       if (account.needsLogin) continue;
       const key = `${account.agent}:${account.name ?? ""}`;
+      now.delete(key);
       if (limitedUntil(account, at) !== undefined) now.add(key);
       else if (spent.has(key))
         pushAll({
