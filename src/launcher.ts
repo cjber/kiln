@@ -190,9 +190,10 @@ async function launch(
 ): Promise<Outcome> {
   const name = sessionName(agent, resume);
   if (resume && exists(name)) {
-    if (!endedPane(name)) return { kind: "attach", name };
-    // A kept pane whose agent exited holds only its exit status, and attaching to it would show a dead screen.
-    kill(name);
+    const left = endedPane(name);
+    // A kept pane whose agent exited holds only its exit status, and attaching to it would show a dead screen. Only the
+    // pane read is closed, so one another resume started meanwhile is attached to.
+    if (!left || (!reapEnded(left) && exists(name))) return { kind: "attach", name };
   }
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
