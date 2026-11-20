@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { ClaudeNotQueued, claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
@@ -249,10 +249,16 @@ function isPiInbox(pid: number): boolean {
 }
 
 /**
- * What the recipient reads: who wrote, from where, and how to answer. The reply names this kiln's executable, since
- * an agent's commands may run with a PATH that has no `kiln` on it, or an older one, as under Codex's daemon.
+ * The kiln a reply runs: this one's executable, since an agent's commands may run with a PATH that has no `kiln` on it,
+ * or an older one, as under Codex's daemon. A kiln that keeps running after its executable was removed or moved, as an
+ * upgrade to another install path leaves it, names the `kiln` on PATH instead of a path that no longer runs.
  */
-export function frame(message: Message, sender: Session | undefined, command = kiln): string {
+export function replyCommand(own = kiln): string {
+  return existsSync(own) ? own : (Bun.which("kiln") ?? "kiln");
+}
+
+/** What the recipient reads: who wrote, from where, and how to answer. */
+export function frame(message: Message, sender: Session | undefined, command = replyCommand()): string {
   const where = sender
     ? ` (${[sender.title && `"${sender.title}"`, tilde(sessionDirectory(sender))].filter(Boolean).join(" in ")})`
     : "";

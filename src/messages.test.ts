@@ -15,6 +15,7 @@ import {
   lastExit,
   NotNow,
   processAgent,
+  replyCommand,
   route,
   spawnSender,
   type Transports,
@@ -335,4 +336,10 @@ test("a direct send flushes only its recipients and leaves unrelated messages un
   expect(outcomes).toHaveLength(1);
   expect(posted(unrelated.id, path)?.deliveredAt).toBeUndefined();
   expect(pending(path).map((message) => message.id)).toEqual([unrelated.id]);
+});
+
+test("a reply names this kiln while its executable exists, and the kiln on PATH once it is gone (#290)", () => {
+  expect(replyCommand(kiln)).toBe(kiln);
+  const removed = join(mailbox(), "removed-install", "kiln");
+  expect(replyCommand(removed)).toBe(Bun.which("kiln") ?? "kiln");
 });
