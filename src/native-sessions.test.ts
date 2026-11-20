@@ -16,6 +16,7 @@ import {
   finishedOpencodeChildren,
   inheritedCodexParent,
   isInteractiveCodex,
+  processStopped,
   resumedCodexThread,
   sessionLocation,
   withCodexThreads,
@@ -544,4 +545,20 @@ test("a running codex exec process is working and is not on the shared daemon", 
     activity: "working",
     codexExec: true,
   });
+});
+
+test("a process stopped by SIGSTOP reads as stopped until it is continued (#280)", async () => {
+  const child = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+  try {
+    expect(processStopped(child.pid)).toBe(false);
+    process.kill(child.pid, "SIGSTOP");
+    for (let waited = 0; !processStopped(child.pid) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    expect(processStopped(child.pid)).toBe(true);
+    process.kill(child.pid, "SIGCONT");
+    for (let waited = 0; processStopped(child.pid) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    expect(processStopped(child.pid)).toBe(false);
+  } finally {
+    child.kill("SIGKILL");
+    await child.exited;
+  }
 });

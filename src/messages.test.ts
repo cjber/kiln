@@ -12,12 +12,15 @@ import {
   frame,
   HeldForApproval,
   heldBecause,
+  lastExit,
   NotNow,
   processAgent,
+  replyCommand,
   route,
   spawnSender,
   type Transports,
 } from "./messages";
+import type { Saved } from "./saved-sessions";
 import type { Session } from "./sessions";
 import { kiln } from "./tmux";
 
@@ -89,6 +92,23 @@ test("a send to a spawned child that has exited names its exit, not a missing se
   expect(() => findRecipient([], "claude:gnoe", exited)).toThrow("no running session is called claude:gnoe");
 });
 
+test("a resumed child is not refused on the exit report of the run before it (#277)", () => {
+  const report = {
+    id: "exit:claude:back:1000",
+    from: `${spawnSender}:claude:back`,
+    to: "claude:parent",
+    body: "Child claude:back exited with status 137.",
+    createdAt: 2_000,
+  };
+  expect(lastExit("claude:back", report, undefined)).toBe(report);
+  expect(lastExit("claude:back", report, { startedAt: 1_000 } as Saved)).toBe(report);
+  // The resume recorded a run that started after the report, so the report is about a run that is over.
+  expect(lastExit("claude:back", report, { startedAt: 3_000 } as Saved)).toBeUndefined();
+  expect(() =>
+    findRecipient([], "claude:back", () => lastExit("claude:back", report, { startedAt: 3_000 } as Saved)),
+  ).toThrow("no running session is called claude:back");
+});
+
 test("a spawned Codex run answers to the process name its spawn returned and to its thread id", () => {
   const run = session({ agent: "codex", id: "0193-thread", pid: 40, startedAt: 7.5, activity: undefined });
   expect(findRecipient([run], "codex:40:7.5")).toBe(run);
@@ -100,6 +120,9 @@ test("a spawned Codex run answers to the process name its spawn returned and to 
 
 test("typing waits for an idle session; an agent's own queue takes a message at once", () => {
   expect(route(session({}))).toEqual({ push: "tmux" });
+  // A stopped process reads nothing, its own queue included, so nothing is delivered to it (#280).
+  for (const paused of [session({ paused: true }), session({ paused: true, claudeInbox: true })])
+    expect(route(paused)).toEqual({ wait: "its process is stopped; it is delivered once the process continues" });
   expect(route(session({ activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });
   expect(route(session({ activity: undefined }))).toEqual({ wait: "its status is unknown" });
   expect("inbox" in route(session({ place: { kind: "elsewhere" } }))).toBe(true);
@@ -313,4 +336,10 @@ test("a direct send flushes only its recipients and leaves unrelated messages un
   expect(outcomes).toHaveLength(1);
   expect(posted(unrelated.id, path)?.deliveredAt).toBeUndefined();
   expect(pending(path).map((message) => message.id)).toEqual([unrelated.id]);
+});
+
+test("a reply names this kiln while its executable exists, and the kiln on PATH once it is gone (#290)", () => {
+  expect(replyCommand(kiln)).toBe(kiln);
+  const removed = join(mailbox(), "removed-install", "kiln");
+  expect(replyCommand(removed)).toBe(Bun.which("kiln") ?? "kiln");
 });

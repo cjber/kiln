@@ -173,6 +173,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
           directory: sessionDirectory(session),
           activity: session.activity,
           turnEnded: session.turnEnded ?? false,
+          paused: session.paused ?? false,
           delivery: delivery(session),
           you: me !== undefined && (sessionIdentity(session) === me || sessionAliases(session).includes(me)),
           parent: parent ? sessionIdentity(parent) : null,
@@ -187,7 +188,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
               `${"  ".repeat(row.depth)}${row.name}${row.you ? " (you)" : ""}`,
               agentName(row.agent),
               // Claude counts a turn that ended with a background shell or subagent still running as working.
-              row.turnEnded ? `${row.activity}, turn ended` : (row.activity ?? "unknown"),
+              row.paused ? "paused" : row.turnEnded ? `${row.activity}, turn ended` : (row.activity ?? "unknown"),
               tilde(row.directory),
               row.title ?? "",
               `delivery: ${row.delivery}`,

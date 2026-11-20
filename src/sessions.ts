@@ -62,6 +62,8 @@ export type Session = {
   question?: Question;
   /** Working only through a background shell or subagent: the agent's own turn has ended, so it takes a prompt. */
   turnEnded?: boolean;
+  /** The agent's process is stopped by a signal, such as SIGSTOP, and does nothing until it is continued. */
+  paused?: boolean;
   lifecycle?: Lifecycle;
   /** Claude opened an inbox for this session, so a message reaches it without typing into its terminal. */
   claudeInbox?: boolean;

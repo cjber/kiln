@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { ClaudeNotQueued, claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
@@ -7,10 +7,12 @@ import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
+import { savedRow } from "./saved-sessions";
 import {
   type Agent,
   agentName,
   answersTo,
+  isFullName,
   type Session,
   sessionDirectory,
   sessionIdentity,
@@ -91,11 +93,25 @@ export function reachable(session: Session): boolean {
   );
 }
 
+/**
+ * A spawned child's last exit report, unless the conversation has been run again since it was written: the report
+ * tells of the run that ended, and a resumed child is a later run that has not.
+ */
+export function lastExit(
+  child: string,
+  report = lastFrom(spawnReportSender(child)),
+  run = isFullName(child)
+    ? savedRow({ agent: child.slice(0, child.indexOf(":")) as Agent, id: child.slice(child.indexOf(":") + 1) })
+    : undefined,
+): Message | undefined {
+  return report && (run === undefined || report.createdAt >= run.startedAt) ? report : undefined;
+}
+
 /** A full name, or a prefix of one or of the bare id that matches a single session. */
 export function findRecipient(
   sessions: readonly Session[],
   name: string,
-  exitReport: (name: string) => Message | undefined = (child) => lastFrom(spawnReportSender(child)),
+  exitReport: (name: string) => Message | undefined = lastExit,
 ): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));
@@ -126,6 +142,8 @@ export type Route =
 
 /** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until its turn ends. */
 export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
+  // Nothing a stopped process holds, its own queue included, is read until it continues.
+  if (session.paused) return { wait: "its process is stopped; it is delivered once the process continues" };
   const busy = () =>
     session.activity === "idle" || session.turnEnded
       ? undefined
@@ -231,10 +249,16 @@ function isPiInbox(pid: number): boolean {
 }
 
 /**
- * What the recipient reads: who wrote, from where, and how to answer. The reply names this kiln's executable, since
- * an agent's commands may run with a PATH that has no `kiln` on it, or an older one, as under Codex's daemon.
+ * The kiln a reply runs: this one's executable, since an agent's commands may run with a PATH that has no `kiln` on it,
+ * or an older one, as under Codex's daemon. A kiln that keeps running after its executable was removed or moved, as an
+ * upgrade to another install path leaves it, names the `kiln` on PATH instead of a path that no longer runs.
  */
-export function frame(message: Message, sender: Session | undefined, command = kiln): string {
+export function replyCommand(own = kiln): string {
+  return existsSync(own) ? own : (Bun.which("kiln") ?? "kiln");
+}
+
+/** What the recipient reads: who wrote, from where, and how to answer. */
+export function frame(message: Message, sender: Session | undefined, command = replyCommand()): string {
   const where = sender
     ? ` (${[sender.title && `"${sender.title}"`, tilde(sessionDirectory(sender))].filter(Boolean).join(" in ")})`
     : "";

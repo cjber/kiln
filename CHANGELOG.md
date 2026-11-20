@@ -9,6 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
+- **A session whose agent was killed can be resumed.** When an OOM killer or a `kill -9` ended a spawned Claude and nothing closed its kiln pane, `kiln msg spawn --resume` refused with `already running` and `kiln resume` listed nothing. A pane whose agent has exited no longer counts as running: the spawn reports the old run and replaces the pane, and `kiln resume` lists such a top-level session as stopped.
+- **`kiln msg send` no longer refuses a resumed child on its old exit.** A child resumed after it was killed answered `has exited` with the earlier run's exit report whenever a send could not find it running. kiln now names that report only when no later run of the conversation has started.
+- **`kiln msg spawn claude --interactive` no longer stops at the external imports question.** In a folder whose `CLAUDE.md` imports files from outside it, Claude asked once whether to allow those imports, so the child waited at a dialog no one could answer and the spawn failed with Claude's screen instead of an id. Where kiln trusts the spawn's folder it now also allows its imports, as answering that dialog would, and a choice already saved in the Claude config, including a refusal, is kept.
+- **A session whose process is stopped no longer shows as working or takes a message.** A Claude stopped with SIGSTOP or a job-control stop kept the status its agent last reported, `kiln msg list` showed it as working with `delivery: now`, and a send reported delivered while nothing read it. Such a session now lists as `paused` with no status, and messages to it wait until its process continues.
+- **A reply hint no longer names a kiln that was removed.** A kiln that kept running after its install moved, such as from `~/.local/bin` to `/usr/bin`, wrote its old path into the `[Reply with: ...]` line of each message it delivered, and following it failed with exit 127. The hint now names that kiln's executable only while it exists, and the `kiln` on PATH otherwise.
+
 ## [0.31.1] - 2026-11-20
 
 - **A child that exits at once is no longer reported as started on a busy machine.** When a Codex or Antigravity child exited before it began its conversation, kiln waited one second for tmux to read its exit status and, if tmux had not, printed an id for a child that was already gone. kiln now reads the status of an exited process from the kernel, so the spawn fails with the child's exit status and output however long tmux takes.

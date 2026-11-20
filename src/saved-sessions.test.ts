@@ -60,6 +60,34 @@ test("a session saved in an earlier boot comes back stopped, until it is running
   expect(resumed.saved).toMatchObject([{ id: "a", boot: "boot-2", pid: 20 }]);
 });
 
+test("a session killed in this boot whose spawn pane is still dead comes back stopped (#276)", () => {
+  const spawned = { ...running, place: { kind: "kiln" as const, name: "claude-a" } };
+  const { saved } = reconcile([], [spawned], "boot-1", 0, dead, unknown);
+  const withPane = saved.map((item) => ({ ...item, pane: "claude-a" }));
+  const deadPane = (pane: string) => pane === "claude-a";
+  // Long after the kill, a pane nothing reaped still says the session was cut off, not closed.
+  const killed = reconcile(withPane, [], "boot-1", 10_000_000, dead, unknown, () => true, deadPane);
+  expect(killed.stopped).toMatchObject([{ id: "a", lifecycle: "stopped", place: { kind: "saved" } }]);
+  expect(reconcile(killed.saved, [], "boot-1", 20_000_000, dead, unknown, () => true, deadPane).stopped).toHaveLength(
+    1,
+  );
+  // Once the pane is gone, a session that quit in this boot was closed, as before.
+  const reaped = reconcile(
+    killed.saved,
+    [],
+    "boot-1",
+    20_000_000,
+    dead,
+    unknown,
+    () => true,
+    () => false,
+  );
+  expect(reaped.stopped).toEqual([]);
+  // A child's parent decides whether to run it again, so its dead pane does not offer it.
+  const child = withPane.map((item) => ({ ...item, parent: "claude:p", goneAt: 0 }));
+  expect(reconcile(child, [], "boot-1", 10_000_000, dead, unknown, () => true, deadPane).stopped).toEqual([]);
+});
+
 test("a listing whose process quit before it was written leaves a stopped session stopped", () => {
   const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
   const stale = reconcile(saved, [{ ...running, pid: 20 }], "boot-2", 0, dead, unknown);
@@ -386,6 +414,21 @@ test("a spawned run keeps the start time its exit hook was bound to while it run
     path,
   );
   expect(spawnRecord("claude-child", path)).toMatchObject({ startedAt: 5_000, parent: "codex:lead" });
+  // Resumed in a pane of its own, as `kiln resume` starts it, the conversation is a later run than the spawn's.
+  restartStopped(
+    [
+      {
+        agent: "claude",
+        id: "child",
+        pid: 41,
+        cwd: "/repo",
+        startedAt: 9_000,
+        place: { kind: "kiln", name: "claude-0123456789abcdef" },
+      },
+    ],
+    path,
+  );
+  expect(spawnRecord("claude-child", path)).toMatchObject({ startedAt: 9_000 });
 });
 
 test("a spawned Codex run keeps its recorded parent and title once its thread id is known", () => {

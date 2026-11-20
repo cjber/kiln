@@ -20,7 +20,20 @@ import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } fr
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings } from "./settings";
 import { recordSpent } from "./spent";
-import { ended, exists, hasExited, kill, kiln, panePid, paneState, reapEnded, screen, start, tmuxServer } from "./tmux";
+import {
+  ended,
+  endedPane,
+  exists,
+  hasExited,
+  kill,
+  kiln,
+  panePid,
+  paneState,
+  reapEnded,
+  screen,
+  start,
+  tmuxServer,
+} from "./tmux";
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] -- <prompt>`;
@@ -756,7 +769,22 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const configDir = Bun.env.CLAUDE_CONFIG_DIR || undefined;
   if (options.interactive) await trustClaudeWorkspace(options.dir, claudeConfig(Bun.env).json);
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
-  // A conversation already running in its pane is not resumed a second time beside it.
+  // A pane whose agent has exited, as one an OOM killer took stays when nothing reaped it, holds nothing to resume
+  // beside: its run is reported, as its own reporters would have, and the pane closed so this run can take the name.
+  // Reporting closes the pane only once its exit is posted, and only the pane it read, so a run another resume started
+  // meanwhile stays.
+  const left = endedPane(name);
+  if (left) {
+    const previousRun = spawnRecord(name);
+    if (previousRun) await reportSpawnExit(name, "", "", previousRun.runBound ? String(previousRun.startedAt) : "");
+    else reapEnded(left);
+  }
+  const unreported = endedPane(name);
+  if (unreported)
+    throw new Error(
+      `${options.agent}:${id}'s previous run in ${name} exited with status ${unreported.status} and kiln could not report it to its parent; run the spawn again to retry`,
+    );
+  // A conversation still running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const startedAt = Date.now();
   const { env, writable, release } = outbox(outboxKey(name, String(startedAt)));
