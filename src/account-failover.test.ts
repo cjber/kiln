@@ -60,8 +60,8 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
     place: { kind: "kiln", name },
   };
   const routes: string[][] = [];
-  const route = async (_agent: string, _accounts: unknown, _requested?: string, skip: readonly string[] = []) => {
-    routes.push([...skip]);
+  const route = async (_agent: string, _settings: unknown, options: { skip?: readonly string[] } = {}) => {
+    routes.push([...(options.skip ?? [])]);
     return { name: "two", env: { CLAUDE_CONFIG_DIR: two } };
   };
   const dir = join(root, "claims");

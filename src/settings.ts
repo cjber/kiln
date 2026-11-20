@@ -1,7 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { type Account, expandHome, isAccountAgent } from "./accounts";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import {
+  type Account,
+  type AccountAgent,
+  accountDisabled,
+  defaultAccount,
+  expandHome,
+  isAccountAgent,
+  type Pin,
+} from "./accounts";
 import { type SessionSort, sessionSorts } from "./session-sort";
 import { type Agent, agents } from "./sessions";
 
@@ -34,6 +42,10 @@ export type Settings = {
   keepAwake: boolean;
   /** Extra logins of claude, codex, muse and opencode, each its own config home. */
   accounts: Account[];
+  /** Agents whose own default login never starts a run: an `[[accounts]]` entry named "default" with `disabled`. */
+  defaultsOff: AccountAgent[];
+  /** Directories whose sessions always start on one account. */
+  pins: Pin[];
 };
 
 export const defaults: Settings = {
@@ -51,6 +63,8 @@ export const defaults: Settings = {
   editMessages: true,
   keepAwake: true,
   accounts: [],
+  defaultsOff: [],
+  pins: [],
 };
 
 const template = `# kiln settings. Delete a line to use its default.
@@ -104,11 +118,18 @@ agy = ["agy"]
 
 # More than one login of claude, codex, muse or opencode: each [[accounts]] entry is a config home of its own, and
 # \`kiln login <agent> <name>\` signs in inside it. A new session or \`kiln msg spawn\` uses the account with the
-# most headroom. The agent's own home stays an account called "default".
+# most headroom. The agent's own home stays an account called "default". \`disabled = true\` keeps an account out of
+# every choice; for the agent's own home, add an entry named "default" with only \`disabled = true\`.
 # [[accounts]]
 # agent = "codex"
 # name = "work"
 # home = "~/.local/share/kiln/accounts/codex-work"
+
+# Sessions of an agent started in a directory, or anywhere under it, always use one account.
+# [[pins]]
+# dir = "~/work"
+# agent = "codex"
+# account = "work"
 
 # Let paired phones start sessions in your directories and send prompts to running ones.
 # A phone that can do this can run code on this computer.
@@ -144,23 +165,44 @@ function stringList(path: string, key: string, value: unknown): string[] {
   return value;
 }
 
-function parseAccount(path: string, entry: unknown): Account {
+/** One `[[accounts]]` entry: a login with its home, or `agent` when it only turns that agent's default login off. */
+function parseAccount(path: string, entry: unknown): Account | AccountAgent {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) fail(path, "each [[accounts]] must be a table");
   for (const key of Object.keys(entry))
-    if (!["agent", "name", "home"].includes(key)) fail(path, `unknown setting "accounts.${key}"`);
-  const { agent, name, home } = entry as Record<string, unknown>;
+    if (!["agent", "name", "home", "disabled"].includes(key)) fail(path, `unknown setting "accounts.${key}"`);
+  const { agent, name, home, disabled } = entry as Record<string, unknown>;
   if (typeof agent !== "string" || !agent) fail(path, "an [[accounts]] entry needs an agent");
   if (!isAccountAgent(agent)) fail(path, `accounts.agent "${agent}" must be claude, codex, muse or opencode`);
-  if (typeof name !== "string" || !/^[\w.-]+$/.test(name) || name === "default")
-    fail(path, 'accounts.name must be letters, digits, ".", "_" or "-", and not "default"');
+  if (disabled !== undefined && typeof disabled !== "boolean") fail(path, "accounts.disabled must be true or false");
+  if (name === defaultAccount) {
+    // The agent's own home is not kiln's to place, so its entry can only turn it off.
+    if (home !== undefined || disabled !== true)
+      fail(path, `the ${agent} "default" account takes only disabled = true; its home is the agent's own`);
+    return agent;
+  }
+  if (typeof name !== "string" || !/^[\w.-]+$/.test(name))
+    fail(path, 'accounts.name must be letters, digits, ".", "_" or "-"');
   if (typeof home !== "string" || !home) fail(path, `accounts.home is required for ${agent} "${name}"`);
-  return { agent, name, home: expandHome(home) };
+  return { agent, name, home: expandHome(home), ...(disabled ? { disabled } : {}) };
+}
+
+function parsePin(path: string, entry: unknown): Pin {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) fail(path, "each [[pins]] must be a table");
+  for (const key of Object.keys(entry))
+    if (!["dir", "agent", "account"].includes(key)) fail(path, `unknown setting "pins.${key}"`);
+  const { dir, agent, account } = entry as Record<string, unknown>;
+  if (typeof agent !== "string" || !isAccountAgent(agent))
+    fail(path, "pins.agent must be claude, codex, muse or opencode");
+  if (typeof dir !== "string" || !isAbsolute(expandHome(dir)))
+    fail(path, 'pins.dir must be an absolute directory, or one under "~"');
+  if (typeof account !== "string" || !account) fail(path, `pins.account is required for ${dir}`);
+  return { dir: resolve(expandHome(dir)), agent, account };
 }
 
 /** A typo in the file is an error, not a silent default: a setting that does nothing is worse than a message. */
 export function parseSettings(source: string, path = settingsPath()): Settings {
   const raw = Bun.TOML.parse(source) as Record<string, unknown>;
-  const settings: Settings = { ...defaults, agents: { ...defaults.agents } };
+  const settings: Settings = { ...defaults, agents: { ...defaults.agents }, accounts: [], defaultsOff: [], pins: [] };
   for (const [key, value] of Object.entries(raw)) {
     switch (key) {
       case "sort":
@@ -211,7 +253,15 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
         break;
       case "accounts":
         if (!Array.isArray(value)) fail(path, "accounts must be [[accounts]] tables");
-        settings.accounts = value.map((entry) => parseAccount(path, entry));
+        for (const account of value.map((entry) => parseAccount(path, entry))) {
+          if (typeof account !== "string") settings.accounts.push(account);
+          else if (settings.defaultsOff.includes(account)) fail(path, `${account} account "default" is listed twice`);
+          else settings.defaultsOff.push(account);
+        }
+        break;
+      case "pins":
+        if (!Array.isArray(value)) fail(path, "pins must be [[pins]] tables");
+        settings.pins = value.map((entry) => parsePin(path, entry));
         break;
       case "phone":
         if (!value || typeof value !== "object" || Array.isArray(value)) fail(path, "[phone] must be a table");
@@ -230,6 +280,18 @@ export function parseSettings(source: string, path = settingsPath()): Settings {
     const key = `${account.agent}:${account.name}`;
     if (seen.has(key)) fail(path, `${account.agent} account "${account.name}" is listed twice`);
     seen.add(key);
+  }
+  const pinned = new Set<string>();
+  for (const pin of settings.pins) {
+    const known =
+      pin.account === defaultAccount ||
+      settings.accounts.some((account) => account.agent === pin.agent && account.name === pin.account);
+    if (!known) fail(path, `pins: no ${pin.agent} account "${pin.account}" for ${pin.dir}`);
+    if (accountDisabled(settings, pin.agent, pin.account))
+      fail(path, `pins: ${pin.agent} account "${pin.account}" is disabled, so ${pin.dir} cannot be pinned to it`);
+    const key = `${pin.agent}:${pin.dir}`;
+    if (pinned.has(key)) fail(path, `pins: ${pin.dir} is pinned twice for ${pin.agent}`);
+    pinned.add(key);
   }
   return settings;
 }

@@ -20,6 +20,8 @@ export type QuotaAccount = {
   windows: QuotaWindow[];
   /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
   spentUntil?: number;
+  /** The settings say never to start a run on it. */
+  disabled?: boolean;
   /** Its login has ended and nothing but signing in again brings it back, so no run can start on it. */
   needsLogin?: boolean;
   /** When the provider's numbers were read, ms; absent when they are live. */

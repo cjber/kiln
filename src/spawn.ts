@@ -688,7 +688,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
   // The account is chosen before anything starts: one at its limit is never picked, so a spawn can refuse here.
-  const route = await routeNew(options.agent, loadSettings().accounts, options.account, options.tried);
+  const route = await routeNew(options.agent, loadSettings(), {
+    requested: options.account,
+    skip: options.tried,
+    cwd: options.dir,
+  });
   const account = {
     account: route.name,
     brief: options.prompt,
@@ -1016,7 +1020,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   const stopped = `Child ${identity} stopped on the usage limit of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
   let report: string;
   try {
-    const route = await routeNew(record.agent, settings.accounts, undefined, tried, now);
+    const route = await routeNew(record.agent, settings, { skip: tried, now, cwd: record.cwd });
     const conversation = record.agent === "claude" ? claudeConversation(record.id) : undefined;
     const resume = conversation
       ? { id: record.id, codeMode: conversation.codeMode, title: conversation.title }

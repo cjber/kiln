@@ -65,7 +65,8 @@ test("[[accounts]] lists extra logins and rejects what kiln cannot honour", () =
   expect(defaults.accounts).toEqual([]);
   const bad = (body: string) => () => parseSettings(`[[accounts]]\n${body}`, "config.toml");
   expect(bad('agent = "pi"\nname = "a"\nhome = "/x"')).toThrow("must be claude, codex, muse or opencode");
-  expect(bad('agent = "codex"\nname = "default"\nhome = "/x"')).toThrow("accounts.name");
+  expect(bad('agent = "codex"\nname = "default"\nhome = "/x"')).toThrow("takes only disabled = true");
+  expect(bad('agent = "codex"\nname = "a b"\nhome = "/x"')).toThrow("accounts.name");
   expect(bad('agent = "codex"\nname = "a"')).toThrow("accounts.home is required");
   expect(bad('agent = "codex"\nname = "a"\nhome = "/x"\nplan = "max"')).toThrow('unknown setting "accounts.plan"');
   expect(() =>
@@ -73,4 +74,27 @@ test("[[accounts]] lists extra logins and rejects what kiln cannot honour", () =
       `[[accounts]]\nagent = "codex"\nname = "a"\nhome = "/x"\n[[accounts]]\nagent = "codex"\nname = "a"\nhome = "/y"\n`,
     ),
   ).toThrow("listed twice");
+});
+
+test("an account can be turned off, the agent's own included, and a directory pinned to one", () => {
+  const settings = parseSettings(
+    `[[accounts]]\nagent = "claude"\nname = "work"\nhome = "/srv/claude-work"\n[[accounts]]\nagent = "claude"\nname = "old"\nhome = "/srv/claude-old"\ndisabled = true\n[[accounts]]\nagent = "claude"\nname = "default"\ndisabled = true\n[[pins]]\ndir = "/srv/job"\nagent = "claude"\naccount = "work"\n`,
+    "config.toml",
+  );
+  expect(settings.accounts.map((account) => [account.name, account.disabled])).toEqual([
+    ["work", undefined],
+    ["old", true],
+  ]);
+  expect(settings.defaultsOff).toEqual(["claude"]);
+  expect(settings.pins).toEqual([{ dir: "/srv/job", agent: "claude", account: "work" }]);
+  expect(defaults.defaultsOff).toEqual([]);
+  const account = '[[accounts]]\nagent = "claude"\nname = "work"\nhome = "/x"\ndisabled = true\n';
+  const bad = (body: string) => () => parseSettings(`${account}[[pins]]\n${body}`, "config.toml");
+  expect(bad('dir = "job"\nagent = "claude"\naccount = "default"')).toThrow("pins.dir must be an absolute directory");
+  expect(bad('dir = "/job"\nagent = "pi"\naccount = "default"')).toThrow("pins.agent");
+  expect(bad('dir = "/job"\nagent = "claude"\naccount = "nobody"')).toThrow('no claude account "nobody"');
+  expect(bad('dir = "/job"\nagent = "claude"\naccount = "work"')).toThrow("is disabled");
+  expect(bad('dir = "/job"\nagent = "claude"\naccount = "default"\nmodel = "x"')).toThrow(
+    'unknown setting "pins.model"',
+  );
 });

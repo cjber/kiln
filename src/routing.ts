@@ -1,4 +1,12 @@
-import { type Account, accountEnv, defaultAccount, prepareHome } from "./accounts";
+import {
+  type Account,
+  accountDisabled,
+  accountEnv,
+  defaultAccount,
+  pinFor,
+  prepareHome,
+  type Routing,
+} from "./accounts";
 import { type QuotaAccount, readQuota } from "./quota";
 import type { Agent } from "./sessions";
 
@@ -53,7 +61,7 @@ function signIn(account: QuotaAccount): string {
 /**
  * The account a new `agent` run starts on: `requested` by name, else the one with the most headroom. An account at its
  * limit is never chosen, so a run that cannot start says when one resets instead of dying on its first request, and
- * neither is one whose login has ended.
+ * neither is one whose login has ended or one the settings disable.
  * `skip` names accounts a failed run already hit its limit on. An agent with a single account needs no pin.
  */
 export function chooseRoute(
@@ -71,17 +79,20 @@ export function chooseRoute(
       if (!own.length) throw new Error(`${agent} has no accounts to pick --account ${requested} from`);
       throw new Error(`no ${agent} account ${requested}; accounts: ${own.map((account) => account.name).join(", ")}`);
     }
+    if (found.disabled) throw new Error(`${agent} account ${found.name} is disabled in kiln's config`);
     if (found.needsLogin) throw new Error(`${agent} account ${found.name} is signed out; ${signIn(found)}`);
     if (atLimit(found, now)) throw new Error(`${agent} account ${found.name} is at its limit`);
     return routeFor(found, configured);
   }
   if (!own.length) return { env: {} };
-  const usable = own.filter((account) => !account.needsLogin);
-  if (!usable.length) throw new Error(`every ${agent} account is signed out; ${signIn(own[0] as QuotaAccount)}`);
+  const enabled = own.filter((account) => !account.disabled);
+  if (!enabled.length) throw new Error(`every ${agent} account is disabled in kiln's config`);
+  const usable = enabled.filter((account) => !account.needsLogin);
+  if (!usable.length) throw new Error(`every ${agent} account is signed out; ${signIn(enabled[0] as QuotaAccount)}`);
   const open = usable.filter((account) => !atLimit(account, now) && !skip.includes(account.name ?? defaultAccount));
   const best = open.toSorted((a, b) => headroom(b) - headroom(a))[0];
   if (!best) {
-    const resets = own
+    const resets = usable
       .flatMap((account) => [account.spentUntil, ...account.windows.map((w) => w.resetsAt)])
       .filter((at): at is number => at !== undefined && at > now);
     const soonest = resets.length ? ` until ${new Date(Math.min(...resets)).toISOString()}` : "";
@@ -90,24 +101,39 @@ export function chooseRoute(
   return routeFor(best, configured);
 }
 
-/** Read the quota and choose; a quota that cannot be read leaves the agent's default account in place. */
+/**
+ * Read the quota and choose; a quota that cannot be read leaves the agent's default account in place. A run in a
+ * pinned directory (`cwd`) starts on its pinned account as if that were `requested`, and never on another: a pinned
+ * run whose account is spent is refused rather than moved.
+ */
 export async function routeNew(
   agent: Agent,
-  configured: readonly Account[],
-  requested?: string,
-  skip: readonly string[] = [],
-  now = Date.now(),
+  settings: Routing,
+  options: { requested?: string; skip?: readonly string[]; now?: number; cwd?: string } = {},
 ): Promise<Route> {
+  const { skip = [], now = Date.now() } = options;
   if (agent === "pi") {
-    if (requested !== undefined) throw new Error("pi has a single account; drop --account");
+    if (options.requested !== undefined) throw new Error("pi has a single account; drop --account");
     return { env: {} };
   }
+  const pin = options.requested === undefined ? pinFor(settings, agent, options.cwd) : undefined;
+  if (pin && skip.includes(pin.account))
+    throw new Error(`${pin.dir} is pinned to ${agent} account ${pin.account}, which is at its limit`);
+  const requested = options.requested ?? pin?.account;
   let quota: QuotaAccount[];
   try {
-    quota = await readQuota(now, configured);
+    quota = await readQuota(now, settings.accounts);
   } catch {
     if (requested !== undefined) throw new Error(`could not read ${agent} accounts to find ${requested}`);
     return { env: {} };
   }
-  return chooseRoute(agent, quota, configured, now, requested, skip);
+  const marked = quota.map((account) =>
+    accountDisabled(settings, account.agent, account.name) ? { ...account, disabled: true } : account,
+  );
+  try {
+    return chooseRoute(agent, marked, settings.accounts, now, requested, skip);
+  } catch (error) {
+    if (pin && error instanceof Error) throw new Error(`${error.message} (${pin.dir} is pinned to it)`);
+    throw error;
+  }
 }

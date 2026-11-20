@@ -1,7 +1,7 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { failOverLimited, failoverNotice } from "./account-failover";
-import type { Account } from "./accounts";
+import { type Account, accountDisabled } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
 import { agentColor, EditsView } from "./edits-view";
@@ -264,7 +264,12 @@ export function App({
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      void readQuotaNow(getSettings().accounts).then(setQuota, () => {});
+      const routing = getSettings();
+      // An account the settings turn off is not one a run can start on, so the footer leaves it out.
+      void readQuotaNow(routing.accounts).then(
+        (read) => setQuota(read.filter((account) => !accountDisabled(routing, account.agent, account.name))),
+        () => {},
+      );
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);

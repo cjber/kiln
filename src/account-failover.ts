@@ -43,7 +43,8 @@ let running = false;
  * headroom, in its own pane and conversation. The refusal comes from the session's transcript, with the reset time the
  * provider gave; once that time has passed its own account answers again and it is left alone. A headless spawn is
  * left to its exit report, and a session on a login kiln has no name for is not moved, since nothing says which
- * account is spent. A session no account can take is reported once and tried again on every call.
+ * account is spent. A session no account can take, or one in a directory pinned to its account, is reported once
+ * and tried again on every call.
  */
 export async function failOverLimited(
   sessions: readonly Session[],
@@ -69,7 +70,7 @@ export async function failOverLimited(
       }
       let to: Awaited<ReturnType<typeof routeNew>>;
       try {
-        to = await route("claude", settings.accounts, undefined, [account], now);
+        to = await route("claude", settings, { skip: [account], now, cwd: session.cwd });
       } catch (error) {
         if (first) events.push({ kind: "stuck", session, reason: error instanceof Error ? error.message : "" });
         continue;
