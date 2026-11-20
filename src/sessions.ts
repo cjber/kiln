@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import type { Routing } from "./accounts";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import type { Question } from "./opencode";
@@ -301,9 +302,18 @@ export function discovery() {
     const { listNativeSessions } = await import("./native-sessions");
     return listNativeSessions({ kitty });
   }, "Native session discovery");
-  return async ({ cloud = false, claudeCloud = false, kitty = true } = {}): Promise<Discovered> => {
+  return async ({
+    cloud = false,
+    claudeCloud = false,
+    kitty = true,
+    accounts = [],
+    defaultsOff,
+  }: { cloud?: boolean; claudeCloud?: boolean; kitty?: boolean } & Partial<Routing> = {}): Promise<Discovered> => {
     const seen = await observed(kitty);
-    const clouds = [...(cloud ? [cloudSnapshot()] : []), ...(cloud && claudeCloud ? [claudeCloudSnapshot()] : [])];
+    const clouds = [
+      ...(cloud ? [cloudSnapshot()] : []),
+      ...(cloud && claudeCloud ? [claudeCloudSnapshot({ accounts, defaultsOff })] : []),
+    ];
     const merged = [...seen.sessions, ...clouds.flatMap((snapshot) => snapshot.sessions)]
       // Without the kitty lookup a kitty window reads as elsewhere, so only a full lookup can tell.
       .filter((session) => !kitty || openable(session))

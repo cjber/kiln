@@ -206,7 +206,7 @@ export function App({
   const discover = useMemo(() => {
     if (loadSessions) return keepLast(loadSessions, "Session discovery");
     const find = discovery();
-    return () => find({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud });
+    return () => find(getSettings());
   }, [loadSessions, getSettings]);
   const view = useCallback(
     (sessions: readonly Session[] = getSessions()) =>

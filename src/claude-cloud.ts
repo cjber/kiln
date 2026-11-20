@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { accountDisabled, claudeHome, defaultAccount, type Routing } from "./accounts";
 import { allPages, cloudCache } from "./cloud";
 import { cloudLink } from "./cloud-links";
-import type { Activity, Session } from "./sessions";
+import { type Activity, type Session, sessionIdentity } from "./sessions";
 
 /** Claude's `worker_status` values, as its own cloud picker reads them; anything else shows as unknown. */
 function activity(status: unknown): Activity | undefined {
@@ -120,9 +121,10 @@ export function claudeLogin(source: string, now = Date.now()): ClaudeLogin {
   return { state: renewable ? "expired" : "needsLogin" };
 }
 
-export async function loadClaudeCloud(): Promise<Session[]> {
+/** The cloud sessions of the login in `home`, which is kiln's own Claude config dir unless one is named. */
+export async function loadClaudeCloud(home = Bun.env.CLAUDE_CONFIG_DIR || claudeHome()): Promise<Session[]> {
   if (!Bun.which("claude")) return [];
-  const path = join(Bun.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");
+  const path = join(home, ".credentials.json");
   let source: string;
   try {
     source = await readFile(path, "utf8");
@@ -163,4 +165,37 @@ export async function loadClaudeCloud(): Promise<Session[]> {
   });
 }
 
-export const claudeCloudSnapshot = cloudCache(loadClaudeCloud);
+const snapshots = new Map<string, ReturnType<typeof cloudCache>>();
+
+/**
+ * The cloud sessions of every Claude login a run can start on: kiln's own with no accounts configured, else the
+ * default and each account, each row naming its account. Every login has a cache of its own, so one that fails keeps
+ * its last rows and reports its own problem while the others stay live. A session two logins both list is shown once.
+ */
+export function claudeCloudSnapshot(
+  settings: Routing = { accounts: [] },
+  load: (home: string) => Promise<Session[]> = loadClaudeCloud,
+) {
+  const own = settings.accounts.filter((account) => account.agent === "claude");
+  const logins: { name?: string; home: string }[] = own.length
+    ? [{ name: defaultAccount, home: claudeHome() }, ...own].filter(
+        (login) => !accountDisabled(settings, "claude", login.name),
+      )
+    : [{ home: Bun.env.CLAUDE_CONFIG_DIR || claudeHome() }];
+  const sessions = new Map<string, Session>();
+  const problems: string[] = [];
+  for (const { name, home } of logins) {
+    let snapshot = snapshots.get(home);
+    if (!snapshot) {
+      snapshot = cloudCache(() => load(home));
+      snapshots.set(home, snapshot);
+    }
+    const read = snapshot();
+    for (const session of read.sessions) {
+      const key = sessionIdentity(session);
+      if (!sessions.has(key)) sessions.set(key, name === undefined ? session : { ...session, account: name });
+    }
+    if (read.problem) problems.push(name === undefined ? read.problem : `${name}: ${read.problem}`);
+  }
+  return { sessions: [...sessions.values()], problem: problems.join(" · ") };
+}
