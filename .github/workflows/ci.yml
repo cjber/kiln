@@ -25,9 +25,10 @@ jobs:
       # tmux below 3.7 can close a dead pane before reading its last output, which the exit report tests check.
       - name: Build tmux 3.8
         working-directory: ${{ runner.temp }}
+        # A stalled package mirror once held this step until the job's time limit; each request now times out and retries.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bison libevent-dev libncurses-dev pkg-config
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y --no-install-recommends bison libevent-dev libncurses-dev pkg-config
           curl -sSfL --retry 5 --retry-all-errors --max-time 120 -o tmux.tar.gz https://github.com/tmux/tmux/releases/download/3.8/tmux-3.8.tar.gz
           echo "e79c699c7e949dccd0a4a125e17b8d1261e311b16979dbc8eb34542f3966d82e  tmux.tar.gz" | sha256sum -c -
           tar -xzf tmux.tar.gz
