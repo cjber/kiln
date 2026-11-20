@@ -29,6 +29,8 @@ function provider(status = 200) {
 }
 
 test("one request per login is shared for five minutes, then asked again", async () => {
+  // Another test file's forced refresh, at the real time, would make every read here a stale one.
+  forgetClaudeUsage(0);
   const { home, state } = login();
   const { asked, request } = provider();
   const first = await claudeUsage(now, home, state, request);
