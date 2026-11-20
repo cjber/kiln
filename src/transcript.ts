@@ -14,14 +14,42 @@ const cache = new Map<
     workdir?: string;
     codeMode?: boolean;
     turnEnded?: boolean;
+    limited?: Limited;
   }
 >();
+
+/** A usage-limit refusal in a Claude transcript: when the window that refused resets, and when it was written (ms). */
+export type Limited = { resetsAt: number; at: number };
+
+/**
+ * The refusal a transcript record holds, if it is one. Claude Code writes the provider's refusal as an assistant
+ * record with `error: "rate_limit"`, and `quotaLimits.resetsAt` (seconds) says when the window that refused it resets.
+ * A refusal with no window behind it is the provider being busy, which another account would not cure.
+ */
+export function limitRecord(record: {
+  error?: unknown;
+  isApiErrorMessage?: unknown;
+  timestamp?: unknown;
+  quotaLimits?: { resetsAt?: unknown };
+}): Limited | undefined {
+  if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) return undefined;
+  const resetsAt = record.quotaLimits?.resetsAt;
+  const at = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : Number.NaN;
+  return typeof resetsAt === "number" && !Number.isNaN(at) ? { resetsAt: resetsAt * 1000, at } : undefined;
+}
 
 /**
  * `codeMode` is Claude's own record that the conversation started in Code Mode, which it can only resume with it on.
  * `turnEnded` is true once Claude has finished a reply (`end_turn`) and nothing has been said to it since.
+ * `limited` is the usage-limit refusal the conversation stopped on, while nothing has been said to it since.
  */
-export type TranscriptDetails = { title?: string; workdir?: string; codeMode?: boolean; turnEnded?: boolean };
+export type TranscriptDetails = {
+  title?: string;
+  workdir?: string;
+  codeMode?: boolean;
+  turnEnded?: boolean;
+  limited?: Limited;
+};
 
 /**
  * Read only title and tool-call records, retaining the last complete line while a transcript is being appended.
@@ -57,6 +85,7 @@ export function readTranscript(path: string): TranscriptDetails {
             !line.includes('"tool_use"') &&
             !line.includes('"repl-mode"') &&
             !line.includes('"end_turn"') &&
+            !line.includes('"rate_limit"') &&
             !line.includes('"type":"user"')
           )
             continue;
@@ -70,8 +99,10 @@ export function readTranscript(path: string): TranscriptDetails {
               saved.codeMode = record.replMode;
             // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn, and
             // the summary Claude writes when it compacts the conversation, as it does while idle, is not a prompt.
-            else if (record.type === "user" && !record.isSidechain && !record.isCompactSummary) saved.turnEnded = false;
-            else if (record.type === "assistant" && Array.isArray(record.message?.content))
+            else if (record.type === "user" && !record.isSidechain && !record.isCompactSummary) {
+              saved.turnEnded = false;
+              saved.limited = undefined;
+            } else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
                 const found = path && checkout(path);
@@ -79,6 +110,8 @@ export function readTranscript(path: string): TranscriptDetails {
               }
             if (record.type === "assistant" && !record.isSidechain && record.message?.stop_reason === "end_turn")
               saved.turnEnded = true;
+            if (record.type === "assistant" && !record.isSidechain)
+              saved.limited = limitRecord(record) ?? saved.limited;
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
           }
@@ -103,11 +136,13 @@ function details(saved: {
   workdir?: string;
   codeMode?: boolean;
   turnEnded?: boolean;
+  limited?: Limited;
 }): TranscriptDetails {
   return {
     title: saved.title ?? saved.generated,
     workdir: saved.workdir,
     codeMode: saved.codeMode,
     turnEnded: saved.turnEnded,
+    limited: saved.limited,
   };
 }

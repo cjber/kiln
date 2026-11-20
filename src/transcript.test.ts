@@ -46,7 +46,8 @@ test("the working checkout follows the latest edit or cd, not reads or directori
     writeFileSync(path, tool("Bash", { command: `cd ${worktree} && git status` }));
     expect(readTranscript(path).workdir).toBe(worktree);
     appendFileSync(path, tool("Read", { file_path: join(main, "README.md") }));
-    appendFileSync(path, tool("Bash", { command: `cd ${tmpdir()} && ls` }));
+    // The filesystem root, since a machine's temporary directory can itself sit inside a repository.
+    appendFileSync(path, tool("Bash", { command: "cd / && ls" }));
     expect(readTranscript(path).workdir).toBe(worktree);
     appendFileSync(path, tool("Edit", { file_path: join(main, "src", "app.ts") }));
     expect(readTranscript(path).workdir).toBe(main);
@@ -85,6 +86,35 @@ test("a turn has ended once Claude finishes a reply, until a prompt or a tool re
     expect(readTranscript(path).turnEnded).toBe(false);
     appendFileSync(path, reply("tool_use"));
     expect(readTranscript(path).turnEnded).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a usage-limit refusal marks the conversation limited until the next prompt", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-transcript-"));
+  const path = join(root, "session.jsonl");
+  const refusal = (extra: object) =>
+    `${JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-11-20T10:00:00.000Z",
+      error: "rate_limit",
+      isApiErrorMessage: true,
+      message: { content: [{ type: "text", text: "limit" }] },
+      ...extra,
+    })}\n`;
+  try {
+    writeFileSync(path, `${JSON.stringify({ type: "user", message: { role: "user", content: "start" } })}\n`);
+    // The provider being busy carries no window, and is not a spent account.
+    appendFileSync(path, refusal({}));
+    expect(readTranscript(path).limited).toBeUndefined();
+    appendFileSync(path, refusal({ quotaLimits: { status: "rejected", resetsAt: 1795200000 } }));
+    expect(readTranscript(path).limited).toEqual({
+      resetsAt: 1795200000_000,
+      at: Date.parse("2026-11-20T10:00:00.000Z"),
+    });
+    appendFileSync(path, `${JSON.stringify({ type: "user", message: { role: "user", content: "carry on" } })}\n`);
+    expect(readTranscript(path).limited).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

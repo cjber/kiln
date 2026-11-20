@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { claudeCloudSnapshot } from "./claude-cloud";
 import { cloudSnapshot } from "./cloud";
 import type { Question } from "./opencode";
+import type { Limited } from "./transcript";
 
 export type Agent = "claude" | "codex" | "opencode" | "pi" | "muse" | "agy";
 
@@ -77,6 +78,8 @@ export type Session = {
   opencodeService?: boolean;
   /** The agent account this session runs on, when its agent has more than one. */
   account?: string;
+  /** The usage-limit refusal a Claude conversation stopped on, while nothing has been said to it since. */
+  limited?: Limited;
   /** The branch checked out in the session's directory, or a short commit when HEAD is detached. */
   branch?: string;
   place: Place;
