@@ -6,7 +6,7 @@ import { defaultAccount } from "./accounts";
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
-import { claudeCommand, promptArguments } from "./launcher";
+import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { detectLimit } from "./limits";
 import { outboxPath, pending, post, posted } from "./mailbox";
 import { findRecipient, flush, spawnReportSender } from "./messages";
@@ -15,10 +15,10 @@ import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forgetReads, readQuota } from "./quota";
-import { routed, routeNew } from "./routing";
+import { type Route, routed, routeNew } from "./routing";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
-import { loadSettings } from "./settings";
+import { loadSettings, type Settings } from "./settings";
 import { recordSpent } from "./spent";
 import {
   ended,
@@ -30,8 +30,10 @@ import {
   panePid,
   paneState,
   reapEnded,
+  respawn,
   screen,
   start,
+  survives,
   tmuxServer,
 } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -58,7 +60,9 @@ export type SpawnOptions = {
  * The Claude conversation `id` names: the directory Claude started it in, which `--resume` must run from, and what its
  * transcript says. Claude files it under that directory, which the id does not carry, so it is found by the id alone.
  */
-function claudeConversation(id: string): { cwd: string; codeMode: boolean; title?: string } | undefined {
+function claudeConversation(
+  id: string,
+): { cwd: string; codeMode: boolean; title?: string; refusedAt?: number } | undefined {
   if (!/^[A-Za-z0-9-]+$/.test(id)) return undefined;
   const root = join(claudeConfigDir(), "projects");
   let path: string | undefined;
@@ -73,8 +77,8 @@ function claudeConversation(id: string): { cwd: string; codeMode: boolean; title
     try {
       const { cwd } = JSON.parse(line);
       if (typeof cwd === "string") {
-        const { codeMode, title } = readTranscript(path);
-        return { cwd, codeMode: codeMode === true, title };
+        const { codeMode, title, limited } = readTranscript(path);
+        return { cwd, codeMode: codeMode === true, title, refusedAt: limited?.at };
       }
     } catch {
       // A line still being written is skipped.
@@ -686,7 +690,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     throw new Error(`${command[0] ?? agentName(options.agent)} is not on PATH`);
   const title = options.title ?? options.resume?.title ?? `${options.agent} · ${basename(options.dir)}`;
   // The account is chosen before anything starts: one at its limit is never picked, so a spawn can refuse here.
-  const route = await routeNew(options.agent, loadSettings().accounts, options.account, options.tried);
+  const route = await routeNew(options.agent, loadSettings(), {
+    requested: options.account,
+    skip: options.tried,
+    cwd: options.dir,
+  });
   const account = {
     account: route.name,
     brief: options.prompt,
@@ -821,6 +829,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     startedAt,
     pane: name,
     runBound: true,
+    interactive: options.interactive || undefined,
     ...account,
   };
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
@@ -934,10 +943,60 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // bind a remote interrupt/archive to its generation, so only explicit close does that.
 }
 
-/** What a restarted child is told. A resumed Claude conversation already holds its own history. */
+/** Whether the kiln pane `name` holds a headless `kiln msg spawn` run, whose exit is what reports its usage limit. */
+export function headlessSpawn(name: string): boolean {
+  const record = spawnRecord(name);
+  return record !== undefined && !record.interactive;
+}
+
+/**
+ * Restart the Claude conversation `id` in the kiln pane `name` on the account `route` names. tmux replaces the old
+ * process with the new one, so the conversation never runs twice, and the pane keeps its scrollback and whoever is
+ * attached to it. A spawned child keeps its sandbox grant and its outbox, and its exit hook and watcher are set again
+ * for the same run, so its parent still hears of its exit. Answers whether the new process is running.
+ */
+export async function moveClaude(
+  name: string,
+  id: string,
+  cwd: string,
+  route: Pick<Route, "name" | "env">,
+  settings: Settings,
+  graceMs = 5_000,
+): Promise<boolean> {
+  const configDir = route.env.CLAUDE_CONFIG_DIR || undefined;
+  // Claude asks about a folder its config has not trusted, and the new account's config is another file.
+  await trustClaudeWorkspace(cwd, claudeConfig({ ...Bun.env, CLAUDE_CONFIG_DIR: configDir }).json);
+  const conversation = claudeConversation(id);
+  const resume = { id, codeMode: conversation?.codeMode === true, title: conversation?.title };
+  const record = spawnRecord(name);
+  const spawned = record?.agent === "claude" && record.id === id && record.runBound ? record : undefined;
+  const token = spawned ? String(spawned.startedAt) : "";
+  const child = `claude:${id}`;
+  // The pane's first command was given the outbox in its environment, which a replaced command does not inherit.
+  const outbox = outboxPath(outboxKey(name, token));
+  const command = spawned
+    ? claudeGrants(settings.agents.claude, cwd, spawnGrants("claude", cwd, outbox))
+    : agentCommand("claude", settings, undefined, undefined, resume.codeMode);
+  const argv = interactiveClaudeCommand(command, id, resumedOnAccount, undefined, undefined, configDir, resume);
+  const hook = spawned ? exitHook(exitReporter("exit", name, child, spawned.parent ?? "", token)) : undefined;
+  if (!respawn(name, cwd, argv, hook, spawned ? { KILN_OUTBOX: outbox } : {})) return false;
+  if (!spawned) return (await survives(name, graceMs)) === true;
+  const tried = [...(spawned.tried?.split(",").filter(Boolean) ?? []), spawned.account ?? defaultAccount];
+  recordSpawn({ ...spawned, account: route.name, tried: tried.join(","), pid: await panePid(name) });
+  watchInBackground(name, child, spawned.parent ?? "", token);
+  return true;
+}
+
+/** When the Claude conversation `id` was refused on its usage limit, if nothing has been said to it since. */
+export const claudeRefusedAt = (id: string): number | undefined => claudeConversation(id)?.refusedAt;
+
+/** What a Claude conversation resumed on another account is told; it already holds its own history. */
+export const resumedOnAccount =
+  "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
+
+/** What a restarted child is told. */
 function handoffPrompt(record: Saved, output: string | undefined, resumed: boolean): string {
-  if (resumed)
-    return "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
+  if (resumed) return resumedOnAccount;
   const last = output?.trim();
   return [
     record.brief,
@@ -968,7 +1027,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   const stopped = `Child ${identity} stopped on the usage limit of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
   let report: string;
   try {
-    const route = await routeNew(record.agent, settings.accounts, undefined, tried, now);
+    const route = await routeNew(record.agent, settings, { skip: tried, now, cwd: record.cwd });
     const conversation = record.agent === "claude" ? claudeConversation(record.id) : undefined;
     const resume = conversation
       ? { id: record.id, codeMode: conversation.codeMode, title: conversation.title }
@@ -982,6 +1041,8 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
         account: route.name,
         tried,
         resume,
+        // A child a person may be watching comes back the way it was started.
+        interactive: record.interactive,
       },
       to || undefined,
     );

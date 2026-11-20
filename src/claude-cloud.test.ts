@@ -2,7 +2,8 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeCloudToken, loadClaudeCloud, parseClaudeCloudPage } from "./claude-cloud";
+import { claudeCloudSnapshot, claudeCloudToken, loadClaudeCloud, parseClaudeCloudPage } from "./claude-cloud";
+import type { Session } from "./sessions";
 
 const session = {
   id: "cse_example",
@@ -81,4 +82,40 @@ test("Claude listing follows and validates cursors, deduplicates rows and report
     else Bun.env.CLAUDE_CONFIG_DIR = previousConfig;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("every Claude account's cloud sessions are listed under its name, once each, and a failing login keeps the rest", async () => {
+  const row = (id: string): Session => ({
+    agent: "claude",
+    id,
+    cwd: "cloud",
+    title: id,
+    startedAt: 0,
+    place: { kind: "cloud", id, title: id },
+  });
+  const settings = {
+    accounts: [
+      { agent: "claude" as const, name: "work", home: "/srv/cloud-test/work" },
+      { agent: "claude" as const, name: "old", home: "/srv/cloud-test/old", disabled: true },
+      { agent: "claude" as const, name: "broken", home: "/srv/cloud-test/broken" },
+    ],
+  };
+  const asked: string[] = [];
+  const load = async (home: string) => {
+    asked.push(home);
+    if (home.endsWith("broken")) throw new Error("Claude cloud listing failed (HTTP 401)");
+    return home.endsWith("work") ? [row("shared"), row("mine")] : [row("shared")];
+  };
+  claudeCloudSnapshot(settings, load);
+  await Bun.sleep(0);
+  const found = claudeCloudSnapshot(settings, load);
+  expect(asked.filter((home) => home.startsWith("/srv/cloud-test")).sort()).toEqual([
+    "/srv/cloud-test/broken",
+    "/srv/cloud-test/work",
+  ]);
+  expect(found.sessions.map((session) => [session.id, session.account])).toEqual([
+    ["shared", "default"],
+    ["mine", "work"],
+  ]);
+  expect(found.problem).toBe("broken: Claude cloud listing failed (HTTP 401); cloud rows may be stale");
 });

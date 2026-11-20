@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
+import { availableAgain, failOverLimited, failoverNotice } from "./account-failover";
+import { accountDisabled } from "./accounts";
 import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
 import { collisionWatch, warn } from "./collisions";
@@ -19,12 +21,13 @@ import {
   reachable,
   route,
 } from "./messages";
-import { nativeNotifications } from "./notifications";
+import { nativeNotifications, notify } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
+import { readQuota } from "./quota";
 import { sessionTitle } from "./session-list";
 import {
   type Agent,
@@ -431,6 +434,7 @@ export function startServer({
   };
   let refreshing = false;
   let refreshedAt = 0;
+  let quotaReadAt = 0;
   const refreshIfOld = () => {
     if (Date.now() - refreshedAt >= interval) void refresh();
   };
@@ -613,6 +617,24 @@ export function startServer({
       listed = sessions;
       if (!stale) {
         flushInBackground(sessions);
+        const current = settings();
+        void failOverLimited(sessions, current).then(
+          (events) => {
+            if (current.notifications) for (const event of events) notify("Claude usage limit", failoverNotice(event));
+          },
+          () => {},
+        );
+        if (current.notifications && Date.now() - quotaReadAt >= 60_000) {
+          quotaReadAt = Date.now();
+          void readQuota(quotaReadAt, current.accounts).then(
+            (quota) => {
+              const usable = quota.filter((account) => !accountDisabled(current, account.agent, account.name));
+              for (const account of availableAgain(usable))
+                notify("Usage limit reset", `${account} has allowance again`);
+            },
+            () => {},
+          );
+        }
         // A list that failed to load keeps the last decision rather than letting the computer sleep mid-turn.
         awake(keepingAwake() && sessions.some((session) => session.activity === "working"));
       }

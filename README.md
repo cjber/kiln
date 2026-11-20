@@ -71,7 +71,7 @@ session is idle, so `interrupt` followed by `send` redirects an agent mid-task.
 and prints the child's kiln id. The child nests under its parent in the list, the dashboard and
 `kiln msg list`, and a child messages its parent when it finishes. `--model M` passes the model
 to the provider's headless command, and `--account NAME` pins one of several logins (see `[[accounts]]`
-in the config; `kiln login <agent> <name>` signs in to one). Without it kiln picks the account with the most headroom. When a child's process exits, kiln messages its parent with
+in the config; `kiln login <agent> <name>` signs in to one). Without it kiln picks the account with the most headroom, and `kiln accounts` prints each account's usage and whether a run can start on it. An interactive Claude session that stops on its usage limit is restarted in its own pane on another account, in the same conversation. When a child's process exits, kiln messages its parent with
 the exit status and the last output, so a child that stops on a usage limit is not lost. With
 tmux below 3.7, the report can miss the last lines of output, because tmux can close the pane
 before it has read them; the exit status is still right.

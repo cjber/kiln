@@ -28,13 +28,32 @@ Supported top-level settings:
   `~/.claude`, so every account shares transcripts, settings, skills and memory. With Claude accounts
   listed, `[agents] claude` starts `claude` itself, not a wrapper that picks an account of its own.
   A directory that is already a signed-in Claude config dir, such as an mclaude account under
-  `~/.mclaude/accounts/<id>`, is adopted by naming it as `home`, with no new login.
+  `~/.mclaude/accounts/<id>`, is adopted by naming it as `home`, with no new login;
+  `kiln accounts adopt` writes those entries (`--dry-run` prints them).
+  `disabled = true` keeps an account out of every choice and out of the footer. To turn off the
+  agent's own home, add an entry named `default` with only `agent` and `disabled = true`.
+- `[[pins]]`: `dir`, `agent` and `account`. Sessions of that agent started in `dir`, or anywhere under
+  it, always use that account (`default` or an `[[accounts]]` name); the deepest pinned directory
+  wins and `--account` overrides it. A pinned run is never moved to another account: when its
+  account is spent, the start is refused with the reason.
 
 A new session or `kiln msg spawn` uses the account with the most headroom and skips one at its limit;
 `--account NAME` pins one. When a spawned run ends on the provider's usage-limit signal, kiln records
 the account as spent until its reset (shown red in the footer) and starts the work again on another
 account. Claude resumes the same conversation, since its accounts share one transcript store; Codex, Muse and
 OpenCode start fresh with the brief and the last output, and the parent is told which happened.
+An interactive Claude session kiln started that stops on its usage limit is restarted in its own
+pane on another account, in the same conversation, with a notice and a desktop notification. A
+session no account can take stays where it is and the notice says why. When a spent account's
+limit has passed, a notification says it has allowance again.
+
+A Claude account whose token expired while idle is renewed by Claude Code: kiln runs
+`claude auth status` in its home, at most every half hour, and never writes a token itself. An
+account that cannot be renewed shows `login` in the footer and is never chosen until
+`kiln login claude <name>` (or `claude auth login` for `default`) signs it in again.
+`kiln accounts` prints each account's usage, state (`ok`, `spent`, `login`, `disabled`) and pins;
+`--json` gives the same as JSON. With `claude_cloud` on, cloud sessions are listed from every
+Claude account, each row naming its account.
 
 Starting `kiln` validates the file and reports a fault before it takes the terminal screen.
 In kiln, `s` edits and reloads settings. `o` cycles sorting for the current run;

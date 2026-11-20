@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
+import { pinFor } from "./accounts";
 import { claudeTranscript, findClaudeTranscript } from "./claude-inbox";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
@@ -59,7 +60,12 @@ export async function openSession(session: Session, settings: Settings): Promise
     case "saved": {
       if (!session.id) return notice("this session has no conversation to resume");
       // The row stays until the resumed conversation is seen running, so a resume that fails can be tried again.
-      const route = await resumeRoute(session.agent, settings);
+      let route: Awaited<ReturnType<typeof resumeRoute>>;
+      try {
+        route = await resumeRoute(session.agent, session.cwd, settings);
+      } catch (error) {
+        return notice(error instanceof Error ? error.message : "could not choose an account");
+      }
       return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, undefined, false, route);
     }
     case "elsewhere":
@@ -265,7 +271,12 @@ export async function resumeStopped(
     return { problem };
   };
   let problem = "";
-  const route = await resumeRoute(session.agent, settings);
+  let route: Awaited<ReturnType<typeof resumeRoute>>;
+  try {
+    route = await resumeRoute(session.agent, session.cwd, settings);
+  } catch (error) {
+    return failed(error instanceof Error ? error.message : "could not choose an account");
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const outcome = await launch(
       session.agent,
@@ -321,11 +332,13 @@ export function codexReconnectCommand(settings: Settings, threadId: string): str
  * on whichever has the most headroom, and on kiln's own when none can be chosen. Another agent's conversation lives in
  * the home it began in, which only its own environment names.
  */
-async function resumeRoute(agent: Agent, settings: Settings): Promise<Pick<Route, "env" | "unset">> {
+async function resumeRoute(agent: Agent, cwd: string, settings: Settings): Promise<Pick<Route, "env" | "unset">> {
   if (agent !== "claude") return { env: {} };
   try {
-    return await routeNew(agent, settings.accounts);
-  } catch {
+    return await routeNew(agent, settings, { cwd });
+  } catch (error) {
+    // A pinned directory's sessions run on its account or not at all.
+    if (pinFor(settings, agent, cwd)) throw error;
     return { env: {} };
   }
 }
@@ -333,7 +346,7 @@ async function resumeRoute(agent: Agent, settings: Settings): Promise<Pick<Route
 /** A new session on the account with the most headroom; one whose every account is at its limit is not started. */
 export async function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
   try {
-    const route = await routeNew(agent, settings.accounts);
+    const route = await routeNew(agent, settings, { cwd });
     return launch(agent, cwd, settings, `${agent} · ${cwd}`, undefined, undefined, false, route);
   } catch (error) {
     return notice(error instanceof Error ? error.message : "Could not choose an account");
@@ -346,7 +359,7 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
  */
 export async function startFromPhone(agent: Agent, cwd: string, prompt: string, settings: Settings): Promise<Outcome> {
   try {
-    const route = await routeNew(agent, settings.accounts);
+    const route = await routeNew(agent, settings, { cwd });
     return launch(
       agent,
       cwd,

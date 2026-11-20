@@ -10,7 +10,31 @@ export const accountAgents = ["claude", "codex", "muse", "opencode"] as const;
 export type AccountAgent = (typeof accountAgents)[number];
 
 /** One login of an agent: `home` is the config home its native CLI is started with. */
-export type Account = { agent: AccountAgent; name: string; home: string };
+export type Account = { agent: AccountAgent; name: string; home: string; disabled?: boolean };
+
+/** A directory whose sessions of `agent` always start on `account`, as do those of every directory under it. */
+export type Pin = { dir: string; agent: AccountAgent; account: string };
+
+/** What routing reads from the settings: the extra logins, the agents whose default login is not to be used, and the pins. */
+export type Routing = { accounts: readonly Account[]; defaultsOff?: readonly AccountAgent[]; pins?: readonly Pin[] };
+
+/** Whether the settings say never to start a run on this account. `name` is absent for an agent's only account. */
+export function accountDisabled(settings: Routing, agent: string, name?: string): boolean {
+  return name === undefined || name === defaultAccount
+    ? (settings.defaultsOff ?? []).some((off) => off === agent)
+    : settings.accounts.some(
+        (account) => account.agent === agent && account.name === name && account.disabled === true,
+      );
+}
+
+/** The pin `cwd` falls under for `agent`: the deepest pinned directory that is `cwd` or holds it. */
+export function pinFor(settings: Routing, agent: string, cwd: string | undefined): Pin | undefined {
+  if (cwd === undefined) return undefined;
+  const at = resolve(cwd);
+  return (settings.pins ?? [])
+    .filter((pin) => pin.agent === agent && (at === pin.dir || at.startsWith(`${pin.dir}/`)))
+    .toSorted((a, b) => b.dir.length - a.dir.length)[0];
+}
 
 /** The account an agent's own default home is. It is always a candidate, and cannot be configured. */
 export const defaultAccount = "default";

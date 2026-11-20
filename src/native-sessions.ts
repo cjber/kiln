@@ -305,7 +305,7 @@ async function claudeSessions(
     )
     .flatMap((item) => {
       const transcript = claudeTranscript(item.cwd, item.sessionId);
-      const { title, workdir, turnEnded } = transcript ? readTranscript(transcript) : {};
+      const { title, workdir, turnEnded, limited } = transcript ? readTranscript(transcript) : {};
       const status = claudeStatus(
         item.status,
         claudeRecord(item.pid),
@@ -330,6 +330,7 @@ async function claudeSessions(
         activity: claudeActivity(status),
         turnEnded: status === "shell" || undefined,
         claudeInbox: claudeInbox(item.pid) !== undefined || undefined,
+        limited,
       };
       switch (item.kind ?? "interactive") {
         case "interactive":

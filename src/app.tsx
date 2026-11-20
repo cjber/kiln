@@ -1,13 +1,14 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Account } from "./accounts";
+import { availableAgain, failOverLimited, failoverNotice } from "./account-failover";
+import { type Account, accountDisabled } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
 import { agentColor, EditsView } from "./edits-view";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { post } from "./mailbox";
 import { flushInBackground, reachable, terminal } from "./messages";
-import { nativeNotifications } from "./notifications";
+import { nativeNotifications, notify } from "./notifications";
 import { type QuotaAccount, quotaFooter, readQuota } from "./quota";
 import { type DetailPart, newestFirst, sessionDetail } from "./session-detail";
 import {
@@ -205,7 +206,7 @@ export function App({
   const discover = useMemo(() => {
     if (loadSessions) return keepLast(loadSessions, "Session discovery");
     const find = discovery();
-    return () => find({ cloud: getSettings().cloud, claudeCloud: getSettings().claudeCloud });
+    return () => find(getSettings());
   }, [loadSessions, getSettings]);
   const view = useCallback(
     (sessions: readonly Session[] = getSessions()) =>
@@ -263,7 +264,21 @@ export function App({
     if (refreshing.current) return;
     refreshing.current = true;
     try {
-      void readQuotaNow(getSettings().accounts).then(setQuota, () => {});
+      const routing = getSettings();
+      // An account the settings turn off is not one a run can start on, so the footer leaves it out.
+      void readQuotaNow(routing.accounts).then(
+        (read) => {
+          const usable = read.filter((account) => !accountDisabled(routing, account.agent, account.name));
+          setQuota(usable);
+          // Fixture sessions in tests have no accounts whose limits are worth reporting.
+          if (loadSessions) return;
+          for (const account of availableAgain(usable)) {
+            setNotice(`${account} has allowance again`);
+            if (routing.notifications) notify("Usage limit reset", `${account} has allowance again`);
+          }
+        },
+        () => {},
+      );
       const found = await discover();
       setSessions(found.sessions);
       setProblem(found.problem);
@@ -278,8 +293,19 @@ export function App({
       setPulls(foundPrs);
       if (!found.stale) {
         notifyNative(found.sessions, getSettings().notifications);
-        // Fixture sessions in tests are not real recipients.
-        if (!loadSessions) flushInBackground(found.sessions);
+        // Fixture sessions in tests are not real recipients, nor panes to restart.
+        if (!loadSessions) {
+          flushInBackground(found.sessions);
+          void failOverLimited(found.sessions, getSettings()).then(
+            (events) => {
+              for (const event of events) {
+                setNotice(failoverNotice(event));
+                if (getSettings().notifications) notify("Claude usage limit", failoverNotice(event));
+              }
+            },
+            () => {},
+          );
+        }
       }
       // Re-anchor the cursor so it rests beside its session if that session later goes away.
       setSelection(resolveSelection(view(found.sessions), getSelection()));

@@ -5,6 +5,7 @@ import { type LimitHit, museLimit } from "./muse-limit";
 import type { QuotaAccount } from "./quota";
 import { limitedUntil } from "./routing";
 import type { Agent } from "./sessions";
+import { limitRecord } from "./transcript";
 
 /**
  * Whether a Claude run stopped on its account's usage limit. Claude Code writes the provider's refusal into the
@@ -24,17 +25,10 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
   for (let index = lines.length - 1; index >= 0; index--) {
     if (!lines[index]?.includes('"rate_limit"')) continue;
     try {
-      const record = JSON.parse(lines[index] as string) as {
-        error?: unknown;
-        isApiErrorMessage?: unknown;
-        timestamp?: unknown;
-        quotaLimits?: { resetsAt?: unknown };
-      };
+      const record = JSON.parse(lines[index] as string);
       if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) continue;
-      if (typeof record.timestamp !== "string" || !(Date.parse(record.timestamp) >= startedAt)) return undefined;
-      // A refusal with no window behind it is the provider being busy, which another account would not cure.
-      const resetsAt = record.quotaLimits?.resetsAt;
-      return typeof resetsAt === "number" ? { resetsAt: resetsAt * 1000 } : undefined;
+      const hit = limitRecord(record);
+      return hit && hit.at >= startedAt ? { resetsAt: hit.resetsAt } : undefined;
     } catch {
       // A line Claude is still writing is not a record yet.
     }

@@ -17,6 +17,14 @@ export function nativeNotifications(send = notifySessionEvent) {
 }
 
 export function notifySessionEvent(session: Session): void {
+  notify(
+    `${session.title || `${agentName(session.agent)} session`} · ${session.activity === "waiting" ? "Needs input" : "Turn finished"}`,
+    `${agentName(session.agent)} · ${sessionDirectory(session)}`,
+  );
+}
+
+/** A desktop notification from kiln; `body` is plain text. */
+export function notify(summary: string, body = ""): void {
   const command = Bun.which("notify-send");
   if (!command) return;
   try {
@@ -25,11 +33,8 @@ export function notifySessionEvent(session: Session): void {
         command,
         "--app-name=kiln",
         "--",
-        `${session.title || `${agentName(session.agent)} session`} · ${session.activity === "waiting" ? "Needs input" : "Turn finished"}`,
-        `${agentName(session.agent)} · ${sessionDirectory(session)}`
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;"),
+        summary,
+        body.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
       ],
       { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
     );
