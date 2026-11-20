@@ -160,7 +160,7 @@ export function readConversation(
   };
 }
 
-const texts = (content: unknown, type: string): string[] =>
+export const texts = (content: unknown, type: string): string[] =>
   typeof content === "string"
     ? [content]
     : Array.isArray(content)

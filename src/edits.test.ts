@@ -102,6 +102,41 @@ describe("scanEdits", () => {
     expect(ledger.edits.map((edit) => edit.turn)).toEqual([0]);
   });
 
+  test("kiln's own notices start no turn: an overlap warning to Claude or Codex, a child's exit report", () => {
+    const peer = (uuid: string, content: unknown) => ({
+      type: "user",
+      uuid,
+      isMeta: true,
+      origin: { kind: "peer", from: "unknown" },
+      promptSource: "system",
+      message: { content },
+    });
+    const claude = jsonl("claude-notices.jsonl", [
+      { type: "user", uuid: "u1", promptSource: "typed", message: { content: "edit x" } },
+      peer(
+        "w1",
+        "Another Claude session sent a message:\n[kiln message from kiln-autopilot]\n\ncodex:b is also editing",
+      ),
+      peer("w2", "Another Claude session sent a message:\n[kiln message from kiln-spawn:claude:c]\n\nchild done"),
+      peer("m1", [
+        { type: "text", text: "Another Claude session sent a message:\n[kiln message from phone:Pixel 9]\n\ngo" },
+      ]),
+    ]);
+    expect(scanEdits(claude, "claude").ledger.turns.map((turn) => turn.prompt)).toEqual([
+      "edit x",
+      "Another Claude session sent a message:\n[kiln message from phone:Pixel 9]\n\ngo",
+    ]);
+    const message = (text: string) => ({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text }] },
+    });
+    const codex = jsonl("codex-notices.jsonl", [
+      message("edit x"),
+      message("[kiln message from kiln-autopilot]\n\nclaude:a is also editing"),
+    ]);
+    expect(scanEdits(codex, "codex").ledger.turns.map((turn) => turn.prompt)).toEqual(["edit x"]);
+  });
+
   test("reads only what was appended, and a line still being written waits", () => {
     const path = jsonl("growing.jsonl", [
       { type: "user", uuid: "u1", promptSource: "typed", message: { content: "first" } },

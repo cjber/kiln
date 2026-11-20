@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **An overlap notice no longer repeats for a file a session edited once.** kiln-autopilot told a Claude session that another session "is also editing" a file "which you changed for your current prompt" again each time any other session edited that file, long after the first session had moved on. A message from another session, such as a coordinator's next brief, now starts a new prompt for that session, so a file changed for an earlier one is not described as current. Each session hears about another one editing a file once, and again only after it edits that file for a new prompt.
+- **An overlap notice no longer repeats for a file a session edited once.** kiln-autopilot told a Claude session that another session "is also editing" a file "which you changed for your current prompt" again each time any other session edited that file, long after the first session had moved on. A message from another session, such as a coordinator's next brief, now starts a new prompt for that session, so a file changed for an earlier one is not described as current. kiln's own notices, the overlap notice included, and a child's exit report do not start one, so being warned does not hide the next overlap. Each session hears about another one editing a file once, and again only after it edits that file for a new prompt.
 
 ## [0.31.2] - 2026-11-20
 
