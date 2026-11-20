@@ -1,6 +1,7 @@
 package com.cjber.kiln
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +23,19 @@ fun matchingDirectories(directories: List<String>, query: String): List<String> 
     return directories.filter { path -> words.all { it in path.lowercase() } }
 }
 
+/** An account's name, with why a run cannot start on it when one cannot. */
+fun accountLabel(option: AccountOption): String =
+    if (option.usable) option.name
+    else
+        "${option.name} · ${
+            when (option.state) {
+                "spent" -> "at its limit"
+                "login" -> "signed out"
+                "disabled" -> "off"
+                else -> "unavailable"
+            }
+        }"
+
 /**
  * Starts a session on the machine. The session runs there, with the provider's remote control on;
  * the phone follows it through the session's handoff link rather than a transcript of its own.
@@ -33,9 +47,10 @@ fun NewSessionSheet(
     problem: String,
     busy: Boolean,
     dismiss: () -> Unit,
-    start: (Agent, String, String) -> Unit,
+    start: (Agent, String, String, String?) -> Unit,
 ) {
     var agent by rememberSaveable { mutableStateOf<Agent?>(null) }
+    var account by rememberSaveable { mutableStateOf<String?>(null) }
     var directory by rememberSaveable { mutableStateOf<String?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
     var prompt by rememberSaveable { mutableStateOf("") }
@@ -66,12 +81,37 @@ fun NewSessionSheet(
                 options.agents.forEach { value ->
                     FilterChip(
                         selected = chosen == value,
-                        onClick = { agent = value },
+                        onClick = {
+                            agent = value
+                            account = null
+                        },
                         label = { Text(agentName(value), color = agentColor(value)) },
                         modifier = Modifier.semantics { selected = chosen == value },
                     )
                 }
             }
+            val accounts = options.accounts.filter { it.agent == chosen }
+            if (accounts.isNotEmpty())
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = account == null,
+                        onClick = { account = null },
+                        label = { Text("Any account") },
+                        modifier = Modifier.semantics { selected = account == null },
+                    )
+                    accounts.forEach { option ->
+                        FilterChip(
+                            selected = account == option.name,
+                            onClick = { account = option.name },
+                            enabled = option.usable,
+                            label = { Text(accountLabel(option)) },
+                            modifier = Modifier.semantics { selected = account == option.name },
+                        )
+                    }
+                }
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
@@ -128,7 +168,7 @@ fun NewSessionSheet(
             Button(
                 onClick = {
                     val path = directory ?: return@Button
-                    start(chosen ?: return@Button, path, prompt.trim())
+                    start(chosen ?: return@Button, path, prompt.trim(), account)
                 },
                 enabled = !busy && chosen != null && directory != null && prompt.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),

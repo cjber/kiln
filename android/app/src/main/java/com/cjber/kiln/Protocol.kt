@@ -104,6 +104,8 @@ data class Row(
     val prs: List<PullInfo> = emptyList(),
     /** A restart stopped it, and the machine can start its conversation again. */
     val resumable: Boolean = false,
+    /** Which of its agent's accounts it runs on, when the machine has more than one. */
+    val account: String? = null,
 ) {
     /** Every pull request the session's branch has or it opened, most urgent first. */
     val pulls: List<PullInfo>
@@ -125,7 +127,21 @@ data class Snapshot(
 /**
  * Where the machine offers to start a session, most recent first, and the agents it has enabled.
  */
-data class StartOptions(val directories: List<String>, val agents: List<Agent>)
+data class StartOptions(
+    val directories: List<String>,
+    val agents: List<Agent>,
+    /** The accounts of agents that have more than one; machines before accounts send none. */
+    val accounts: List<AccountOption> = emptyList(),
+)
+
+/**
+ * One account a session can start on. [state] is the machine's word for it: `ok` when a run can
+ * start there now, otherwise why not (`spent`, `login`, `disabled`).
+ */
+data class AccountOption(val agent: Agent, val name: String, val state: String) {
+    val usable: Boolean
+        get() = state == "ok"
+}
 
 fun parseStartOptions(source: String): StartOptions {
     val json = JSONObject(source)
@@ -136,6 +152,15 @@ fun parseStartOptions(source: String): StartOptions {
         (0 until directories.length()).map { directories.getString(it) },
         (0 until agents.length()).mapNotNull { index ->
             Agent.entries.find { it.id == agents.getString(index) }
+        },
+        json.optJSONArray("accounts").let { list ->
+            (0 until minOf(list?.length() ?: 0, 100)).mapNotNull { index ->
+                val item = list?.optJSONObject(index) ?: return@mapNotNull null
+                val agent = Agent.entries.find { it.id == item.optString("agent") }
+                val name = item.optString("name")
+                if (agent == null || name.isEmpty()) null
+                else AccountOption(agent, name, item.optString("state"))
+            }
         },
     )
 }
@@ -338,6 +363,7 @@ fun parseSnapshot(source: String, origin: String? = null): Snapshot {
                     }
                 },
                 item.optBoolean("resumable"),
+                item.optString("account").takeIf { it.isNotEmpty() },
             )
         }
     return Snapshot(

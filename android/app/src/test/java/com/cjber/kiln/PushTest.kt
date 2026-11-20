@@ -24,6 +24,27 @@ class PushTest {
     }
 
     @Test
+    fun parsesAccountAlerts() {
+        val moved = parsePushAlert(body.replace("finished\"", "moved\",\"account\":\"work\""))!!
+        assertEquals(PushKind.MOVED, moved.kind)
+        assertEquals("work", moved.account)
+        val available =
+            parsePushAlert(
+                body
+                    .replace("claude:1", "account:claude:work")
+                    .replace("finished\"", "available\",\"account\":\"work\"")
+            )!!
+        assertEquals(PushKind.AVAILABLE, available.kind)
+        assertEquals("work", available.account)
+        assertEquals("", parsePushAlert(body.replace("finished", "available"))!!.account)
+        // An account on any other alert is not one this version reads.
+        assertEquals(
+            "",
+            parsePushAlert(body.replace("\"at\"", "\"account\":\"x\",\"at\""))!!.account,
+        )
+    }
+
+    @Test
     fun parsesMuseAlerts() {
         assertEquals(
             Agent.MUSE,
