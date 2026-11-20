@@ -414,6 +414,21 @@ test("a spawned run keeps the start time its exit hook was bound to while it run
     path,
   );
   expect(spawnRecord("claude-child", path)).toMatchObject({ startedAt: 5_000, parent: "codex:lead" });
+  // Resumed in a pane of its own, as `kiln resume` starts it, the conversation is a later run than the spawn's.
+  restartStopped(
+    [
+      {
+        agent: "claude",
+        id: "child",
+        pid: 41,
+        cwd: "/repo",
+        startedAt: 9_000,
+        place: { kind: "kiln", name: "claude-0123456789abcdef" },
+      },
+    ],
+    path,
+  );
+  expect(spawnRecord("claude-child", path)).toMatchObject({ startedAt: 9_000 });
 });
 
 test("a spawned Codex run keeps its recorded parent and title once its thread id is known", () => {

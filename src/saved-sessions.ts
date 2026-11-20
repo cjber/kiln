@@ -159,9 +159,12 @@ export function reconcile(
       cwd: session.cwd,
       title: session.title ?? recorded?.title,
       parent: session.spawnParent ?? recorded?.parent,
-      // A spawned run's exit hook and watcher are bound to the start time its spawn recorded, so a row with a pane
-      // keeps it; the listing reads the process's own start time.
-      startedAt: recorded?.pane ? recorded.startedAt : session.startedAt,
+      // A spawned run's exit hook and watcher are bound to the start time its spawn recorded, so a row keeps it while
+      // the run is in its pane; the listing reads the process's own start time, which a resume elsewhere starts anew.
+      startedAt:
+        recorded?.pane && session.place.kind === "kiln" && session.place.name === recorded.pane
+          ? recorded.startedAt
+          : session.startedAt,
       lastActiveAt: session.lastActiveAt,
       boot,
       pid: session.pid,
