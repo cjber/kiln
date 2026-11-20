@@ -1,9 +1,10 @@
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { forgetReads } from "./quota";
-import { routeNew } from "./routing";
+import { defaultAccount } from "./accounts";
+import { forgetReads, type QuotaAccount } from "./quota";
+import { limitedUntil, routeNew } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
 import { headlessSpawn, moveClaude } from "./spawn";
@@ -97,4 +98,34 @@ export function failoverNotice(event: Failover): string {
     case "failed":
       return `${title} reached its usage limit and could not be restarted on Claude account ${event.to}`;
   }
+}
+
+const limitedDir = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "accounts-limited");
+
+/**
+ * The accounts that have allowance again: each was seen at its limit, and the time the provider gave for it has now
+ * passed with the limit gone. A limited account leaves a file naming that time, and removing the file is what reports
+ * it, so of the list and the phone server only one says so, once per limit.
+ */
+export function availableAgain(quota: readonly QuotaAccount[], now = Date.now(), dir = limitedDir()): string[] {
+  const back: string[] = [];
+  for (const account of quota) {
+    if (account.disabled || account.needsLogin) continue;
+    const path = join(dir, `${account.agent}.${account.name ?? defaultAccount}`);
+    const until = limitedUntil(account, now);
+    if (until !== undefined) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      writeFileSync(path, String(until), { mode: 0o600 });
+      continue;
+    }
+    try {
+      if (Number(readFileSync(path, "utf8")) > now) continue;
+      unlinkSync(path);
+    } catch {
+      // Never seen at a limit, or the other watcher reported it first.
+      continue;
+    }
+    back.push(account.name === undefined ? account.agent : `${account.agent} account ${account.name}`);
+  }
+  return back;
 }

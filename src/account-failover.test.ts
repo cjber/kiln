@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failOverLimited, failoverNotice } from "./account-failover";
+import { availableAgain, failOverLimited, failoverNotice } from "./account-failover";
+import type { QuotaAccount } from "./quota";
 import type { Session } from "./sessions";
 import { defaults, type Settings } from "./settings";
 import { moveClaude } from "./spawn";
@@ -120,4 +121,23 @@ test("a session no account can take is reported once and left in its pane", asyn
     "moved",
   ]);
   expect(moved).toEqual(["claude-none"]);
+});
+
+test("an account seen at its limit is reported once when the limit has gone, and never before its time", () => {
+  const limited = mkdtempSync(join(tmpdir(), "kiln-limited-"));
+  const at = Date.parse("2026-11-19T23:15:00Z");
+  const account = (percent: number, extra: Partial<QuotaAccount> = {}): QuotaAccount => ({
+    agent: "claude",
+    name: "work",
+    windows: [{ label: "5h", percent, resetsAt: at + 3_600_000 }],
+    source: "claude-usage",
+    ...extra,
+  });
+  expect(availableAgain([account(20)], at, limited)).toEqual([]);
+  expect(availableAgain([account(100)], at, limited)).toEqual([]);
+  // The provider's numbers fell early; the time it gave has not passed.
+  expect(availableAgain([account(20)], at + 60_000, limited)).toEqual([]);
+  expect(availableAgain([account(100, { needsLogin: true })], at + 3_700_000, limited)).toEqual([]);
+  expect(availableAgain([account(0)], at + 3_700_000, limited)).toEqual(["claude account work"]);
+  expect(availableAgain([account(0)], at + 3_800_000, limited)).toEqual([]);
 });

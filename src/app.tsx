@@ -1,6 +1,6 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { failOverLimited, failoverNotice } from "./account-failover";
+import { availableAgain, failOverLimited, failoverNotice } from "./account-failover";
 import { type Account, accountDisabled } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
@@ -267,7 +267,16 @@ export function App({
       const routing = getSettings();
       // An account the settings turn off is not one a run can start on, so the footer leaves it out.
       void readQuotaNow(routing.accounts).then(
-        (read) => setQuota(read.filter((account) => !accountDisabled(routing, account.agent, account.name))),
+        (read) => {
+          const usable = read.filter((account) => !accountDisabled(routing, account.agent, account.name));
+          setQuota(usable);
+          // Fixture sessions in tests have no accounts whose limits are worth reporting.
+          if (loadSessions) return;
+          for (const account of availableAgain(usable)) {
+            setNotice(`${account} has allowance again`);
+            if (routing.notifications) notify("Usage limit reset", `${account} has allowance again`);
+          }
+        },
         () => {},
       );
       const found = await discover();
