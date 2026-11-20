@@ -415,15 +415,46 @@ function readExit(name: string): PaneExit | Watched | "gone" {
     } catch {
       // The server can exit after the read; the next read then finds the session gone.
     }
+    // A command that exited keeps its status in the kernel until it is reaped, so it is read there rather than waiting
+    // on tmux, which a loaded machine or a lost SIGCHLD can hold back for seconds or for good.
+    const zombie = zombieStatus(Number(command));
+    if (zombie !== undefined) return { status: zombie, output: paneOutput(target), pane, generation };
     const exited = hasExited(Number(command));
     return { waiting: exited === undefined ? "unknown" : exited ? "exiting" : "closed", pane, generation };
   }
+  return { status: status ? Number(status) : 128 + signalNumber(signal), output: paneOutput(target), pane, generation };
+}
+
+function paneOutput(target: string): string {
   const captured = Bun.spawnSync([...tmux(), "capture-pane", "-p", "-J", "-S", "-", "-t", target], {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const output = lastLines(captured.stdout.toString());
-  return { status: status ? Number(status) : 128 + signalNumber(signal), output, pane, generation };
+  return lastLines(captured.stdout.toString());
+}
+
+/**
+ * The status of a process that has exited but is not yet reaped, in a shell's terms: its exit code, or 128 plus the
+ * signal that killed it. Undefined while it runs or once it is gone. Linux keeps a zombie's wait status in field 52 of
+ * `/proc/<pid>/stat` (proc(5), since Linux 3.5).
+ */
+export function zombieStatus(pid: number): number | undefined {
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+  } catch {
+    return undefined;
+  }
+  // Fields after the parenthesised command name, which may contain spaces, start at field 3 (the state).
+  const fields = stat
+    .slice(stat.lastIndexOf(")") + 2)
+    .trimEnd()
+    .split(" ");
+  if (fields[0] !== "Z") return undefined;
+  const wait = Number(fields[52 - 3]);
+  if (!Number.isInteger(wait)) return undefined;
+  const signal = wait & 0x7f;
+  return signal === 0 ? (wait >> 8) & 0xff : 128 + signal;
 }
 
 /** Whether a process has exited, including one its parent has not reaped yet; undefined when its state cannot be read. */
