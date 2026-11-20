@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A child that exits at once is no longer reported as started on a busy machine.** When a Codex or Antigravity child exited before it began its conversation, kiln waited one second for tmux to read its exit status and, if tmux had not, printed an id for a child that was already gone. kiln now reads the status of an exited process from the kernel, so the spawn fails with the child's exit status and output however long tmux takes.
+
 ## [0.31.0] - 2026-11-19
 
 - **Several logins per agent.** Claude's accounts come from mclaude and kiln starts Claude through it, pinned to one account. Codex, Muse and OpenCode take `[[accounts]]` entries in the config, each with its own home, and `kiln login <agent> <name>` signs in to one. A new session or `kiln msg spawn` uses the account with the most headroom and skips one at its limit, `--account NAME` pins one, and the list shows each row's account. The footer shows numbers per account, OpenCode Go's from its usage endpoint, and a Muse or OpenCode account that hit its limit reads `spent ↻<date>` in red until it resets. A spawned run that ends on a usage limit starts again on another account: Claude resumes the same conversation, the others start fresh with the brief and last output, and the parent is told which.

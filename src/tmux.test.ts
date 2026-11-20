@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sessionsHidden, tmuxSocket } from "./tmux";
+import { sessionsHidden, tmuxSocket, zombieStatus } from "./tmux";
 import { killServer } from "./tmux-server";
 
 const host = "pid:[4026531836]";
@@ -71,5 +71,28 @@ test("a session started from inside another tmux pane keeps its own exit options
     expect(show("show-options", "-w", "-t", "=caller:", "remain-on-exit")).toBe("");
   } finally {
     killServer(server);
+  }
+});
+
+test("an exited process its parent has not reaped yet has its status read from the kernel", async () => {
+  // The shell starts each child in the background, prints its pid and becomes `sleep`, which never reaps it.
+  const parent = Bun.spawn(["sh", "-c", "sh -c 'exit 7' & echo $!; sh -c 'kill -9 $$' & echo $!; exec sleep 5"], {
+    stdout: "pipe",
+  });
+  try {
+    const reader = parent.stdout.getReader();
+    let text = "";
+    while (text.split("\n").length < 3) text += new TextDecoder().decode((await reader.read()).value);
+    const [exited, killed] = text.trim().split("\n").map(Number);
+    let statuses: (number | undefined)[] = [];
+    for (const deadline = Date.now() + 2_000; Date.now() < deadline; await Bun.sleep(10)) {
+      statuses = [zombieStatus(exited), zombieStatus(killed)];
+      if (statuses.every((status) => status !== undefined)) break;
+    }
+    expect(statuses).toEqual([7, 137]);
+    expect(zombieStatus(parent.pid)).toBeUndefined();
+  } finally {
+    parent.kill();
+    await parent.exited;
   }
 });
