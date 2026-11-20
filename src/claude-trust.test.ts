@@ -93,11 +93,46 @@ test("trust is added and every other key is kept", async () => {
   expect(await trustClaudeWorkspace(plain, join(config, ".claude.json"))).toBe(true);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     oauthAccount: { id: "a" },
-    projects: { "/other": { allowedTools: ["x"] }, [plain]: { mcp: 1, hasTrustDialogAccepted: true } },
+    projects: {
+      "/other": { allowedTools: ["x"] },
+      [plain]: {
+        mcp: 1,
+        hasTrustDialogAccepted: true,
+        hasClaudeMdExternalIncludesApproved: true,
+        hasClaudeMdExternalIncludesWarningShown: true,
+      },
+    },
   });
   expect(statSync(path).mode & 0o777).toBe(0o600);
   // Already trusted: nothing to write.
   expect(await trustClaudeWorkspace(plain, join(config, ".claude.json"))).toBe(false);
+});
+
+test("a trusted folder's outside imports are allowed once, and a decision already made stands (#278)", async () => {
+  const config = join(root, "config-imports");
+  const [unasked, declined] = ["imports-unasked", "imports-declined"].map((name) => join(root, name));
+  for (const dir of [config, unasked, declined]) mkdirSync(dir);
+  const path = join(config, ".claude.json");
+  const declinedEntry = {
+    hasTrustDialogAccepted: true,
+    hasClaudeMdExternalIncludesApproved: false,
+    hasClaudeMdExternalIncludesWarningShown: true,
+  };
+  // A folder a person trusted before still asked about its imports, a dialog no one answers for a spawned session.
+  writeFileSync(
+    path,
+    JSON.stringify({ projects: { [unasked]: { hasTrustDialogAccepted: true }, [declined]: declinedEntry } }),
+  );
+  expect(await trustClaudeWorkspace(unasked, path)).toBe(true);
+  expect(await trustClaudeWorkspace(declined, path)).toBe(false);
+  expect(JSON.parse(readFileSync(path, "utf8")).projects).toEqual({
+    [unasked]: {
+      hasTrustDialogAccepted: true,
+      hasClaudeMdExternalIncludesApproved: true,
+      hasClaudeMdExternalIncludesWarningShown: true,
+    },
+    [declined]: declinedEntry,
+  });
 });
 
 test("a missing file or projects map is created", async () => {
@@ -106,7 +141,13 @@ test("a missing file or projects map is created", async () => {
   const missing = join(root, "config-missing");
   expect(await trustClaudeWorkspace(plain, join(missing, ".claude.json"))).toBe(true);
   expect(JSON.parse(readFileSync(join(missing, ".claude.json"), "utf8"))).toEqual({
-    projects: { [plain]: { hasTrustDialogAccepted: true } },
+    projects: {
+      [plain]: {
+        hasTrustDialogAccepted: true,
+        hasClaudeMdExternalIncludesApproved: true,
+        hasClaudeMdExternalIncludesWarningShown: true,
+      },
+    },
   });
   const empty = join(root, "config-empty");
   mkdirSync(empty);
@@ -114,7 +155,13 @@ test("a missing file or projects map is created", async () => {
   expect(await trustClaudeWorkspace(plain, join(empty, ".claude.json"))).toBe(true);
   expect(JSON.parse(readFileSync(join(empty, ".claude.json"), "utf8"))).toEqual({
     theme: "dark",
-    projects: { [plain]: { hasTrustDialogAccepted: true } },
+    projects: {
+      [plain]: {
+        hasTrustDialogAccepted: true,
+        hasClaudeMdExternalIncludesApproved: true,
+        hasClaudeMdExternalIncludesWarningShown: true,
+      },
+    },
   });
 });
 
@@ -155,7 +202,13 @@ test("a write waits for Claude's config lock and takes over one its holder left 
   expect(await trustClaudeWorkspace(plain, join(config, ".claude.json"))).toBe(true);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     theme: "light",
-    projects: { [plain]: { hasTrustDialogAccepted: true } },
+    projects: {
+      [plain]: {
+        hasTrustDialogAccepted: true,
+        hasClaudeMdExternalIncludesApproved: true,
+        hasClaudeMdExternalIncludesWarningShown: true,
+      },
+    },
   });
   expect(existsSync(`${path}.lock`)).toBe(false);
   // Left by a writer that died: stale after proper-lockfile's 10 seconds.
@@ -246,6 +299,8 @@ test("a launch that reaches an untrusted config is trusted there, and a register
     expect(await settleLaunch(child.pid, id, dir, 5_000)).toBe("untrusted");
     expect(JSON.parse(readFileSync(join(inner, ".claude.json"), "utf8")).projects[dir]).toEqual({
       hasTrustDialogAccepted: true,
+      hasClaudeMdExternalIncludesApproved: true,
+      hasClaudeMdExternalIncludesWarningShown: true,
     });
     // The helper never carried the session id, so its account was left alone.
     expect(existsSync(join(helper, ".claude.json"))).toBe(false);
