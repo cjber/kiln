@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -26,10 +26,25 @@ function read(path: string): Record<string, number> {
 /** Remember that `account` of `agent` is spent until `resetsAt` (ms). */
 export function recordSpent(agent: Agent, account: string | undefined, resetsAt: number, path = spentPath()): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const next = { ...read(path), [key(agent, account)]: resetsAt };
-  const temporary = `${path}.${process.pid}`;
-  writeFileSync(temporary, JSON.stringify(next), { mode: 0o600 });
-  renameSync(temporary, path);
+  // The list, the phone server and each child's exit reporter all record here, and two that read the file before
+  // either wrote it would drop one account. A lock a dead process left is taken over after a second.
+  const lock = `${path}.lock`;
+  for (let waited = 0; waited < 1_000; waited += 5) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch {
+      Bun.sleepSync(5);
+    }
+  }
+  try {
+    const next = { ...read(path), [key(agent, account)]: resetsAt };
+    const temporary = `${path}.${process.pid}`;
+    writeFileSync(temporary, JSON.stringify(next), { mode: 0o600 });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 /** When `account` of `agent` is spent until, if it still is at `now`. */
