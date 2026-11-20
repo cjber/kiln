@@ -246,9 +246,12 @@ export type Discovered = {
   problem: string;
   /** Some rows are the last successful ones rather than a fresh observation. */
   stale: boolean;
-  /** Why a running session may be absent from the list; empty when every source was read. Absence then proves nothing. */
-  missing?: string;
+  /** Set when a running session may be absent from the list, so absence proves nothing. */
+  missing?: Missing;
 };
+
+/** Why a running session may be absent from a list, and the one agent whose sessions those are, when it is one. */
+export type Missing = { reason: string; agent?: Agent };
 
 /**
  * While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. A source
@@ -267,7 +270,7 @@ export function keepLast<A extends unknown[]>(
         sessions: last,
         problem: Array.isArray(found) ? "" : found.problem,
         stale: false,
-        missing: Array.isArray(found) ? "" : found.missing,
+        missing: Array.isArray(found) ? undefined : found.missing,
       };
     } catch {
       last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
@@ -275,7 +278,7 @@ export function keepLast<A extends unknown[]>(
         sessions: last,
         problem: `${name} unavailable; showing the last successful list`,
         stale: true,
-        missing: `${name} failed`,
+        missing: { reason: `${name} failed` },
       };
     }
   };
@@ -315,13 +318,16 @@ export function discovery() {
 
 /**
  * One observation, for callers that would rather fail than show a stale list. A caller that acts on stopped sessions
- * passes `withStopped`, so a list missing them fails too rather than reading as none stopped.
+ * passes `withStopped`, so a list missing them fails too rather than reading as none stopped. One that reads a name's
+ * absence as the session being gone passes `whole`, so a list a running session may be missing from fails as well.
  */
 export async function listSessions(
   options: Parameters<ReturnType<typeof discovery>>[0] = {},
   withStopped = false,
+  whole = false,
 ): Promise<Session[]> {
   const found = await discovery()(options);
+  if (whole && found.missing) throw new Error(found.missing.reason);
   if (found.stale || (withStopped && found.problem)) throw new Error(found.problem);
   return found.sessions;
 }

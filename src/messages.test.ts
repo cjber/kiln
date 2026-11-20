@@ -92,21 +92,20 @@ test("a send to a spawned child that has exited names its exit, not a missing se
   expect(() => findRecipient([], "claude:gnoe", exited)).toThrow("no running session is called claude:gnoe");
 });
 
-test("a name a failed listing may have left out is not called exited or unknown", () => {
+test("a name a failed listing may have left out is not called unknown, and one it could not have is", () => {
   // `claude agents` timing out lists no Claude at all in a one-shot command, so absence there proves nothing (#277).
-  const report = {
-    id: "exit:1",
-    from: `${spawnSender}:claude:busy`,
-    to: "claude:parent",
-    body: "exited",
-    createdAt: 1,
-  };
-  const failed = "claude agents failed or timed out";
-  expect(() => findRecipient([], "claude:busy", () => report, failed)).toThrow(
-    "claude agents failed or timed out, so kiln cannot tell whether claude:busy is running; try again",
-  );
-  expect(() => findRecipient([], "claude:typo", () => undefined, failed)).toThrow("cannot tell whether claude:typo");
-  expect(findRecipient([session({ agent: "codex", id: "xyz" })], "codex:xyz", undefined, failed).id).toBe("xyz");
+  const report = { id: "exit:1", from: `${spawnSender}:codex:done`, to: "claude:parent", body: "exited", createdAt: 1 };
+  const exited = (name: string) => (name === "codex:done" || name === "claude:done" ? report : undefined);
+  const failed = { reason: "claude agents failed or timed out", agent: "claude" as const };
+  const unknown = "claude agents failed or timed out, so kiln cannot tell whether";
+  expect(() => findRecipient([], "claude:busy", exited, failed)).toThrow(`${unknown} claude:busy is running`);
+  expect(() => findRecipient([], "bus", exited, failed)).toThrow(`${unknown} bus is running`);
+  // Another agent's sessions were listed, and a child's own exit report still says what happened to it.
+  expect(() => findRecipient([], "codex:typo", exited, failed)).toThrow("no running session is called codex:typo");
+  expect(() => findRecipient([], "codex:done", exited, failed)).toThrow("codex:done has exited");
+  expect(() => findRecipient([], "claude:done", exited, failed)).toThrow("claude:done has exited");
+  // With every source failed, no agent's absence is known.
+  expect(() => findRecipient([], "codex:typo", exited, { reason: "discovery failed" })).toThrow("cannot tell");
 });
 
 test("a resumed child is not refused on the exit report of the run before it (#277)", () => {

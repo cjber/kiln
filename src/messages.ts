@@ -13,6 +13,7 @@ import {
   agentName,
   answersTo,
   isFullName,
+  type Missing,
   type Session,
   sessionDirectory,
   sessionIdentity,
@@ -122,8 +123,8 @@ export function findRecipient(
   sessions: readonly Session[],
   name: string,
   exitReport: (name: string) => Message | undefined = lastExit,
-  /** Why a running session may be absent from `sessions`, from discovery; a name it lacks is then not known to be gone. */
-  missing = "",
+  /** From discovery: a name `sessions` lacks, which that source could have listed, is then not known to be gone. */
+  missing?: Missing,
 ): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));
@@ -133,13 +134,15 @@ export function findRecipient(
   );
   if (matches.length === 1 && matches[0]) return matches[0];
   if (!matches.length) {
-    if (missing) throw new Error(`${missing}, so kiln cannot tell whether ${name} is running; try again`);
     // A spawned child that has exited left its exit report, so a sender can tell it from a mistyped name.
     const exit = exitReport(name);
     if (exit)
       throw new Error(
         `${name} has exited; kiln reported at ${new Date(exit.createdAt).toISOString()}: ${exit.body.split("\n")[0]}`,
       );
+    const agent = name.includes(":") ? name.slice(0, name.indexOf(":")) : undefined;
+    if (missing && (missing.agent === undefined || agent === undefined || agent === missing.agent))
+      throw new Error(`${missing.reason}, so kiln cannot tell whether ${name} is running`);
     throw new Error(`no running session is called ${name}; run kiln msg list`);
   }
   throw new Error(`${name} matches ${matches.map(sessionIdentity).join(", ")}; give more of the name`);

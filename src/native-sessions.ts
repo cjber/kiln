@@ -24,6 +24,7 @@ import {
   agents,
   gitBranch,
   type Lifecycle,
+  type Missing,
   type Place,
   processStartTicks,
   type Session,
@@ -249,42 +250,40 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
 }
 
 let lastClaude: ClaudeAgent[] = [];
-let claudeUnlisted = false;
-
-/** Whether the last Claude listing failed, so its rows are the kept ones: none at all in a process's first listing. */
-export const claudeListingFailed = () => claudeUnlisted;
 
 /**
  * A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list.
- * Each process is stamped with its start when it is listed, and a kept row keeps that stamp.
+ * Each process is stamped with its start when it is listed, and a kept row keeps that stamp. `kept` says the rows are
+ * those last ones, none at all in a process's first listing, so a Claude running now may be absent from them.
  */
-export function claudeListing(source: string | undefined, start = processStartTicks): ClaudeAgent[] {
+export function claudeListing(
+  source: string | undefined,
+  start = processStartTicks,
+): { agents: ClaudeAgent[]; kept: boolean } {
   try {
     const listed: unknown = source === undefined ? undefined : JSON.parse(source);
     if (Array.isArray(listed)) {
       lastClaude = (listed as ClaudeAgent[]).map((item) =>
         typeof item.pid === "number" ? { ...item, processStart: start(item.pid) } : item,
       );
-      claudeUnlisted = false;
-      return lastClaude;
+      return { agents: lastClaude, kept: false };
     }
   } catch {
     // Output cut short by the timeout is a failed listing.
   }
-  claudeUnlisted = true;
   lastClaude = lastClaude.map(({ status, ...item }) => item);
-  return lastClaude;
+  return { agents: lastClaude, kept: true };
 }
 
 async function claudeSessions(
   owned: Promise<{ name: string; pid: number }[]>,
-): Promise<{ processes: AgentProcess[]; finished: Session[] }> {
-  if (!Bun.which("claude")) return { processes: [], finished: [] };
+): Promise<{ processes: AgentProcess[]; finished: Session[]; kept: boolean }> {
+  if (!Bun.which("claude")) return { processes: [], finished: [], kept: false };
   const process = Bun.spawn(["claude", "agents", "--json", "--all"], { stdout: "pipe", stderr: "ignore" });
   const timeout = setTimeout(() => process.kill(), 2_000);
   const [source, code] = await Promise.all([new Response(process.stdout).text(), process.exited]);
   clearTimeout(timeout);
-  const listed = claudeListing(code ? undefined : source);
+  const { agents: listed, kept } = claudeListing(code ? undefined : source);
   const kilnPanes = new Map((await owned).map((pane) => [pane.pid, pane.name]));
   const claudePids = new Set(listed.map((item) => item.pid));
   // The kiln pane a Claude runs in, as its own process or under a wrapper; never the pane of another session above it.
@@ -359,6 +358,7 @@ async function claudeSessions(
   const live = new Set(processes.map((session) => session.id));
   return {
     processes,
+    kept,
     finished: finishedClaudeJobs(listed).filter((job) => !job.id || !live.has(job.id)),
   };
 }
@@ -809,7 +809,7 @@ function stamped<Process extends { pid: number }>(process: Process): Process & {
  */
 export async function listNativeSessions({
   kitty = true,
-} = {}): Promise<{ sessions: Session[]; problem: string; missing: string }> {
+} = {}): Promise<{ sessions: Session[]; problem: string; missing?: Missing }> {
   const readCodex = async () => {
     const processes = (await codexProcesses()).map(stamped).map((process) => ({
       ...process,
@@ -904,8 +904,7 @@ export async function listNativeSessions({
   }
   const found = withAccounts(attachParents([...listed, ...stopped]));
   rememberParents(found);
-  // Read after the listing above: a Claude that is running may be absent from rows kept from before it started.
-  const missing = Bun.which("claude") && claudeListingFailed() ? "claude agents failed or timed out" : "";
+  const missing = claude.kept ? { reason: "claude agents failed or timed out", agent: "claude" as const } : undefined;
   return { sessions: await closeFinishedChildren(found), problem, missing };
 }
 

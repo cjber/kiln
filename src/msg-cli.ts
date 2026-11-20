@@ -5,6 +5,7 @@ import { callerIdentity, findRecipient, flush, frame, interrupt, reachable, rout
 import { archiveOpencodeSession } from "./opencode";
 import {
   agentName,
+  type Discovered,
   discovery,
   isFullName,
   type Session,
@@ -54,7 +55,7 @@ export function isPeer(name: string): boolean {
 }
 
 /** The sessions that can be written to, and why a running one may be absent from them. */
-async function observe(): Promise<{ sessions: Session[]; missing?: string }> {
+async function observe(): Promise<Pick<Discovered, "sessions" | "missing">> {
   // A process that cannot see the sessions would list none and call each one gone, so it says why instead.
   const hidden = await sessionsHidden();
   if (hidden) throw new Error(hidden);
@@ -221,7 +222,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
         console.log(values.json ? JSON.stringify([result], null, 2) : `${result.to}: queued; ${result.reason}.`);
         return;
       }
-      const observed = peer === undefined ? await observe() : { sessions: [], missing: "" };
+      const observed = peer === undefined ? await observe() : { sessions: [] };
       const found = observed.sessions;
       const recipients =
         peer !== undefined

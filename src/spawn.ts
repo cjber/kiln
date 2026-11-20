@@ -387,7 +387,8 @@ function notice(child: string, to: string, reason: string, body: string): [strin
 async function relayOutbox(boxes: readonly string[], from: string): Promise<boolean> {
   let sessions: Session[] | undefined;
   try {
-    sessions = await listSessions({ kitty: false });
+    // Only a whole list: a name that a failed listing left out would be called unknown to the child that sent to it.
+    sessions = await listSessions({ kitty: false }, false, true);
   } catch {
     // The messages stay in the outbox for the next pass.
   }

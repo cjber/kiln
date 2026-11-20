@@ -193,15 +193,15 @@ test("a source listing only part of its rows passes its problem on without marki
 
 test("a source says when a running session may be absent from its rows", async () => {
   const partial = await keepLast(
-    async () => ({ sessions: [], problem: "", missing: "claude agents timed out" }),
+    async () => ({ sessions: [], problem: "", missing: { reason: "timed out", agent: "claude" as const } }),
     "x",
   )();
-  expect(partial.missing).toBe("claude agents timed out");
+  expect(partial.missing).toEqual({ reason: "timed out", agent: "claude" });
   const failed = await keepLast(async (): Promise<Session[]> => Promise.reject(new Error("no")), "Native discovery")();
   expect(failed).toEqual({
     sessions: [],
     problem: "Native discovery unavailable; showing the last successful list",
     stale: true,
-    missing: "Native discovery failed",
+    missing: { reason: "Native discovery failed" },
   });
 });
