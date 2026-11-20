@@ -142,6 +142,8 @@ export type Route =
 
 /** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until its turn ends. */
 export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
+  // Nothing a stopped process holds, its own queue included, is read until it continues.
+  if (session.paused) return { wait: "its process is stopped; it is delivered once the process continues" };
   const busy = () =>
     session.activity === "idle" || session.turnEnded
       ? undefined

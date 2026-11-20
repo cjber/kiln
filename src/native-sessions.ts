@@ -136,6 +136,18 @@ function startedAt(pid: number): number {
   }
 }
 
+/** Whether a process is stopped by a signal, as SIGSTOP or a job-control stop leaves it until it is continued. */
+export function processStopped(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The state follows the parenthesised command name: T is stopped by a signal, t by a tracer.
+    const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0];
+    return state === "T" || state === "t";
+  } catch {
+    return false;
+  }
+}
+
 function parentPid(pid: number): number | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -869,7 +881,12 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessi
     const inherited = environParent(session.pid);
     return inherited && inherited !== sessionIdentity(session) ? { ...session, spawnParent: inherited } : session;
   });
-  const listed = [...sessions, ...nested];
+  // A stopped process does nothing until it is continued, so what its agent last reported is not what it is doing.
+  const listed = [...sessions, ...nested].map((session) =>
+    session.pid !== undefined && processStopped(session.pid)
+      ? { ...session, paused: true, activity: undefined, turnEnded: undefined }
+      : session,
+  );
   let stopped: Session[] = [];
   let problem = "";
   try {

@@ -119,6 +119,9 @@ test("a spawned Codex run answers to the process name its spawn returned and to 
 
 test("typing waits for an idle session; an agent's own queue takes a message at once", () => {
   expect(route(session({}))).toEqual({ push: "tmux" });
+  // A stopped process reads nothing, its own queue included, so nothing is delivered to it (#280).
+  for (const paused of [session({ paused: true }), session({ paused: true, claudeInbox: true })])
+    expect(route(paused)).toEqual({ wait: "its process is stopped; it is delivered once the process continues" });
   expect(route(session({ activity: "waiting" }))).toEqual({ wait: "Claude is waiting" });
   expect(route(session({ activity: undefined }))).toEqual({ wait: "its status is unknown" });
   expect("inbox" in route(session({ place: { kind: "elsewhere" } }))).toBe(true);
