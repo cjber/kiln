@@ -249,6 +249,10 @@ export function finishedClaudeJobs(listed: readonly ClaudeAgent[]): Session[] {
 }
 
 let lastClaude: ClaudeAgent[] = [];
+let claudeUnlisted = false;
+
+/** Whether the last Claude listing failed, so its rows are the kept ones: none at all in a process's first listing. */
+export const claudeListingFailed = () => claudeUnlisted;
 
 /**
  * A listing that timed out or failed keeps the last rows with their status unknown, rather than emptying the list.
@@ -261,11 +265,13 @@ export function claudeListing(source: string | undefined, start = processStartTi
       lastClaude = (listed as ClaudeAgent[]).map((item) =>
         typeof item.pid === "number" ? { ...item, processStart: start(item.pid) } : item,
       );
+      claudeUnlisted = false;
       return lastClaude;
     }
   } catch {
     // Output cut short by the timeout is a failed listing.
   }
+  claudeUnlisted = true;
   lastClaude = lastClaude.map(({ status, ...item }) => item);
   return lastClaude;
 }
@@ -801,7 +807,9 @@ function stamped<Process extends { pid: number }>(process: Process): Process & {
  * `kitty: false` skips the window lookup, for callers that only count sessions. A state file that cannot be used costs
  * only the stopped rows, and says why in `problem`.
  */
-export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessions: Session[]; problem: string }> {
+export async function listNativeSessions({
+  kitty = true,
+} = {}): Promise<{ sessions: Session[]; problem: string; missing: string }> {
   const readCodex = async () => {
     const processes = (await codexProcesses()).map(stamped).map((process) => ({
       ...process,
@@ -896,7 +904,9 @@ export async function listNativeSessions({ kitty = true } = {}): Promise<{ sessi
   }
   const found = withAccounts(attachParents([...listed, ...stopped]));
   rememberParents(found);
-  return { sessions: await closeFinishedChildren(found), problem };
+  // Read after the listing above: a Claude that is running may be absent from rows kept from before it started.
+  const missing = Bun.which("claude") && claudeListingFailed() ? "claude agents failed or timed out" : "";
+  return { sessions: await closeFinishedChildren(found), problem, missing };
 }
 
 /** Name the account each running session was started on, read from its process's environment. */

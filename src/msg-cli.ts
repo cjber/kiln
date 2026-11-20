@@ -53,12 +53,22 @@ export function isPeer(name: string): boolean {
   return name.startsWith("@");
 }
 
-async function sessions(): Promise<Session[]> {
+/** The sessions that can be written to, and why a running one may be absent from them. */
+async function observe(): Promise<{ sessions: Session[]; missing?: string }> {
   // A process that cannot see the sessions would list none and call each one gone, so it says why instead.
   const hidden = await sessionsHidden();
   if (hidden) throw new Error(hidden);
   // Kitty windows are only for focusing; a message never goes through one.
-  return (await discovery()({ kitty: false })).sessions.filter(reachable);
+  const found = await discovery()({ kitty: false });
+  return { sessions: found.sessions.filter(reachable), missing: found.missing };
+}
+
+const sessions = async () => (await observe()).sessions;
+
+/** A session by name. One a failed listing may have left out is not called exited or unknown. */
+async function recipient(name: string): Promise<Session> {
+  const found = await observe();
+  return findRecipient(found.sessions, name, undefined, found.missing);
 }
 
 /**
@@ -91,7 +101,7 @@ function delivery(session: Session): string {
 async function transcriptReader(name: string): Promise<(cursor?: string) => Page> {
   let session: Session;
   try {
-    session = findRecipient(await sessions(), name);
+    session = await recipient(name);
   } catch (error) {
     const ended = endedConversationReader(name);
     if (ended) return ended;
@@ -211,11 +221,12 @@ export async function runMsgCli(args: string[]): Promise<void> {
         console.log(values.json ? JSON.stringify([result], null, 2) : `${result.to}: queued; ${result.reason}.`);
         return;
       }
-      const found = peer === undefined ? await sessions() : [];
+      const observed = peer === undefined ? await observe() : { sessions: [], missing: "" };
+      const found = observed.sessions;
       const recipients =
         peer !== undefined
           ? [peer]
-          : (name === undefined ? found : [findRecipient(found, name)])
+          : (name === undefined ? found : [findRecipient(found, name, undefined, observed.missing)])
               .map(sessionIdentity)
               .filter((recipient) => recipient !== me);
       if (!recipients.length) throw new Error("there is no other session to message");
@@ -290,7 +301,7 @@ export async function runMsgCli(args: string[]): Promise<void> {
         as
       )
         break;
-      const session = findRecipient(await sessions(), rest[0]);
+      const session = await recipient(rest[0]);
       const name = sessionIdentity(session);
       if (name === me) throw new Error("you cannot interrupt yourself");
       const stopped = await interrupt(session);

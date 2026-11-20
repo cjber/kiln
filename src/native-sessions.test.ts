@@ -6,6 +6,7 @@ import { sessionAction } from "./launcher";
 import {
   claudeActivity,
   claudeListing,
+  claudeListingFailed,
   claudeStatus,
   claudeTurnShown,
   codexExecProcess,
@@ -252,7 +253,9 @@ test("a failed Claude listing keeps the last rows with their status unknown", ()
   ]);
   expect(claudeListing(undefined, start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
   expect(claudeListing('[{"pid": 1', start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
+  expect(claudeListingFailed()).toBe(true);
   expect(claudeListing("[]", start)).toEqual([]);
+  expect(claudeListingFailed()).toBe(false);
 });
 
 test("a cached Claude row keeps the start of the process it was listed with, not the pid's next owner", () => {

@@ -92,6 +92,23 @@ test("a send to a spawned child that has exited names its exit, not a missing se
   expect(() => findRecipient([], "claude:gnoe", exited)).toThrow("no running session is called claude:gnoe");
 });
 
+test("a name a failed listing may have left out is not called exited or unknown", () => {
+  // `claude agents` timing out lists no Claude at all in a one-shot command, so absence there proves nothing (#277).
+  const report = {
+    id: "exit:1",
+    from: `${spawnSender}:claude:busy`,
+    to: "claude:parent",
+    body: "exited",
+    createdAt: 1,
+  };
+  const failed = "claude agents failed or timed out";
+  expect(() => findRecipient([], "claude:busy", () => report, failed)).toThrow(
+    "claude agents failed or timed out, so kiln cannot tell whether claude:busy is running; try again",
+  );
+  expect(() => findRecipient([], "claude:typo", () => undefined, failed)).toThrow("cannot tell whether claude:typo");
+  expect(findRecipient([session({ agent: "codex", id: "xyz" })], "codex:xyz", undefined, failed).id).toBe("xyz");
+});
+
 test("a resumed child is not refused on the exit report of the run before it (#277)", () => {
   const report = {
     id: "exit:claude:back:1000",

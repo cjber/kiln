@@ -183,5 +183,25 @@ test("a parent whose turn ended is still working while a subagent works", () => 
 test("a source listing only part of its rows passes its problem on without marking the list stale", async () => {
   const row: Session = { agent: "codex", id: "t", cwd: "/repo", startedAt: 1, place: { kind: "kiln", name: "codex" } };
   const found = await keepLast(async () => ({ sessions: [row], problem: "Stopped sessions unavailable: busy" }), "x")();
-  expect(found).toEqual({ sessions: [row], problem: "Stopped sessions unavailable: busy", stale: false });
+  expect(found).toEqual({
+    sessions: [row],
+    problem: "Stopped sessions unavailable: busy",
+    stale: false,
+    missing: undefined,
+  });
+});
+
+test("a source says when a running session may be absent from its rows", async () => {
+  const partial = await keepLast(
+    async () => ({ sessions: [], problem: "", missing: "claude agents timed out" }),
+    "x",
+  )();
+  expect(partial.missing).toBe("claude agents timed out");
+  const failed = await keepLast(async (): Promise<Session[]> => Promise.reject(new Error("no")), "Native discovery")();
+  expect(failed).toEqual({
+    sessions: [],
+    problem: "Native discovery unavailable; showing the last successful list",
+    stale: true,
+    missing: "Native discovery failed",
+  });
 });

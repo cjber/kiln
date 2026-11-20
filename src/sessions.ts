@@ -246,6 +246,8 @@ export type Discovered = {
   problem: string;
   /** Some rows are the last successful ones rather than a fresh observation. */
   stale: boolean;
+  /** Why a running session may be absent from the list; empty when every source was read. Absence then proves nothing. */
+  missing?: string;
 };
 
 /**
@@ -261,10 +263,20 @@ export function keepLast<A extends unknown[]>(
     try {
       const found = await load(...args);
       last = Array.isArray(found) ? found : found.sessions;
-      return { sessions: last, problem: Array.isArray(found) ? "" : found.problem, stale: false };
+      return {
+        sessions: last,
+        problem: Array.isArray(found) ? "" : found.problem,
+        stale: false,
+        missing: Array.isArray(found) ? "" : found.missing,
+      };
     } catch {
       last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
-      return { sessions: last, problem: `${name} unavailable; showing the last successful list`, stale: true };
+      return {
+        sessions: last,
+        problem: `${name} unavailable; showing the last successful list`,
+        stale: true,
+        missing: `${name} failed`,
+      };
     }
   };
 }
@@ -296,6 +308,7 @@ export function discovery() {
       ),
       problem: [seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
       stale: seen.stale,
+      missing: seen.missing,
     };
   };
 }

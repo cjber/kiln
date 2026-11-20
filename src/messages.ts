@@ -122,6 +122,8 @@ export function findRecipient(
   sessions: readonly Session[],
   name: string,
   exitReport: (name: string) => Message | undefined = lastExit,
+  /** Why a running session may be absent from `sessions`, from discovery; a name it lacks is then not known to be gone. */
+  missing = "",
 ): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));
@@ -131,6 +133,7 @@ export function findRecipient(
   );
   if (matches.length === 1 && matches[0]) return matches[0];
   if (!matches.length) {
+    if (missing) throw new Error(`${missing}, so kiln cannot tell whether ${name} is running; try again`);
     // A spawned child that has exited left its exit report, so a sender can tell it from a mistyped name.
     const exit = exitReport(name);
     if (exit)
