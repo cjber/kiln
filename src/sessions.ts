@@ -246,7 +246,12 @@ export type Discovered = {
   problem: string;
   /** Some rows are the last successful ones rather than a fresh observation. */
   stale: boolean;
+  /** Set when a running session may be absent from the list, so absence proves nothing. */
+  missing?: Missing;
 };
+
+/** Why a running session may be absent from a list, and the one agent whose sessions those are, when it is one. */
+export type Missing = { reason: string; agent?: Agent };
 
 /**
  * While a source is failing, keep its last rows with their activity unknown rather than dropping or guessing. A source
@@ -261,10 +266,20 @@ export function keepLast<A extends unknown[]>(
     try {
       const found = await load(...args);
       last = Array.isArray(found) ? found : found.sessions;
-      return { sessions: last, problem: Array.isArray(found) ? "" : found.problem, stale: false };
+      return {
+        sessions: last,
+        problem: Array.isArray(found) ? "" : found.problem,
+        stale: false,
+        missing: Array.isArray(found) ? undefined : found.missing,
+      };
     } catch {
       last = last.map((session) => (session.place.kind === "cloud" ? session : { ...session, activity: undefined }));
-      return { sessions: last, problem: `${name} unavailable; showing the last successful list`, stale: true };
+      return {
+        sessions: last,
+        problem: `${name} unavailable; showing the last successful list`,
+        stale: true,
+        missing: { reason: `${name} failed` },
+      };
     }
   };
 }
@@ -296,19 +311,23 @@ export function discovery() {
       ),
       problem: [seen.problem, ...clouds.map((snapshot) => snapshot.problem)].filter(Boolean).join(" · "),
       stale: seen.stale,
+      missing: seen.missing,
     };
   };
 }
 
 /**
  * One observation, for callers that would rather fail than show a stale list. A caller that acts on stopped sessions
- * passes `withStopped`, so a list missing them fails too rather than reading as none stopped.
+ * passes `withStopped`, so a list missing them fails too rather than reading as none stopped. One that reads a name's
+ * absence as the session being gone passes `whole`, so a list a running session may be missing from fails as well.
  */
 export async function listSessions(
   options: Parameters<ReturnType<typeof discovery>>[0] = {},
   withStopped = false,
+  whole = false,
 ): Promise<Session[]> {
   const found = await discovery()(options);
+  if (whole && found.missing) throw new Error(found.missing.reason);
   if (found.stale || (withStopped && found.problem)) throw new Error(found.problem);
   return found.sessions;
 }

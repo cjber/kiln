@@ -244,15 +244,19 @@ test("a Claude pane shows a turn running only while its footer offers to interru
   expect(claudeTurnShown("\n\n")).toBeUndefined();
 });
 
-test("a failed Claude listing keeps the last rows with their status unknown", () => {
+test("a failed Claude listing keeps the last rows with their status unknown, and says they are kept", () => {
   const source = JSON.stringify([{ pid: 1, cwd: "/repo", name: "one", status: "busy" }]);
   const start = () => 50;
-  expect(claudeListing(source, start)).toEqual([
-    { pid: 1, cwd: "/repo", name: "one", status: "busy", processStart: 50 },
-  ]);
-  expect(claudeListing(undefined, start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
-  expect(claudeListing('[{"pid": 1', start)).toEqual([{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }]);
-  expect(claudeListing("[]", start)).toEqual([]);
+  const kept = { agents: [{ pid: 1, cwd: "/repo", name: "one", processStart: 50 }], kept: true };
+  expect(claudeListing(source, start)).toEqual({
+    agents: [{ pid: 1, cwd: "/repo", name: "one", status: "busy", processStart: 50 }],
+    kept: false,
+  });
+  expect(claudeListing(undefined, start)).toEqual(kept);
+  expect(claudeListing('[{"pid": 1', start)).toEqual(kept);
+  expect(claudeListing("[]", start)).toEqual({ agents: [], kept: false });
+  // A process's first listing has nothing to keep, so a failure there lists no Claude at all (#277).
+  expect(claudeListing(undefined, start)).toEqual({ agents: [], kept: true });
 });
 
 test("a cached Claude row keeps the start of the process it was listed with, not the pid's next owner", () => {
@@ -261,7 +265,9 @@ test("a cached Claude row keeps the start of the process it was listed with, not
   claudeListing(JSON.stringify([{ pid: 4242, cwd: "/repo", sessionId: "a" }]), start);
   // The listed process exits and the kernel hands its pid to another process before a listing fails.
   ticks = 900;
-  expect(claudeListing(undefined, start)).toEqual([{ pid: 4242, cwd: "/repo", sessionId: "a", processStart: 100 }]);
+  expect(claudeListing(undefined, start).agents).toEqual([
+    { pid: 4242, cwd: "/repo", sessionId: "a", processStart: 100 },
+  ]);
   claudeListing("[]", start);
 });
 

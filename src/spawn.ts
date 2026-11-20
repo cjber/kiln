@@ -387,7 +387,8 @@ function notice(child: string, to: string, reason: string, body: string): [strin
 async function relayOutbox(boxes: readonly string[], from: string): Promise<boolean> {
   let sessions: Session[] | undefined;
   try {
-    sessions = await listSessions({ kitty: false });
+    // Only a whole list: a name that a failed listing left out would be called unknown to the child that sent to it.
+    sessions = await listSessions({ kitty: false }, false, true);
   } catch {
     // The messages stay in the outbox for the next pass.
   }
@@ -604,11 +605,13 @@ export async function settleClaudeTrust(
 
 /**
  * The command a pane's exit hook or its exit watcher runs. Neither runs in the spawner's process: the hook runs in the
- * tmux server's environment and the watcher in its own, so each is told the server that holds the pane. A reporter that
- * read another server would find no such pane, and report a child it cannot see as ended without its status.
+ * tmux server's environment and the watcher in its own, so each is told the server that holds the pane: its name and,
+ * when tmux was pointed at one, the directory its socket is in. A reporter that read another server would find no such
+ * pane, and report a child it cannot see as ended without its status.
  */
 export function exitReporter(...args: string[]): string[] {
-  return ["env", `KILN_TMUX_SERVER=${tmuxServer()}`, kiln, "msg", ...args];
+  const directory = Bun.env.TMUX_TMPDIR ? [`TMUX_TMPDIR=${Bun.env.TMUX_TMPDIR}`] : [];
+  return ["env", `KILN_TMUX_SERVER=${tmuxServer()}`, ...directory, kiln, "msg", ...args];
 }
 
 /** How often the exit watcher reads its pane. */

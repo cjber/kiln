@@ -13,6 +13,7 @@ import {
   agentName,
   answersTo,
   isFullName,
+  type Missing,
   type Session,
   sessionDirectory,
   sessionIdentity,
@@ -122,6 +123,8 @@ export function findRecipient(
   sessions: readonly Session[],
   name: string,
   exitReport: (name: string) => Message | undefined = lastExit,
+  /** From discovery: a name `sessions` lacks, which that source could have listed, is then not known to be gone. */
+  missing?: Missing,
 ): Session {
   const candidates = sessions.filter(reachable);
   const exact = candidates.find((session) => answersTo(session, name));
@@ -137,6 +140,9 @@ export function findRecipient(
       throw new Error(
         `${name} has exited; kiln reported at ${new Date(exit.createdAt).toISOString()}: ${exit.body.split("\n")[0]}`,
       );
+    const agent = name.includes(":") ? name.slice(0, name.indexOf(":")) : undefined;
+    if (missing && (missing.agent === undefined || agent === undefined || agent === missing.agent))
+      throw new Error(`${missing.reason}, so kiln cannot tell whether ${name} is running`);
     throw new Error(`no running session is called ${name}; run kiln msg list`);
   }
   throw new Error(`${name} matches ${matches.map(sessionIdentity).join(", ")}; give more of the name`);
