@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -138,6 +147,26 @@ export function claudeNeedsLogin(now: number, home = claudeHome(), dir = stateDi
 }
 
 /**
+ * Take the renewal of one login for this process: the list and the phone server read usage at the same moments, and
+ * only the one that creates this file asks Claude Code. A file left by a process that died is replaced after a minute.
+ */
+function renewing(path: string, now: number): boolean {
+  const lock = `${path}.renewing`;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  try {
+    if (now - statSync(lock).mtimeMs > 60_000) rmSync(lock, { force: true });
+  } catch {
+    // No renewal is under way.
+  }
+  try {
+    writeFileSync(lock, "", { flag: "wx", mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The usage of the Claude login in `home`. The read is kept in kiln's state directory, so every kiln process shares one
  * request per login every five minutes. A login the provider cannot be asked about now (signed out, an expired token,
  * a failed request) answers with its last good read, whose `fetchedAt` says how old it is. An expired token is one
@@ -156,11 +185,13 @@ export async function claudeUsage(
   if (last && now - last.askedAt < everyMs && last.askedAt >= staleBefore) return last.usage;
   const current = login(home, now);
   if (current.state !== "ok") {
-    if (current.state === "expired" && now - (last?.renewedAt ?? 0) >= renewEveryMs) {
+    if (current.state === "expired" && now - (last?.renewedAt ?? 0) >= renewEveryMs && renewing(path, now)) {
       write(path, { ...last, askedAt: last?.askedAt ?? 0, renewedAt: now });
-      void renew(home).then((loggedIn) => {
-        if (loggedIn !== undefined) write(path, { askedAt: 0, ...readFile(path), loggedOut: !loggedIn });
-      });
+      void renew(home)
+        .then((loggedIn) => {
+          if (loggedIn !== undefined) write(path, { askedAt: 0, ...readFile(path), loggedOut: !loggedIn });
+        })
+        .finally(() => rmSync(`${path}.renewing`, { force: true }));
     }
     return last?.usage;
   }

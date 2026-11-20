@@ -39,7 +39,8 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       name: account.name,
       state,
       windows: account.windows,
-      ...(state === "spent" ? { until } : {}),
+      // A full window the provider gave no reset time for is spent with no known end.
+      ...(state === "spent" && until !== undefined && Number.isFinite(until) ? { until } : {}),
       pins: settings.pins
         .filter((pin) => pin.agent === account.agent && pin.account === (account.name ?? defaultAccount))
         .map((pin) => pin.dir),

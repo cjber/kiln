@@ -60,6 +60,19 @@ test("a session saved in an earlier boot comes back stopped, until it is running
   expect(resumed.saved).toMatchObject([{ id: "a", boot: "boot-2", pid: 20 }]);
 });
 
+test("a spawned session seen running keeps what its spawn recorded for a restart on another account", () => {
+  const { saved } = reconcile([], [running], "boot-1", 0, dead, unknown);
+  const recorded = saved.map((item) => ({
+    ...item,
+    account: "work",
+    brief: "fix it",
+    tried: "home",
+    interactive: true,
+  }));
+  const again = reconcile(recorded, [running], "boot-1", 1, dead, unknown);
+  expect(again.saved).toMatchObject([{ account: "work", brief: "fix it", tried: "home", interactive: true }]);
+});
+
 test("a session killed in this boot whose spawn pane is still dead comes back stopped (#276)", () => {
   const spawned = { ...running, place: { kind: "kiln" as const, name: "claude-a" } };
   const { saved } = reconcile([], [spawned], "boot-1", 0, dead, unknown);

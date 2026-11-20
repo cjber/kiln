@@ -60,6 +60,7 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
     limited: { resetsAt: now + 3_600_000, at: now - 1_000 },
     place: { kind: "kiln", name },
   };
+  const refused = () => session.limited?.at;
   const routes: string[][] = [];
   const route = async (_agent: string, _settings: unknown, options: { skip?: readonly string[] } = {}) => {
     routes.push([...(options.skip ?? [])]);
@@ -70,22 +71,24 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
   const move: typeof moveClaude = (pane, conversation, where, to, settingsGiven) =>
     moveClaude(pane, conversation, where, to, settingsGiven, 500);
   // A conversation resumed since its refusal, perhaps on another account, has not been refused itself.
-  expect(await failOverLimited([{ ...session, startedAt: now }], settings, now, dir, route, move)).toEqual([]);
+  expect(await failOverLimited([{ ...session, startedAt: now }], settings, now, dir, route, move, refused)).toEqual([]);
   expect(spentUntil("claude", "default", now)).toBeUndefined();
   // A restart that fails is reported once and tried again.
   const broken = async () => false;
-  expect((await failOverLimited([session], settings, now, dir, route, broken)).map((event) => event.kind)).toEqual([
-    "failed",
-  ]);
-  expect(await failOverLimited([session], settings, now, dir, route, broken)).toEqual([]);
+  expect(
+    (await failOverLimited([session], settings, now, dir, route, broken, refused)).map((event) => event.kind),
+  ).toEqual(["failed"]);
+  expect(await failOverLimited([session], settings, now, dir, route, broken, refused)).toEqual([]);
   routes.length = 0;
-  const first = await failOverLimited([session], settings, now, dir, route, move);
+  // A prompt typed since the listing was taken has put the conversation to work again, and it is left alone.
+  expect(await failOverLimited([session], settings, now, dir, route, move, () => undefined)).toEqual([]);
+  const first = await failOverLimited([session], settings, now, dir, route, move, refused);
   expect(first.map((event) => event.kind)).toEqual(["moved"]);
   expect(failoverNotice(first[0] as (typeof first)[number])).toBe(
     "limited reached its usage limit and moved to Claude account two",
   );
   // The list and the phone server both see the same refusal; the second to look does nothing.
-  expect(await failOverLimited([session], settings, now, dir, route, move)).toEqual([]);
+  expect(await failOverLimited([session], settings, now, dir, route, move, refused)).toEqual([]);
   // The account it ran out on is never the one it moves to, and stays spent until the provider's reset.
   expect(routes[0]).toEqual(["default"]);
   expect(spentUntil("claude", "default", now)).toBe(now + 3_600_000);
@@ -97,7 +100,7 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
   expect(readFileSync(join(two, ".claude.json"), "utf8")).toContain(cwd);
   // Once the provider's reset has passed the session's own account answers again, and it is left where it is.
   const later = { ...session, limited: { resetsAt: now - 1, at: now + 5 } };
-  expect(await failOverLimited([later], settings, now, dir, route, move)).toEqual([]);
+  expect(await failOverLimited([later], settings, now, dir, route, move, refused)).toEqual([]);
   // A replaced command is given its environment again; tmux does not carry the first command's over.
   const seen = join(root, "outbox-seen");
   expect(
@@ -131,14 +134,14 @@ test("a session no account can take is reported once and left in its pane", asyn
     return true;
   };
   const dir = join(root, "stuck-claims");
-  const events = await failOverLimited([session], settings, now, dir, full, move);
+  const events = await failOverLimited([session], settings, now, dir, full, move, () => now);
   expect(events.map(failoverNotice)).toEqual(["stuck reached its usage limit: every claude account is at its limit"]);
-  expect(await failOverLimited([session], settings, now, dir, full, move)).toEqual([]);
+  expect(await failOverLimited([session], settings, now, dir, full, move, () => now)).toEqual([]);
   // An account that opens later takes it on the next look.
   const open = async () => ({ name: "default", env: {} });
-  expect((await failOverLimited([session], settings, now, dir, open, move)).map((event) => event.kind)).toEqual([
-    "moved",
-  ]);
+  expect(
+    (await failOverLimited([session], settings, now, dir, open, move, () => now)).map((event) => event.kind),
+  ).toEqual(["moved"]);
   expect(moved).toEqual(["claude-none"]);
 });
 

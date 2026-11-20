@@ -176,6 +176,11 @@ export function reconcile(
       goneAt: undefined,
       pane: recorded?.pane,
       runBound: recorded?.runBound,
+      // What its spawn recorded for a restart on another account, which no listing carries.
+      account: recorded?.account,
+      brief: recorded?.brief,
+      tried: recorded?.tried,
+      interactive: recorded?.interactive,
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));

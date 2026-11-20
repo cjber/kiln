@@ -7,7 +7,7 @@ import { forgetReads, type QuotaAccount } from "./quota";
 import { limitedUntil, routeNew } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
-import { headlessSpawn, moveClaude } from "./spawn";
+import { claudeRefusedAt, headlessSpawn, moveClaude } from "./spawn";
 import { recordSpent } from "./spent";
 
 /** What became of a Claude session found stopped on its account's usage limit. */
@@ -54,6 +54,7 @@ export async function failOverLimited(
   dir = stateDir(),
   route: typeof routeNew = routeNew,
   move: typeof moveClaude = moveClaude,
+  refusedAt: (id: string) => number | undefined = claudeRefusedAt,
 ): Promise<Failover[]> {
   if (running || !settings.accounts.some((account) => account.agent === "claude")) return [];
   running = true;
@@ -80,6 +81,11 @@ export async function failOverLimited(
         continue;
       }
       if (to.name === undefined || !claim(dir, id, limited.at, "moved")) continue;
+      // The listing can be seconds old, and a prompt typed since has put the conversation to work again.
+      if (refusedAt(id) !== limited.at) {
+        rmSync(join(dir, `${id}.${limited.at}.moved`), { force: true });
+        continue;
+      }
       // A folder kiln never trusts for Claude, such as the home directory, cannot be restarted unattended.
       const moved = await move(place.name, id, session.cwd, to, settings).catch(() => false);
       if (moved) events.push({ kind: "moved", session, to: to.name });
@@ -133,7 +139,8 @@ export function availableAgain(quota: readonly QuotaAccount[], now = Date.now(),
       writeFileSync(path, String(Math.max(until, recorded ?? 0)), { mode: 0o600 });
       continue;
     }
-    if (recorded === undefined || recorded > now) continue;
+    // A limit recorded with no known end has ended when the provider stops reporting it.
+    if (recorded === undefined || (Number.isFinite(recorded) && recorded > now)) continue;
     try {
       unlinkSync(path);
     } catch {

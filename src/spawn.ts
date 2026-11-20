@@ -60,7 +60,9 @@ export type SpawnOptions = {
  * The Claude conversation `id` names: the directory Claude started it in, which `--resume` must run from, and what its
  * transcript says. Claude files it under that directory, which the id does not carry, so it is found by the id alone.
  */
-function claudeConversation(id: string): { cwd: string; codeMode: boolean; title?: string } | undefined {
+function claudeConversation(
+  id: string,
+): { cwd: string; codeMode: boolean; title?: string; refusedAt?: number } | undefined {
   if (!/^[A-Za-z0-9-]+$/.test(id)) return undefined;
   const root = join(claudeConfigDir(), "projects");
   let path: string | undefined;
@@ -75,8 +77,8 @@ function claudeConversation(id: string): { cwd: string; codeMode: boolean; title
     try {
       const { cwd } = JSON.parse(line);
       if (typeof cwd === "string") {
-        const { codeMode, title } = readTranscript(path);
-        return { cwd, codeMode: codeMode === true, title };
+        const { codeMode, title, limited } = readTranscript(path);
+        return { cwd, codeMode: codeMode === true, title, refusedAt: limited?.at };
       }
     } catch {
       // A line still being written is skipped.
@@ -984,6 +986,9 @@ export async function moveClaude(
   watchInBackground(name, child, spawned.parent ?? "", token);
   return true;
 }
+
+/** When the Claude conversation `id` was refused on its usage limit, if nothing has been said to it since. */
+export const claudeRefusedAt = (id: string): number | undefined => claudeConversation(id)?.refusedAt;
 
 /** What a Claude conversation resumed on another account is told; it already holds its own history. */
 export const resumedOnAccount =

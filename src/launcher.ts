@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
+import { pinFor } from "./accounts";
 import { claudeTranscript, findClaudeTranscript } from "./claude-inbox";
 import { archiveCodexThread } from "./codex";
 import { focus } from "./kitty";
@@ -59,7 +60,12 @@ export async function openSession(session: Session, settings: Settings): Promise
     case "saved": {
       if (!session.id) return notice("this session has no conversation to resume");
       // The row stays until the resumed conversation is seen running, so a resume that fails can be tried again.
-      const route = await resumeRoute(session.agent, session.cwd, settings);
+      let route: Awaited<ReturnType<typeof resumeRoute>>;
+      try {
+        route = await resumeRoute(session.agent, session.cwd, settings);
+      } catch (error) {
+        return notice(error instanceof Error ? error.message : "could not choose an account");
+      }
       return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, undefined, false, route);
     }
     case "elsewhere":
@@ -265,7 +271,12 @@ export async function resumeStopped(
     return { problem };
   };
   let problem = "";
-  const route = await resumeRoute(session.agent, session.cwd, settings);
+  let route: Awaited<ReturnType<typeof resumeRoute>>;
+  try {
+    route = await resumeRoute(session.agent, session.cwd, settings);
+  } catch (error) {
+    return failed(error instanceof Error ? error.message : "could not choose an account");
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const outcome = await launch(
       session.agent,
@@ -325,7 +336,9 @@ async function resumeRoute(agent: Agent, cwd: string, settings: Settings): Promi
   if (agent !== "claude") return { env: {} };
   try {
     return await routeNew(agent, settings, { cwd });
-  } catch {
+  } catch (error) {
+    // A pinned directory's sessions run on its account or not at all.
+    if (pinFor(settings, agent, cwd)) throw error;
     return { env: {} };
   }
 }

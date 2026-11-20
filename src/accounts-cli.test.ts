@@ -68,3 +68,12 @@ test("mclaude accounts not yet listed are adopted under their login's name, a ta
   ]);
   expect(adoptable(join(root, "absent"), settings)).toEqual([]);
 });
+
+test("a full window with no reset time is spent with no time to print", () => {
+  const rows = accountRows(
+    [{ agent: "codex", windows: [{ label: "wk", percent: 100 }], source: "codex-daemon" }],
+    { ...defaults },
+    0,
+  );
+  expect(formatAccounts(rows)).toMatch(/^codex\s+spent\s+100%·wk$/);
+});
