@@ -124,7 +124,7 @@ function resumable(session: Session): session is Session & { id: string } {
  * Bring the saved list up to date with one observation. A running session is saved under this boot. One
  * whose process is gone in the same boot was closed and is dropped; one from an earlier boot was cut off
  * by the restart, and stays as a stopped row until it is seen running again or forgotten. A top-level row whose spawn
- * pane `paneEnded` still finds dead was cut off in this boot, as an OOM kill leaves it when nothing reaped the pane,
+ * pane `paneCutOff` finds dead on a failed or killed agent was cut off in this boot, as an OOM kill leaves it when nothing reaped the pane,
  * and is stopped too. A row whose conversation its provider lists as finished, or whose conversation `hasConversation`
  * cannot find, is dropped: there is nothing a restart cut off to resume.
  */
@@ -136,7 +136,7 @@ export function reconcile(
   alive: (pid: number) => boolean,
   started: (pid: number) => number | undefined,
   hasConversation: (item: Saved) => boolean = () => true,
-  paneEnded: (pane: string) => boolean = () => false,
+  paneCutOff: (pane: string) => boolean = () => false,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
@@ -197,7 +197,7 @@ export function reconcile(
     else if (item.pid !== undefined && running.has(item.pid)) continue;
     // A listing that failed says nothing about a process that is still there.
     else if (item.pid !== undefined && alive(item.pid)) next.set(key(item), { ...item, goneAt: undefined });
-    else if (!item.parent && item.pane !== undefined && paneEnded(item.pane)) {
+    else if (!item.parent && item.pane !== undefined && paneCutOff(item.pane)) {
       cutOff.add(key(item));
       next.set(key(item), item);
     } else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
@@ -262,7 +262,8 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
         (pid) => existsSync(`/proc/${pid}`),
         processStartTicks,
         savedConversation,
-        (pane) => endedPane(pane) !== undefined,
+        // An agent that exits with status 0 quit on its own, as a person closing it leaves it.
+        (pane) => (endedPane(pane)?.status ?? 0) !== 0,
       );
       if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
         db.exec("DELETE FROM sessions");

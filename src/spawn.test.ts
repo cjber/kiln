@@ -6,7 +6,7 @@ import * as mailbox from "./mailbox";
 import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
 import { findRecipient } from "./messages";
 import * as opencode from "./opencode";
-import { recordSpawn } from "./saved-sessions";
+import { recordSpawn, restartStopped } from "./saved-sessions";
 import * as sessions from "./sessions";
 import {
   claudeGrants,
@@ -731,6 +731,21 @@ test("a resume replaces a pane whose agent was killed, rather than calling it ru
     }
   }
 }, 30_000);
+
+test("kiln resume offers a session whose spawn pane holds a failed exit, not one that quit cleanly (#276)", async () => {
+  const path = join(paneDir, "cut-off", "sessions.sqlite");
+  const statuses = { "claude-quit": "exit 0", "claude-oomed": "kill -KILL $$" };
+  try {
+    for (const [pane, command] of Object.entries(statuses)) {
+      expect(start(pane, paneDir, ["sh", "-c", command], pane, true)).toBe(true);
+      for (let waited = 0; !ended(pane) && waited < 5_000; waited += 50) await Bun.sleep(50);
+      recordSpawn({ agent: "claude", id: pane, cwd: paneDir, startedAt: 1_000, pane }, path);
+    }
+    expect(restartStopped([], path).map((session) => session.id)).toEqual(["claude-oomed"]);
+  } finally {
+    for (const pane of Object.keys(statuses)) kill(pane);
+  }
+});
 
 test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
   const state = Bun.env.XDG_STATE_HOME;
