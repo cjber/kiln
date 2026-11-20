@@ -25,7 +25,7 @@ import {
   spawnUsage,
   watchSpawnExit,
 } from "./spawn";
-import { ended, exists, kill, paneState, respawn, start } from "./tmux";
+import { ended, exists, kill, kiln as kilnPath, paneState, respawn, start } from "./tmux";
 import { killServer } from "./tmux-server";
 
 // A private tmux server, so these tests never touch the real sessions.
@@ -1010,6 +1010,29 @@ test("an exit hook or watcher reads the spawn's tmux server, without a UTF-8 loc
     else Bun.env.XDG_STATE_HOME = state;
   }
 }, 30_000);
+
+test("an exit reporter is told the directory of the tmux socket when tmux was pointed at one", () => {
+  // tmux puts a server's socket under TMUX_TMPDIR, so a reporter started without it would look for the pane's server in
+  // /tmp, find none and report the child as ended without its status (#295).
+  const directory = Bun.env.TMUX_TMPDIR;
+  try {
+    Bun.env.TMUX_TMPDIR = "/run/kiln sockets";
+    expect(exitReporter("exit", "pane").slice(0, 3)).toEqual([
+      "env",
+      `KILN_TMUX_SERVER=kiln-spawn-${process.pid}`,
+      "TMUX_TMPDIR=/run/kiln sockets",
+    ]);
+    delete Bun.env.TMUX_TMPDIR;
+    expect(exitReporter("exit", "pane").slice(0, 3)).toEqual([
+      "env",
+      `KILN_TMUX_SERVER=kiln-spawn-${process.pid}`,
+      kilnPath,
+    ]);
+  } finally {
+    if (directory === undefined) delete Bun.env.TMUX_TMPDIR;
+    else Bun.env.TMUX_TMPDIR = directory;
+  }
+});
 
 test("a spawn with no caller reports its exit to the parent its record names", async () => {
   // A spawn from a shell, a timer or a detached worker records no caller, but the parent found for it later by process
