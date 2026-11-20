@@ -695,7 +695,16 @@ test("a resume replaces a pane whose agent was killed, rather than calling it ru
     expect(start(name, dir, ["sh", "-c", "kill -KILL $$"], "killed", true)).toBe(true);
     for (let waited = 0; !ended(name) && waited < 5_000; waited += 50) await Bun.sleep(50);
     expect(ended(name)?.status).toBe(137);
-    recordSpawn({ agent: "claude", id, cwd: dir, title: "killed", startedAt: 1_000, pane: name, runBound: true });
+    recordSpawn({
+      agent: "claude",
+      id,
+      cwd: dir,
+      title: "killed",
+      parent: "codex:killed-parent",
+      startedAt: 1_000,
+      pane: name,
+      runBound: true,
+    });
     expect(
       await spawnAgent({
         agent: "claude",
@@ -705,6 +714,10 @@ test("a resume replaces a pane whose agent was killed, rather than calling it ru
         resume: { id, codeMode: false, title: "killed" },
       }),
     ).toBe(`claude:${id}`);
+    // The killed run is reported to its parent before its pane is replaced.
+    expect(takeUnread("codex:killed-parent").map((message) => message.body)).toEqual([
+      `Child claude:${id} exited with status 137 while working on "killed".`,
+    ]);
   } finally {
     kill(name);
     Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);

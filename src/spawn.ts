@@ -771,11 +771,19 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A pane whose agent has exited, as one an OOM killer took stays when nothing reaped it, holds nothing to resume
   // beside: its run is reported, as its own reporters would have, and the pane closed so this run can take the name.
-  if (endedPane(name)) {
+  // Reporting closes the pane only once its exit is posted, and only the pane it read, so a run another resume started
+  // meanwhile stays.
+  const left = endedPane(name);
+  if (left) {
     const previousRun = spawnRecord(name);
     if (previousRun) await reportSpawnExit(name, "", "", previousRun.runBound ? String(previousRun.startedAt) : "");
-    kill(name);
+    else reapEnded(left);
   }
+  const unreported = endedPane(name);
+  if (unreported)
+    throw new Error(
+      `${options.agent}:${id}'s previous run in ${name} exited with status ${unreported.status} and kiln could not report it to its parent; run the spawn again to retry`,
+    );
   // A conversation still running in its pane is not resumed a second time beside it.
   if (exists(name)) throw new Error(`${options.agent}:${id} is already running in ${name}`);
   const startedAt = Date.now();
