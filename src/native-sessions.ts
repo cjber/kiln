@@ -140,9 +140,9 @@ function startedAt(pid: number): number {
 export function processStopped(pid: number): boolean {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    // The state follows the parenthesised command name: T is stopped by a signal, t by a tracer.
-    const state = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0];
-    return state === "T" || state === "t";
+    // The state follows the parenthesised command name: T is stopped by a signal. A tracer's stop, t, is left out: a
+    // debugger or strace holds a running process there for moments at a time.
+    return stat[stat.lastIndexOf(")") + 2] === "T";
   } catch {
     return false;
   }
