@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-11-20
+
 - **A session whose agent was killed can be resumed.** When an OOM killer or a `kill -9` ended a spawned Claude and nothing closed its kiln pane, `kiln msg spawn --resume` refused with `already running` and `kiln resume` listed nothing. A pane whose agent has exited no longer counts as running: the spawn reports the old run and replaces the pane, and `kiln resume` lists such a top-level session as stopped.
 - **`kiln msg send` no longer refuses a resumed child on its old exit.** A child resumed after it was killed answered `has exited` with the earlier run's exit report whenever a send could not find it running. kiln now names that report only when no later run of the conversation has started.
 - **`kiln msg spawn claude --interactive` no longer stops at the external imports question.** In a folder whose `CLAUDE.md` imports files from outside it, Claude asked once whether to allow those imports, so the child waited at a dialog no one could answer and the spawn failed with Claude's screen instead of an id. Where kiln trusts the spawn's folder it now also allows its imports, as answering that dialog would, and a choice already saved in the Claude config, including a refusal, is kept.
