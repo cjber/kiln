@@ -1,5 +1,6 @@
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { failOverLimited, failoverNotice } from "./account-failover";
 import type { Account } from "./accounts";
 import { type PullRequest, pullRequests, type Stage, stageOf } from "./dashboard";
 import { ledgers } from "./edits";
@@ -7,7 +8,7 @@ import { agentColor, EditsView } from "./edits-view";
 import { closeSession, createSession, type Outcome, openSession, sessionAction } from "./launcher";
 import { post } from "./mailbox";
 import { flushInBackground, reachable, terminal } from "./messages";
-import { nativeNotifications } from "./notifications";
+import { nativeNotifications, notify } from "./notifications";
 import { type QuotaAccount, quotaFooter, readQuota } from "./quota";
 import { type DetailPart, newestFirst, sessionDetail } from "./session-detail";
 import {
@@ -278,8 +279,19 @@ export function App({
       setPulls(foundPrs);
       if (!found.stale) {
         notifyNative(found.sessions, getSettings().notifications);
-        // Fixture sessions in tests are not real recipients.
-        if (!loadSessions) flushInBackground(found.sessions);
+        // Fixture sessions in tests are not real recipients, nor panes to restart.
+        if (!loadSessions) {
+          flushInBackground(found.sessions);
+          void failOverLimited(found.sessions, getSettings()).then(
+            (events) => {
+              for (const event of events) {
+                setNotice(failoverNotice(event));
+                if (getSettings().notifications) notify("Claude usage limit", failoverNotice(event));
+              }
+            },
+            () => {},
+          );
+        }
       }
       // Re-anchor the cursor so it rests beside its session if that session later goes away.
       setSelection(resolveSelection(view(found.sessions), getSelection()));

@@ -335,8 +335,11 @@ export function start(
   );
 }
 
-/** Replace a live pane command in place, preserving its tmux session and scrollback. */
-export function respawn(name: string, cwd: string, argv: string[]): boolean {
+/**
+ * Replace a live pane command in place, preserving its tmux session and scrollback. The pane's exit hook is dropped
+ * with the command it was for, unless `onExit` gives the new command one.
+ */
+export function respawn(name: string, cwd: string, argv: string[], onExit?: string): boolean {
   return run(
     "set-option",
     "-p",
@@ -346,11 +349,12 @@ export function respawn(name: string, cwd: string, argv: string[]): boolean {
     crypto.randomUUID(),
     ";",
     "set-hook",
-    "-u",
+    ...(onExit ? [] : ["-u"]),
     "-w",
     "-t",
     `=${name}:`,
     "pane-died",
+    ...(onExit ? [onExit] : []),
     ";",
     "set-option",
     "-w",

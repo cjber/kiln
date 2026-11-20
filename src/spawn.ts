@@ -6,7 +6,7 @@ import { defaultAccount } from "./accounts";
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
-import { claudeCommand, promptArguments } from "./launcher";
+import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { detectLimit } from "./limits";
 import { outboxPath, pending, post, posted } from "./mailbox";
 import { findRecipient, flush, spawnReportSender } from "./messages";
@@ -15,10 +15,10 @@ import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forgetReads, readQuota } from "./quota";
-import { routed, routeNew } from "./routing";
+import { type Route, routed, routeNew } from "./routing";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
-import { loadSettings } from "./settings";
+import { loadSettings, type Settings } from "./settings";
 import { recordSpent } from "./spent";
 import {
   ended,
@@ -30,8 +30,10 @@ import {
   panePid,
   paneState,
   reapEnded,
+  respawn,
   screen,
   start,
+  survives,
   tmuxServer,
 } from "./tmux";
 import { readTranscript } from "./transcript";
@@ -821,6 +823,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     startedAt,
     pane: name,
     runBound: true,
+    interactive: options.interactive || undefined,
     ...account,
   };
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
@@ -934,10 +937,55 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
   // bind a remote interrupt/archive to its generation, so only explicit close does that.
 }
 
-/** What a restarted child is told. A resumed Claude conversation already holds its own history. */
+/** Whether the kiln pane `name` holds a headless `kiln msg spawn` run, whose exit is what reports its usage limit. */
+export function headlessSpawn(name: string): boolean {
+  const record = spawnRecord(name);
+  return record !== undefined && !record.interactive;
+}
+
+/**
+ * Restart the Claude conversation `id` in the kiln pane `name` on the account `route` names. tmux replaces the old
+ * process with the new one, so the conversation never runs twice, and the pane keeps its scrollback and whoever is
+ * attached to it. A spawned child keeps its sandbox grant and its outbox, and its exit hook and watcher are set again
+ * for the same run, so its parent still hears of its exit. Answers whether the new process is running.
+ */
+export async function moveClaude(
+  name: string,
+  id: string,
+  cwd: string,
+  route: Pick<Route, "name" | "env">,
+  settings: Settings,
+  graceMs = 5_000,
+): Promise<boolean> {
+  const configDir = route.env.CLAUDE_CONFIG_DIR || undefined;
+  // Claude asks about a folder its config has not trusted, and the new account's config is another file.
+  await trustClaudeWorkspace(cwd, claudeConfig({ ...Bun.env, CLAUDE_CONFIG_DIR: configDir }).json);
+  const conversation = claudeConversation(id);
+  const resume = { id, codeMode: conversation?.codeMode === true, title: conversation?.title };
+  const record = spawnRecord(name);
+  const spawned = record?.agent === "claude" && record.id === id && record.runBound ? record : undefined;
+  const token = spawned ? String(spawned.startedAt) : "";
+  const child = `claude:${id}`;
+  const command = spawned
+    ? claudeGrants(settings.agents.claude, cwd, spawnGrants("claude", cwd, outboxPath(outboxKey(name, token))))
+    : agentCommand("claude", settings, undefined, undefined, resume.codeMode);
+  const argv = interactiveClaudeCommand(command, id, resumedOnAccount, undefined, undefined, configDir, resume);
+  const hook = spawned ? exitHook(exitReporter("exit", name, child, spawned.parent ?? "", token)) : undefined;
+  if (!respawn(name, cwd, argv, hook)) return false;
+  if (!spawned) return (await survives(name, graceMs)) === true;
+  const tried = [...(spawned.tried?.split(",").filter(Boolean) ?? []), spawned.account ?? defaultAccount];
+  recordSpawn({ ...spawned, account: route.name, tried: tried.join(","), pid: await panePid(name) });
+  watchInBackground(name, child, spawned.parent ?? "", token);
+  return true;
+}
+
+/** What a Claude conversation resumed on another account is told; it already holds its own history. */
+export const resumedOnAccount =
+  "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
+
+/** What a restarted child is told. */
 function handoffPrompt(record: Saved, output: string | undefined, resumed: boolean): string {
-  if (resumed)
-    return "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
+  if (resumed) return resumedOnAccount;
   const last = output?.trim();
   return [
     record.brief,
@@ -982,6 +1030,8 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
         account: route.name,
         tried,
         resume,
+        // A child a person may be watching comes back the way it was started.
+        interactive: record.interactive,
       },
       to || undefined,
     );

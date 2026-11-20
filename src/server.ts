@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
+import { failOverLimited, failoverNotice } from "./account-failover";
 import { autopilot } from "./autopilot";
 import { codexRemoteHost } from "./codex";
 import { collisionWatch, warn } from "./collisions";
@@ -19,7 +20,7 @@ import {
   reachable,
   route,
 } from "./messages";
-import { nativeNotifications } from "./notifications";
+import { nativeNotifications, notify } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
@@ -613,6 +614,13 @@ export function startServer({
       listed = sessions;
       if (!stale) {
         flushInBackground(sessions);
+        const current = settings();
+        void failOverLimited(sessions, current).then(
+          (events) => {
+            if (current.notifications) for (const event of events) notify("Claude usage limit", failoverNotice(event));
+          },
+          () => {},
+        );
         // A list that failed to load keeps the last decision rather than letting the computer sleep mid-turn.
         awake(keepingAwake() && sessions.some((session) => session.activity === "working"));
       }
