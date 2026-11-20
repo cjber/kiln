@@ -23,9 +23,12 @@ const usage = `usage: kiln            open the session list
                                   what each prompt changed; --follow streams new edits as JSON lines
        kiln blame <file> [--json] which session and prompt wrote each line of a file
        kiln login <agent> <name>  sign in to a claude, codex, muse or opencode account from [[accounts]]
+       kiln accounts [--json]     every agent account: usage, whether a run can start on it, its pins
+       kiln accounts adopt [--dry-run]
+                                  add each mclaude Claude account to [[accounts]], with no new login
        kiln skills list|share|sync    manage shared skills
        kiln msg list|send|inbox|whoami|spawn    let running agents message and start each other
-       kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--interactive] -- <prompt>
+       kiln msg spawn <agent> [--dir PATH] [--title T] [--model M] [--account NAME] [--interactive] -- <prompt>
                                    start a headless agent in kiln's tmux, as a child of the calling session if any;
                                    --interactive (claude) starts its terminal UI so you can attach and watch
        agents: npx skills add cjber/kiln installs the kiln skill
@@ -61,6 +64,16 @@ export async function runCli(args: string[]): Promise<number | undefined> {
       return await runLoginCli(args.slice(1), loadSettings());
     } catch (error) {
       console.error(`kiln: ${error instanceof Error ? error.message : "login failed"}`);
+      return 2;
+    }
+  }
+  if (command === "accounts") {
+    try {
+      const { runAccountsCli } = await import("./accounts-cli");
+      await runAccountsCli(args.slice(1), loadSettings());
+      return 0;
+    } catch (error) {
+      console.error(`kiln: ${error instanceof Error ? error.message : "accounts command failed"}`);
       return 2;
     }
   }
