@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-11-20
+
 - **A child that exits at once is no longer reported as started on a busy machine.** When a Codex or Antigravity child exited before it began its conversation, kiln waited one second for tmux to read its exit status and, if tmux had not, printed an id for a child that was already gone. kiln now reads the status of an exited process from the kernel, so the spawn fails with the child's exit status and output however long tmux takes.
 
 ## [0.31.0] - 2026-11-19
