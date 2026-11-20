@@ -32,8 +32,9 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
       };
       if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) continue;
       if (typeof record.timestamp !== "string" || !(Date.parse(record.timestamp) >= startedAt)) return undefined;
+      // A refusal with no window behind it is the provider being busy, which another account would not cure.
       const resetsAt = record.quotaLimits?.resetsAt;
-      return typeof resetsAt === "number" ? { resetsAt: resetsAt * 1000 } : {};
+      return typeof resetsAt === "number" ? { resetsAt: resetsAt * 1000 } : undefined;
     } catch {
       // A line Claude is still writing is not a record yet.
     }

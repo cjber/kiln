@@ -85,7 +85,10 @@ export function prepareHome(account: Account, root = realRoot(account.agent)): v
   mkdirSync(account.home, { recursive: true, mode: 0o700 });
   switch (account.agent) {
     case "claude":
-      for (const entry of existsSync(root) ? readdirSync(root) : [])
+      // The conversations and the session registry must exist to be linked: created inside an account instead, they
+      // would be that account's alone, and its conversations could not be found or resumed from another.
+      for (const shared of ["projects", "sessions"]) mkdirSync(join(root, shared), { recursive: true, mode: 0o700 });
+      for (const entry of readdirSync(root))
         if (!claudeLogin.includes(entry)) link(join(root, entry), join(account.home, entry));
       return;
     case "codex":
@@ -150,7 +153,8 @@ export async function runLoginCli(args: readonly string[], settings: Settings): 
 
 /**
  * The account a running agent process was started on, read from the environment it inherited: the config home of a
- * configured account, else the default. An agent with no configured accounts has no account to show.
+ * configured account, else the default. An agent with no configured accounts has no account to show, nor has a
+ * Claude run in a config dir that is neither a configured account nor the default.
  */
 export function accountOf(
   agent: string,
@@ -161,8 +165,9 @@ export function accountOf(
   const own = accounts.filter((account) => account.agent === agent);
   if (!own.length) return undefined;
   const home = environment[Object.keys(accountEnv(own[0] as Account))[0] as string];
-  return (
-    own.find((account) => home !== undefined && resolve(expandHome(account.home)) === resolve(home))?.name ??
-    defaultAccount
-  );
+  const found = own.find((account) => home !== undefined && resolve(expandHome(account.home)) === resolve(home));
+  if (found) return found.name;
+  // Claude's default is one known dir, so a run in some other dir is on a login kiln has no name for.
+  if (agent === "claude" && home && resolve(home) !== claudeHome()) return undefined;
+  return defaultAccount;
 }

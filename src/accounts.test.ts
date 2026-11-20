@@ -3,7 +3,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { accountEnv, loginCommand, prepareHome } from "./accounts";
+import { accountEnv, accountOf, loginCommand, prepareHome } from "./accounts";
 import { defaults } from "./settings";
 
 test("each agent's account is the variable its own CLI reads", () => {
@@ -49,7 +49,7 @@ test("a Muse home links every other tool's config back, and owns only its login"
 test("a Claude home shares everything but its login with the default config dir", () => {
   const dir = mkdtempSync(join(tmpdir(), "kiln-home-"));
   const real = join(dir, "claude");
-  mkdirSync(join(real, "projects"), { recursive: true });
+  mkdirSync(real);
   writeFileSync(join(real, "settings.json"), "{}");
   writeFileSync(join(real, ".credentials.json"), "secret");
   writeFileSync(join(real, ".claude.json"), "{}");
@@ -58,8 +58,16 @@ test("a Claude home shares everything but its login with the default config dir"
   // An entry the shared dir gains later is linked on the next launch.
   mkdirSync(join(real, "skills"));
   prepareHome({ agent: "claude", name: "a", home }, real);
-  for (const entry of ["projects", "settings.json", "skills"])
+  // The transcript store is shared even when the default config dir never held a conversation.
+  for (const entry of ["projects", "sessions", "settings.json", "skills"])
     expect(readlinkSync(join(home, entry))).toBe(join(real, entry));
   expect(() => lstatSync(join(home, ".credentials.json"))).toThrow();
   expect(() => lstatSync(join(home, ".claude.json"))).toThrow();
+});
+
+test("a running Claude is named by its config dir, and one in an unlisted dir has no name", () => {
+  const accounts = [{ agent: "claude" as const, name: "work", home: "/srv/claude-work" }];
+  expect(accountOf("claude", { CLAUDE_CONFIG_DIR: "/srv/claude-work" }, accounts)).toBe("work");
+  expect(accountOf("claude", {}, accounts)).toBe("default");
+  expect(accountOf("claude", { CLAUDE_CONFIG_DIR: "/srv/elsewhere" }, accounts)).toBeUndefined();
 });

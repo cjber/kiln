@@ -59,7 +59,8 @@ export async function openSession(session: Session, settings: Settings): Promise
     case "saved": {
       if (!session.id) return notice("this session has no conversation to resume");
       // The row stays until the resumed conversation is seen running, so a resume that fails can be tried again.
-      return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id);
+      const route = await resumeRoute(session.agent, settings);
+      return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, undefined, false, route);
     }
     case "elsewhere":
       return notice(`Open this session in its terminal · ${place.source ?? session.id ?? "unknown"}`);
@@ -264,8 +265,18 @@ export async function resumeStopped(
     return { problem };
   };
   let problem = "";
+  const route = await resumeRoute(session.agent, settings);
   for (let attempt = 0; attempt < 2; attempt++) {
-    const outcome = await launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, prompt, true);
+    const outcome = await launch(
+      session.agent,
+      session.cwd,
+      settings,
+      sessionTitle(session),
+      session.id,
+      prompt,
+      true,
+      route,
+    );
     if (outcome.kind !== "attach") return failed(outcome.kind === "notice" ? outcome.text : "not started");
     const result = await awaitStart(name, () => started(name), timeoutMs, pollMs);
     if (result === true) {
@@ -305,6 +316,20 @@ export function codexReconnectCommand(settings: Settings, threadId: string): str
   return [...agentCommand("codex", settings, threadId), "--remote", "unix://"];
 }
 
+/**
+ * The account a conversation is resumed on. Claude's accounts share one transcript store, so a conversation carries on
+ * on whichever has the most headroom, and on kiln's own when none can be chosen. Another agent's conversation lives in
+ * the home it began in, which only its own environment names.
+ */
+async function resumeRoute(agent: Agent, settings: Settings): Promise<Pick<Route, "env" | "unset">> {
+  if (agent !== "claude") return { env: {} };
+  try {
+    return await routeNew(agent, settings.accounts);
+  } catch {
+    return { env: {} };
+  }
+}
+
 /** A new session on the account with the most headroom; one whose every account is at its limit is not started. */
 export async function createSession(agent: Agent, cwd: string, settings: Settings): Promise<Outcome> {
   try {
@@ -319,8 +344,22 @@ export async function createSession(agent: Agent, cwd: string, settings: Setting
  * A session a phone asked for, with its first prompt. It always has the provider's remote control on, since the
  * phone follows it there rather than showing a transcript of its own.
  */
-export function startFromPhone(agent: Agent, cwd: string, prompt: string, settings: Settings): Promise<Outcome> {
-  return launch(agent, cwd, { ...settings, remoteControl: true }, `${agent} · ${cwd}`, undefined, prompt);
+export async function startFromPhone(agent: Agent, cwd: string, prompt: string, settings: Settings): Promise<Outcome> {
+  try {
+    const route = await routeNew(agent, settings.accounts);
+    return launch(
+      agent,
+      cwd,
+      { ...settings, remoteControl: true },
+      `${agent} · ${cwd}`,
+      undefined,
+      prompt,
+      false,
+      route,
+    );
+  } catch (error) {
+    return notice(error instanceof Error ? error.message : "Could not choose an account");
+  }
 }
 
 export type SessionAction = { verb: "close" | "archive" | "delete" | "forget" } | { reason: string };

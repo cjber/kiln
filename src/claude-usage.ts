@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -74,6 +74,15 @@ function token(home: string, now: number): string | undefined {
   }
 }
 
+/** One name for a config dir however it is reached, so a login has one read. */
+function sameHome(home: string): string {
+  try {
+    return realpathSync(home);
+  } catch {
+    return resolve(home);
+  }
+}
+
 /**
  * The usage of the Claude login in `home`. The read is kept in kiln's state directory, so every kiln process shares one
  * request per login every five minutes. A login the provider cannot be asked about now (signed out, an expired token,
@@ -85,7 +94,7 @@ export async function claudeUsage(
   dir = stateDir(),
   request: typeof fetch = fetch,
 ): Promise<ClaudeUsage | undefined> {
-  const path = join(dir, `${new Bun.CryptoHasher("sha256").update(resolve(home)).digest("hex").slice(0, 16)}.json`);
+  const path = join(dir, `${new Bun.CryptoHasher("sha256").update(sameHome(home)).digest("hex").slice(0, 16)}.json`);
   const last = readFile(path);
   if (last && now - last.askedAt < everyMs && last.askedAt >= staleBefore) return last.usage;
   const access = token(home, now);
@@ -107,7 +116,8 @@ export async function claudeUsage(
     // A request that failed leaves the last good read standing.
   }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}`;
+  // Two reads of one login can overlap in a process, and each needs a file of its own to rename.
+  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}`;
   writeFileSync(temporary, JSON.stringify({ askedAt: now, usage } satisfies Read), { mode: 0o600 });
   renameSync(temporary, path);
   return usage;

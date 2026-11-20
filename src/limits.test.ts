@@ -21,7 +21,7 @@ describe("limit detection", () => {
     expect(claudeLimit("id", refused - 4000, limited)).toEqual({ resetsAt: 1795392000_000 });
     // A resumed conversation still holds the record that ended its previous run.
     expect(claudeLimit("id", refused + 1, limited)).toBeUndefined();
-    // Prose that only mentions the words is not the record.
+    // Prose that only mentions the words is not the record, nor is a 429 with no usage window behind it.
     expect(claudeLimit("id", 0, join(fixtures, "claude", "finished.jsonl"))).toBeUndefined();
     expect(claudeLimit("id", 0, join(fixtures, "claude", "absent.jsonl"))).toBeUndefined();
   });
