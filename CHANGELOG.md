@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A session whose agent was killed can be resumed.** When an OOM killer or a `kill -9` ended a spawned Claude and nothing closed its kiln pane, `kiln msg spawn --resume` refused with `already running` and `kiln resume` listed nothing. A pane whose agent has exited no longer counts as running: the spawn reports the old run and replaces the pane, and `kiln resume` lists such a top-level session as stopped.
+
 ## [0.31.1] - 2026-11-20
 
 - **A child that exits at once is no longer reported as started on a busy machine.** When a Codex or Antigravity child exited before it began its conversation, kiln waited one second for tmux to read its exit status and, if tmux had not, printed an id for a child that was already gone. kiln now reads the status of an exited process from the kernel, so the spawn fails with the child's exit status and output however long tmux takes.

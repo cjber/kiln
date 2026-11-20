@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { findClaudeTranscript } from "./claude-inbox";
 import { type Agent, gitBranch, processIdentity, processStartTicks, type Session, sessionIdentity } from "./sessions";
+import { endedPane } from "./tmux";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -122,7 +123,9 @@ function resumable(session: Session): session is Session & { id: string } {
 /**
  * Bring the saved list up to date with one observation. A running session is saved under this boot. One
  * whose process is gone in the same boot was closed and is dropped; one from an earlier boot was cut off
- * by the restart, and stays as a stopped row until it is seen running again or forgotten. A row whose conversation its
+ * by the restart, and stays as a stopped row until it is seen running again or forgotten. A top-level row whose spawn
+ * pane `paneEnded` still finds dead was cut off in this boot, as an OOM kill leaves it when nothing reaped the pane,
+ * and is stopped too. A row whose conversation its
  * provider lists as finished, or whose conversation `hasConversation` cannot find, is dropped: there is nothing a
  * restart cut off to resume.
  */
@@ -134,6 +137,7 @@ export function reconcile(
   alive: (pid: number) => boolean,
   started: (pid: number) => number | undefined,
   hasConversation: (item: Saved) => boolean = () => true,
+  paneEnded: (pane: string) => boolean = () => false,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
@@ -173,6 +177,7 @@ export function reconcile(
   const finished = new Set(
     sessions.filter((session) => session.place.kind === "job" && session.lifecycle !== undefined).map(key),
   );
+  const cutOff = new Set<string>();
   for (const item of saved) {
     if (next.has(key(item)) || finished.has(key(item))) continue;
     // A child outlives its process when its provider still lists it, as an `opencode run` does, and keeps its parent.
@@ -190,13 +195,16 @@ export function reconcile(
     else if (item.pid !== undefined && running.has(item.pid)) continue;
     // A listing that failed says nothing about a process that is still there.
     else if (item.pid !== undefined && alive(item.pid)) next.set(key(item), { ...item, goneAt: undefined });
-    else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
+    else if (!item.parent && item.pane !== undefined && paneEnded(item.pane)) {
+      cutOff.add(key(item));
+      next.set(key(item), item);
+    } else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
   }
   const kept = [...next.values()].sort((left, right) => (key(left) < key(right) ? -1 : 1));
   return {
     saved: kept,
     stopped: kept
-      .filter((item) => item.boot !== boot && !listed.has(key(item)))
+      .filter((item) => (item.boot !== boot || cutOff.has(key(item))) && !listed.has(key(item)))
       .map((item) => ({
         agent: item.agent,
         id: item.id,
@@ -252,6 +260,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
         (pid) => existsSync(`/proc/${pid}`),
         processStartTicks,
         savedConversation,
+        (pane) => endedPane(pane) !== undefined,
       );
       if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
         db.exec("DELETE FROM sessions");

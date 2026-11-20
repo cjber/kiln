@@ -668,6 +668,57 @@ test("a resumed child that exits before its spawn settles reports to the new par
   }
 }, 30_000);
 
+test("a resume replaces a pane whose agent was killed, rather than calling it running (#276)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    claude: Bun.env.CLAUDE_CONFIG_DIR,
+  };
+  const root = join(paneDir, "resumed-dead");
+  const state = join(root, "state");
+  const dir = join(root, "work");
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "claude"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
+  Bun.env.XDG_STATE_HOME = state;
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.CLAUDE_CONFIG_DIR = join(root, "claude");
+  const server = `kiln-spawn-${process.pid}`;
+  Bun.spawnSync(["tmux", "-L", server, "set-environment", "-g", "XDG_STATE_HOME", state]);
+  const id = crypto.randomUUID();
+  const name = `claude-${id.replaceAll("-", "").slice(0, 20)}`;
+  const claude = join(root, "claude.sh");
+  writeFileSync(claude, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\nclaude = [${JSON.stringify(claude)}]\n`);
+  try {
+    // The earlier run was SIGKILLed, as an OOM killer does, and its kept pane stayed dead: nothing reaped it.
+    expect(start(name, dir, ["sh", "-c", "kill -KILL $$"], "killed", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 5_000; waited += 50) await Bun.sleep(50);
+    expect(ended(name)?.status).toBe(137);
+    recordSpawn({ agent: "claude", id, cwd: dir, title: "killed", startedAt: 1_000, pane: name, runBound: true });
+    expect(
+      await spawnAgent({
+        agent: "claude",
+        dir,
+        prompt: "carry on",
+        interactive: true,
+        resume: { id, codeMode: false, title: "killed" },
+      }),
+    ).toBe(`claude:${id}`);
+  } finally {
+    kill(name);
+    Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["CLAUDE_CONFIG_DIR", saved.claude],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+}, 30_000);
+
 test("replacement during paused discovery prevents cleanup, reporting and archival", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "discovery-race-state");

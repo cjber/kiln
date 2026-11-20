@@ -12,7 +12,7 @@ import { forget, restoreRow, savedRow } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import { type Agent, agentName, listSessions, type Session } from "./sessions";
 import type { Settings } from "./settings";
-import { awaitStart, exists, kill, respawn, start, survives } from "./tmux";
+import { awaitStart, endedPane, exists, kill, reapEnded, respawn, start, survives } from "./tmux";
 import { readTranscript } from "./transcript";
 import { tilde } from "./tui";
 import { recordDirectory } from "./zoxide";
@@ -189,7 +189,11 @@ async function launch(
   account: Record<string, string> = {},
 ): Promise<Outcome> {
   const name = sessionName(agent, resume);
-  if (resume && exists(name)) return { kind: "attach", name };
+  if (resume && exists(name)) {
+    if (!endedPane(name)) return { kind: "attach", name };
+    // A kept pane whose agent exited holds only its exit status, and attaching to it would show a dead screen.
+    kill(name);
+  }
   if (!isDirectory(cwd)) return notice(`${tilde(cwd)} is not a directory`);
   try {
     const command = settings.agents[agent];
@@ -249,7 +253,7 @@ export async function resumeStopped(
   if (session.agent === "muse" && prompt)
     return { problem: "Muse cannot take a prompt on resume; resume it, then send the prompt with kiln msg send" };
   const name = sessionName(session.agent, session.id);
-  if (exists(name)) return { name };
+  if (exists(name) && !endedPane(name)) return { name };
   // Claude would exit at once with no reason given; there is no conversation to carry on.
   if (session.agent === "claude" && !findClaudeTranscript(session.id, session.cwd))
     return { problem: `Claude has no conversation ${session.id} to resume` };
@@ -263,7 +267,12 @@ export async function resumeStopped(
     const outcome = await launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, prompt, true);
     if (outcome.kind !== "attach") return failed(outcome.kind === "notice" ? outcome.text : "not started");
     const result = await awaitStart(name, () => started(name), timeoutMs, pollMs);
-    if (result === true) return { name };
+    if (result === true) {
+      // A session cut off in this boot was listed by the dead spawn pane nothing reaped; the conversation runs here now.
+      const left = row?.pane === undefined || row.pane === name ? undefined : endedPane(row.pane);
+      if (left) reapEnded(left);
+      return { name };
+    }
     if ("hung" in result)
       return failed(`${agentName(session.agent)} did not start${result.hung ? `: ${result.hung}` : ""}`);
     problem = `${agentName(session.agent)} exited with status ${result.status}${result.output ? `: ${result.output}` : ""}`;
