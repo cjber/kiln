@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-20
+
 - **An interactive Claude session that hits its usage limit moves to another account.** Only a headless `kiln msg spawn` child was restarted before; a session in a terminal stayed stopped. kiln now reads the refusal from the session's transcript and restarts the conversation in its own pane on the account with the most headroom, with a notice in the list and a desktop notification. A spawned child keeps its sandbox grant, outbox and exit report, and one started with `--interactive` comes back interactive. A session started with `--model` returns on the default model. When no account can take the session it stays where it is and the notice says why.
 - **An expired Claude login is told apart from one that needs signing in.** A token that expired while its account was idle is renewed by Claude Code itself: kiln runs `claude auth status` in that account's home, at most every half hour, and never writes a token. A login that cannot be renewed shows `login` in the footer, is never chosen for a new run, and `--account` naming it says which command signs it in.
 - **Accounts can be turned off and directories pinned.** `disabled = true` on an `[[accounts]]` entry keeps that login out of every choice and out of the footer; an entry named `default` with only `disabled = true` does the same for the agent's own home. A `[[pins]]` entry (`dir`, `agent`, `account`) starts every session of that agent under a directory on one account. A pinned run is never moved: when its account is spent the start is refused with the reason.
