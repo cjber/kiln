@@ -4,7 +4,14 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "n
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeInbox, claudeRecord, claudeShellRunning, InboxClosed, sendClaudeInbox } from "./claude-inbox";
+import {
+  claudeBackgroundAgentRunning,
+  claudeInbox,
+  claudeRecord,
+  claudeShellRunning,
+  InboxClosed,
+  sendClaudeInbox,
+} from "./claude-inbox";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -113,4 +120,21 @@ test("a message counts as delivered once Claude records queueing it, and a close
     await new Promise((resolve) => server.close(resolve));
   }
   await expect(sendClaudeInbox({ socket, token }, "hi", transcript)).rejects.toBeInstanceOf(InboxClosed);
+});
+
+test("a background agent counts as running until its meta file says it finished", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-agents-"));
+  const transcript = join(root, "s1.jsonl");
+  mkdirSync(join(root, "s1", "subagents"), { recursive: true });
+  const meta = join(root, "s1", "subagents", "agent-a1.meta.json");
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(false);
+  writeFileSync(meta, JSON.stringify({ requestShape: "background" }));
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(true);
+  // One launched before this process started belongs to an earlier run.
+  expect(claudeBackgroundAgentRunning(transcript, Date.now() + 60_000)).toBe(false);
+  writeFileSync(meta, JSON.stringify({ requestShape: "background", finished: true }));
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(false);
+  writeFileSync(meta, JSON.stringify({ requestShape: "foreground" }));
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(false);
+  rmSync(root, { recursive: true });
 });

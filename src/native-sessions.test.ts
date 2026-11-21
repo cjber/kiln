@@ -230,6 +230,8 @@ test("a busy Claude session's status comes from its own record, or for print mod
   expect(claudeStatus("busy", print, undefined, none)).toBe("busy");
   expect(claudeStatus("busy", print, true, shells)).toBe("shell");
   expect(claudeStatus("busy", print, true, none)).toBe("idle");
+  // A background agent runs inside a print-mode process, with no shell of its own.
+  expect(claudeStatus("busy", print, true, none, undefined, () => true)).toBe("shell");
 });
 
 test("a Claude pane shows a turn running only while its footer offers to interrupt it", () => {
