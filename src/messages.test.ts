@@ -7,6 +7,7 @@ import {
   approvalShown,
   askParents,
   callerIdentity,
+  currentTurn,
   findRecipient,
   flush,
   frame,
@@ -387,6 +388,19 @@ test("a reply names this kiln while its executable exists, and the kiln on PATH 
   expect(replyCommand(kiln)).toBe(kiln);
   const removed = join(mailbox(), "removed-install", "kiln");
   expect(replyCommand(removed)).toBe(Bun.which("kiln") ?? "kiln");
+});
+
+test("a turn starts at the latest prompt, a peer message included, and keeps only the reply after it", () => {
+  const first = [
+    { id: "u1", at: 1_000, kind: "you" as const, text: "start" },
+    { id: "a1", at: 1_100, kind: "agent" as const, text: "messaged parent" },
+  ];
+  expect(currentTurn(first)).toEqual({ started: 1_000, reply: { id: "a1", text: "messaged parent" } });
+  // The parent's follow-up arrives as a peer notice and starts the second turn.
+  const second = [...first, { id: "n1", at: 2_000, kind: "notice" as const, text: "next step" }];
+  expect(currentTurn(second)).toEqual({ started: 2_000, reply: undefined });
+  const answered = [...second, { id: "a2", at: 2_100, kind: "agent" as const, text: "done" }];
+  expect(currentTurn(answered)).toEqual({ started: 2_000, reply: { id: "a2", text: "done" } });
 });
 
 test("a child that ends its turn silently is reported to its parent once per reply, with how to close it", () => {

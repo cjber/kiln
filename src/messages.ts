@@ -522,9 +522,18 @@ export function lastTurn(session: Session): { started?: number; reply?: { id: st
   } catch {
     return undefined;
   }
-  const reply = items.findLast((item) => item.kind === "agent");
+  return currentTurn(items);
+}
+
+/**
+ * The latest turn in a conversation: when its prompt arrived and the reply that followed it. A typed prompt, a peer
+ * message and a task notification each start a turn, and a reply from before that prompt belongs to an earlier turn.
+ */
+export function currentTurn(items: readonly Item[]): { started?: number; reply?: { id: string; text: string } } {
+  const start = items.findLastIndex((item) => item.kind === "you" || item.kind === "notice");
+  const reply = items.slice(start + 1).findLast((item) => item.kind === "agent");
   return {
-    started: items.findLast((item) => item.kind === "you")?.at,
+    started: items[start]?.at,
     reply: reply && "text" in reply ? { id: reply.id, text: reply.text } : undefined,
   };
 }
@@ -551,10 +560,8 @@ export function reportTurnEnd(
   const name = sessionIdentity(child);
   const to = sessionIdentity(parent);
   const ended = turn(child);
-  if (!ended?.reply) {
-    console.warn(`kiln: ${name}'s turn ended, but its conversation has no reply to report to ${to}`);
-    return false;
-  }
+  // No reply in this turn: nothing new to report. The TUI runs this too, so it prints nothing.
+  if (!ended?.reply) return false;
   if (ended.started !== undefined && messaged(name, to, ended.started)) return false;
   const titled = child.title ? ` ("${child.title}")` : "";
   const state =
