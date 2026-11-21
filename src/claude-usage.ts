@@ -199,7 +199,8 @@ export async function claudeUsage(
       ...prior,
       askedAt: prior?.askedAt ?? 0,
       renewedAt,
-      ...(currentTokenHash ? { tokenHash: currentTokenHash } : {}),
+      // A verdict on an earlier token says nothing about this one; only renewing this token can set it again.
+      ...(currentTokenHash ? { tokenHash: currentTokenHash, loggedOut: undefined } : {}),
     });
     void renew(home)
       .then((loggedIn) => {

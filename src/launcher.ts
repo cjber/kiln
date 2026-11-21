@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
 import { pinFor } from "./accounts";
@@ -26,6 +26,16 @@ function archiveConversation(session: Session, id: string, terminalClosed = fals
 /** How long a close waits for a session's process to exit after its terminal closed. */
 const exitWaitMs = 5_000;
 
+/** Whether `pid` is still running; a zombie has exited and released its locks, though its parent has not reaped it. */
+function processRunning(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3) !== "Z";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Archive a session whose terminal has just closed. Its process holds the thread's writer lock until it exits, and the
  * provider refuses the archive while it does, so the archive waits for that process to be gone.
@@ -34,7 +44,7 @@ export async function archiveClosed(
   session: Session,
   id: string,
   waitMs = exitWaitMs,
-  running: (pid: number) => boolean = (pid) => existsSync(`/proc/${pid}`),
+  running: (pid: number) => boolean = processRunning,
 ): Promise<void> {
   const deadline = Date.now() + waitMs;
   while (session.pid !== undefined && running(session.pid) && Date.now() < deadline) await Bun.sleep(50);
