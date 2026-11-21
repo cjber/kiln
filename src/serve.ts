@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { type Pairing, serverOrigin } from "./pairing";
 import { loadSettings } from "./settings";
 
@@ -96,4 +97,31 @@ export function pairingMode(write: boolean): string {
   return write
     ? "Paired phones can start sessions and send prompts on this computer ([phone] write = true)."
     : "Paired phones can watch sessions only. Set write = true under [phone] in config.toml to let them start sessions and send prompts.";
+}
+
+/** The executable a running kiln was started from, as it is on disk: an upgrade installs a new file in its place. */
+function executableStamp(path: string): string | undefined {
+  try {
+    const { ino, mtimeMs } = statSync(path);
+    return `${ino}:${mtimeMs}`;
+  } catch {
+    // Mid-upgrade the path can be missing for a moment; the next check reads the new file.
+    return undefined;
+  }
+}
+
+/**
+ * Calls `replaced` once the executable this process started from has been replaced, as a package upgrade does. A
+ * long-running `kiln serve` otherwise keeps running the old version's code against the new version's config.
+ */
+export function watchExecutable(replaced: () => void, path = process.execPath, everyMs = 30_000): () => void {
+  const started = executableStamp(path);
+  const timer = setInterval(() => {
+    const now = executableStamp(path);
+    if (!started || !now || now === started) return;
+    clearInterval(timer);
+    replaced();
+  }, everyMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
