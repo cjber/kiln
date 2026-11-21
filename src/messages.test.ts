@@ -14,12 +14,14 @@ import {
   heldBecause,
   lastExit,
   NotNow,
+  phoneSender,
   processAgent,
   replyCommand,
   reportTurnEnd,
   route,
   spawnSender,
   type Transports,
+  typedText,
 } from "./messages";
 import type { Saved } from "./saved-sessions";
 import type { Session } from "./sessions";
@@ -133,6 +135,31 @@ test("a spawned Codex run answers to the process name its spawn returned and to 
   // Codex exec has no queue to push into, so the message waits in the mailbox the run reads with `kiln msg inbox`.
   expect(route(run)).toEqual({ inbox: "it is not on Codex's shared daemon" });
   expect(() => findRecipient([{ ...run, id: undefined }], "codex:40:7.5")).toThrow("no running session");
+});
+
+test("the person's own phone message is typed into a kiln Claude as their prompt, not sent as a peer's", () => {
+  const phone = phoneSender("Pixel 9a");
+  const message = { id: "1", from: "terminal", to: "claude:a", body: "hi", createdAt: 0 };
+  // Claude frames anything its inbox takes as another session's message, so the person's words wait for the prompt.
+  expect(route(session({ claudeInbox: true }), undefined, phone)).toEqual({ push: "tmux" });
+  expect(route(session({ claudeInbox: true, activity: "working" }), undefined, phone)).toEqual({
+    wait: "Claude is working",
+  });
+  expect(route(session({ claudeInbox: true, activity: "working", turnEnded: true }), undefined, phone)).toEqual({
+    push: "tmux",
+  });
+  // Another session's message still queues in Claude's inbox while a turn runs.
+  expect(route(session({ claudeInbox: true, activity: "working" }), undefined, "claude:other")).toEqual({
+    push: "claude",
+  });
+  // Outside kiln there is no terminal to type into, so the inbox is the only way in.
+  expect(route(session({ claudeInbox: true, place: { kind: "elsewhere" } }), undefined, phone)).toEqual({
+    push: "claude",
+  });
+  expect(typedText({ ...message, from: phone }, undefined)).toBe("hi");
+  expect(typedText({ ...message, from: "claude:other" }, undefined)).toBe(
+    frame({ ...message, from: "claude:other" }, undefined),
+  );
 });
 
 test("typing waits for an idle session; an agent's own queue takes a message at once", () => {

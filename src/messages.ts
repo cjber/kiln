@@ -47,6 +47,7 @@ export function kilnNotice(text: string): boolean {
 
 /** The name a message typed on a paired phone carries. */
 export const phoneSender = (device: string) => `phone:${device}`;
+const fromPhone = (from: string) => from.startsWith(phoneSender(""));
 
 /** Each agent puts its own session id in the environment of the commands it runs. */
 const sessionVariables: Record<Agent, string> = {
@@ -158,7 +159,7 @@ export type Route =
   | { inbox: string };
 
 /** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until its turn ends. */
-export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
+export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox, from?: string): Route {
   // Nothing a stopped process holds, its own queue included, is read until it continues.
   if (session.paused) return { wait: "its process is stopped; it is delivered once the process continues" };
   const busy = () =>
@@ -185,6 +186,9 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
           ? { wait: "Codex is waiting" }
           : { push: "codex" };
     case "claude":
+      // Claude frames whatever its inbox takes as another session's message, so the person's own words from a phone are
+      // typed at the prompt of a terminal kiln started, where Claude reads them as theirs.
+      if (from !== undefined && fromPhone(from) && session.place.kind === "kiln") return busy() ?? { push: "tmux" };
       // Claude's inbox queues a message while a turn runs, as Codex's daemon does; a question waits for its answer.
       if (session.claudeInbox)
         return session.activity === "waiting" && !session.turnEnded
@@ -285,10 +289,15 @@ export function frame(message: Message, sender: Session | undefined, command = r
     message.from === terminal ||
     message.from === autopilotSender ||
     message.from.startsWith(spawnSender) ||
-    message.from.startsWith(phoneSender(""))
+    fromPhone(message.from)
       ? ""
       : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;
+}
+
+/** What a transport puts in front of the recipient: the person's own phone words as they wrote them, typed as theirs. */
+export function typedText(message: Message, sender: Session | undefined): string {
+  return fromPhone(message.from) ? message.body : frame(message, sender);
 }
 
 /** A transport throws this when it refused before sending anything, so the message can simply wait. */
@@ -387,9 +396,13 @@ function typingHold(name: string): string | undefined {
  * then delivers it. Nothing when it can go now, or when it never goes by itself: it is not running, or it reads its
  * mailbox, which `sessionAbilities` reports as `inbox`.
  */
-export function heldBecause(session: Session, inboxExists?: (pid: number) => boolean): string | undefined {
+export function heldBecause(
+  session: Session,
+  inboxExists?: (pid: number) => boolean,
+  from?: string,
+): string | undefined {
   if (!reachable(session)) return undefined;
-  const way = route(session, inboxExists);
+  const way = route(session, inboxExists, from);
   if ("wait" in way) return way.wait;
   if ("inbox" in way) return undefined;
   return way.push === "tmux" && session.place.kind === "kiln" ? typingHold(session.place.name) : undefined;
@@ -428,14 +441,18 @@ export async function flush(
           outcomes.set(message.id, { message, delivered: false, reason: "it is not running; it can read it later" });
           continue;
         }
-        const way = route(session, options.inboxExists);
+        const way = route(session, options.inboxExists, message.from);
         if (!("push" in way)) {
           outcomes.set(message.id, { message, delivered: false, reason: "wait" in way ? way.wait : way.inbox });
           continue;
         }
         if (!claim(message.id, path)) continue;
         try {
-          await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)), message);
+          const text =
+            way.push === "tmux"
+              ? typedText(message, byName.get(message.from))
+              : frame(message, byName.get(message.from));
+          await (options.send ?? transports)[way.push](session, text, message);
           outcomes.set(message.id, { message, delivered: true });
         } catch (error) {
           const refused = error instanceof NotNow;

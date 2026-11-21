@@ -426,7 +426,7 @@ export function startServer({
       .filter((message) => message.to === sessionIdentity(session))
       .map(({ id: messageId, from, body, createdAt }) => ({ id: messageId, from, text: body, at: createdAt }));
     // Why they wait, so the phone can say they send by themselves; read only while something waits.
-    const waiting = queued.length ? (heldBecause(session) ?? null) : null;
+    const waiting = queued.length ? (heldBecause(session, undefined, queued[0]?.from) ?? null) : null;
     const read = conversationReader(session);
     try {
       if (read) return { abilities, prompt, queued, waiting, ...read(cursor ?? undefined) };

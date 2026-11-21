@@ -51,8 +51,9 @@ function resultText(content: unknown): string {
 
 /** A prompt Claude itself wrote into the turn (a task notification, a command's output) reads as a notice. */
 function promptKind(record: Record<string, unknown>, text: string): "you" | "notice" | undefined {
-  if (record.isMeta === true) return undefined;
   const origin = (record.origin as { kind?: unknown } | undefined)?.kind;
+  // Claude records a message from another session as a meta prompt; it is part of the conversation all the same.
+  if (record.isMeta === true) return origin === "peer" ? "notice" : undefined;
   if (origin === "human" || record.promptSource === "typed") return "you";
   if (origin !== undefined || record.promptSource === "system") return "notice";
   return text.trimStart().startsWith("<") ? "notice" : "you";
