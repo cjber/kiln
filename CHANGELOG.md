@@ -9,6 +9,14 @@ verbatim.
 
 ## [Unreleased]
 
+- **Claude account homes keep their sandbox files linked.** Config homes now retain the shared `launch.json` entry even when Claude creates it later, and no longer copy transient Claude config locks into another account.
+- **Claude account homes repair stale config links.** Preparing an account removes an old lock link it created into the shared Claude home, so trust updates no longer wait on a lock that belongs to another home.
+- **Expired Claude tokens are removed from account routing.** A 401 from Claude's usage endpoint now starts the normal renewal check, and an account whose renewal fails shows `login` and is not selected for a new run.
+- **`kiln msg spawn` explains `--account` for agents without named accounts.** `--account cillian` on Codex now says Codex has no named accounts and runs on its default login, instead of printing an empty account list.
+- **`kiln close` waits for a Codex child's writer to exit.** Closing a working headless Codex child archives its thread once the process has exited (up to 5 s), and if archiving still fails it says the session stopped and only archiving failed.
+- **A Claude spawn into a home that has not finished first-run setup fails fast.** An interactive spawn whose `.claude.json` lacks `hasCompletedOnboarding` is refused with the command to finish setup, and the start-timeout error says to answer any prompt its screen shows by running `claude` once in that home.
+- **Resuming a Code Mode conversation headless is refused up front.** `kiln msg spawn claude --resume` of a conversation started in Code Mode now says to pass `--interactive` instead of reporting success and then exiting 1.
+
 ## [0.35.0] - 2026-11-21
 
 - **Subagents no longer notify the desktop.** A session kiln nests under a parent never sends a desktop or phone notification; kiln tells the parent instead when the child ends a turn without messaging it, with its state, last reply and the `kiln close` command. A turn that ends into background work notifies once, and that work finishing does not notify again.

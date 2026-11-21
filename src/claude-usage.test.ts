@@ -106,3 +106,13 @@ test("credentials with nothing to renew from need a login without asking Claude 
   expect(claudeNeedsLogin(now, dead.home, dead.state)).toBe(true);
   expect(claudeNeedsLogin(now, join(dead.home, "absent"), dead.state)).toBe(false);
 });
+
+test("a usage 401 is treated as an expired token and a failed renewal needs login", async () => {
+  const { home, state } = login();
+  const renew = async () => false;
+  const good = await claudeUsage(now - 6 * 60_000, home, state, provider().request, renew);
+
+  expect(await claudeUsage(now, home, state, provider(401).request, renew)).toEqual(good);
+  await Bun.sleep(0);
+  expect(claudeNeedsLogin(now, home, state)).toBe(true);
+});

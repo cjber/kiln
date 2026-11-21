@@ -112,6 +112,12 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     const id = values.resume.replace(/^claude:/, "");
     const found = claudeConversation(id);
     if (!found) throw new Error(`no Claude conversation ${id}`);
+    // Claude runs Code Mode only in its interactive terminal, so a headless resume exits 1 after kiln reported success.
+    // An interactive child reports its exit only when closed, so a headless caller would lose its report: refuse.
+    if (found.codeMode && !values.interactive)
+      throw new Error(
+        `Claude conversation ${id} was started in Code Mode, which runs only in the interactive terminal; resume it with --interactive`,
+      );
     resume = { id, codeMode: found.codeMode, title: found.title };
     requested = found.cwd;
   }
@@ -550,6 +556,30 @@ async function settledExit(name: string): Promise<{ status: number; output: stri
   }
 }
 
+/**
+ * An interactive Claude in a home whose `.claude.json` exists without `hasCompletedOnboarding` opens its first-run
+ * theme picker and never reads the prompt, so the spawn is refused up front with the way out. A missing or unreadable
+ * file says nothing about the home and is left to the start deadline.
+ */
+export function assertOnboarded(json: string, configDir: string | undefined): void {
+  let config: unknown;
+  try {
+    config = JSON.parse(readFileSync(json, "utf8"));
+  } catch {
+    return;
+  }
+  if (
+    typeof config !== "object" ||
+    config === null ||
+    (config as Record<string, unknown>).hasCompletedOnboarding === true
+  )
+    return;
+  throw new Error(
+    `Claude's first-run setup is not finished in ${json}, so an interactive spawn would stop at its theme picker. ` +
+      `Run \`${configDir ? `CLAUDE_CONFIG_DIR=${configDir} ` : ""}claude\` once and finish setup (or wait if the home is being migrated), then spawn again`,
+  );
+}
+
 /** How long a spawn waits for an interactive Claude to start under its launcher and register its session. */
 const claudeStartWaitMs = 30_000;
 
@@ -592,7 +622,7 @@ export async function settleClaudeTrust(
         .join("\n");
       kill(name);
       throw new Error(
-        `Claude had not started its session after ${waitMs / 1000} s, so kiln closed it. Its screen showed:\n${shown}`,
+        `Claude had not started its session after ${waitMs / 1000} s, so kiln closed it. If its screen below shows a prompt kiln does not answer, run \`claude\` once in this account's home, answer it, then spawn again. Its screen showed:\n${shown}`,
       );
     }
     // Registered or ended: every config the launch reached trusts the folder, so the dialog is not what holds it.
@@ -782,8 +812,11 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     route.env.CLAUDE_CONFIG_DIR ||
     (route.unset === "CLAUDE_CONFIG_DIR" ? undefined : Bun.env.CLAUDE_CONFIG_DIR) ||
     undefined;
-  if (options.interactive)
-    await trustClaudeWorkspace(options.dir, claudeConfig({ ...Bun.env, CLAUDE_CONFIG_DIR: configDir }).json);
+  if (options.interactive) {
+    const { json } = claudeConfig({ ...Bun.env, CLAUDE_CONFIG_DIR: configDir });
+    assertOnboarded(json, configDir);
+    await trustClaudeWorkspace(options.dir, json);
+  }
   const name = `${options.agent}-${id.replaceAll(/[^A-Za-z0-9]/g, "").slice(0, 20)}`;
   // A pane whose agent has exited, as one an OOM killer took stays when nothing reaped it, holds nothing to resume
   // beside: its run is reported, as its own reporters would have, and the pane closed so this run can take the name.

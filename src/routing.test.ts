@@ -26,6 +26,13 @@ describe("routing", () => {
   ];
   const accounts = [claude("default", [70]), claude("jenny", [50, 38]), claude("work", [0])];
 
+  test("an account name for an agent with only its default login says so", () => {
+    const codex = [{ agent: "codex", windows: [], source: "codex" } as unknown as QuotaAccount];
+    expect(() => chooseRoute("codex", codex, [], now, "cillian")).toThrow(
+      "codex has no named accounts and runs on its default login; drop --account cillian",
+    );
+  });
+
   test("the account with the most headroom wins, pinned by its config dir", () => {
     expect(chooseRoute("claude", accounts, configured, now)).toEqual({
       name: "work",

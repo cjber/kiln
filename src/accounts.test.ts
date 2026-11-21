@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { lstatSync, mkdirSync, mkdtempSync, readlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -63,6 +63,38 @@ test("a Claude home shares everything but its login with the default config dir"
     expect(readlinkSync(join(home, entry))).toBe(join(real, entry));
   expect(() => lstatSync(join(home, ".credentials.json"))).toThrow();
   expect(() => lstatSync(join(home, ".claude.json"))).toThrow();
+});
+
+test("a Claude home keeps a link for launch.json before the shared file exists", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-home-"));
+  const real = join(dir, "claude");
+  mkdirSync(real);
+  writeFileSync(join(real, ".credentials.json"), "secret");
+  writeFileSync(join(real, ".claude.json"), "{}");
+  const home = join(dir, "account");
+
+  prepareHome({ agent: "claude", name: "a", home }, real);
+
+  expect(readlinkSync(join(home, "launch.json"))).toBe(join(real, "launch.json"));
+  expect(existsSync(join(home, "launch.json"))).toBe(false);
+  writeFileSync(join(real, "launch.json"), "{}");
+  expect(existsSync(join(home, "launch.json"))).toBe(true);
+});
+
+test("a Claude home does not link config locks and removes an old lock link", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-home-"));
+  const real = join(dir, "claude");
+  mkdirSync(real);
+  writeFileSync(join(real, ".credentials.json"), "secret");
+  writeFileSync(join(real, ".claude.json"), "{}");
+  mkdirSync(join(real, ".claude.json.lock"));
+  const home = join(dir, "account");
+  mkdirSync(home);
+  symlinkSync(join(real, ".claude.json.lock"), join(home, ".claude.json.lock"));
+
+  prepareHome({ agent: "claude", name: "a", home }, real);
+
+  expect(() => lstatSync(join(home, ".claude.json.lock"))).toThrow();
 });
 
 test("a running Claude is named by its config dir, and one in an unlisted dir has no name", () => {

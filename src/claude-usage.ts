@@ -44,10 +44,10 @@ export function parseClaudeUsage(body: unknown): QuotaWindow[] | undefined {
 export type ClaudeUsage = { windows: QuotaWindow[]; fetchedAt: number };
 
 /**
- * One login's last read: when the provider was last asked and its last good answer, and for a login whose token had
- * expired, when Claude Code was last asked to renew it and whether it then called the login signed out.
+ * One login's last read: when the provider was last asked and its last good answer, and for a login whose token was
+ * rejected, when Claude Code was last asked to renew it and whether it then called the login signed out.
  */
-type Read = { askedAt: number; usage?: ClaudeUsage; renewedAt?: number; loggedOut?: boolean };
+type Read = { askedAt: number; usage?: ClaudeUsage; renewedAt?: number; loggedOut?: boolean; tokenHash?: string };
 
 const everyMs = 5 * 60_000;
 const renewEveryMs = 30 * 60_000;
@@ -137,13 +137,22 @@ function write(path: string, read: Read): void {
   renameSync(temporary, path);
 }
 
+function tokenHash(token: string): string {
+  return new Bun.CryptoHasher("sha256").update(token).digest("hex");
+}
+
 /**
  * Whether the login in `home` has to be signed in again before a run can start on it: its credentials hold nothing
  * Claude Code can renew, or Claude Code was asked to renew them and called the login signed out.
  */
 export function claudeNeedsLogin(now: number, home = claudeHome(), dir = stateDir()): boolean {
-  const { state } = login(home, now);
-  return state === "needsLogin" || (state === "expired" && readFile(statePath(home, dir))?.loggedOut === true);
+  const current = login(home, now);
+  const read = readFile(statePath(home, dir));
+  return (
+    current.state === "needsLogin" ||
+    (current.state === "expired" && read?.loggedOut === true) ||
+    (current.state === "ok" && read?.loggedOut === true && read.tokenHash === tokenHash(current.token))
+  );
 }
 
 /**
@@ -184,17 +193,27 @@ export async function claudeUsage(
   const last = readFile(path);
   if (last && now - last.askedAt < everyMs && last.askedAt >= staleBefore) return last.usage;
   const current = login(home, now);
+  const beginRenewal = (renewedAt: number, prior: Read | undefined, currentTokenHash?: string): boolean => {
+    if (renewedAt - (prior?.renewedAt ?? 0) < renewEveryMs || !renewing(path, renewedAt)) return false;
+    write(path, {
+      ...prior,
+      askedAt: prior?.askedAt ?? 0,
+      renewedAt,
+      // A verdict on an earlier token says nothing about this one; only renewing this token can set it again.
+      ...(currentTokenHash ? { tokenHash: currentTokenHash, loggedOut: undefined } : {}),
+    });
+    void renew(home)
+      .then((loggedIn) => {
+        if (loggedIn !== undefined) write(path, { askedAt: 0, ...readFile(path), loggedOut: !loggedIn });
+      })
+      .finally(() => rmSync(`${path}.renewing`, { force: true }));
+    return true;
+  };
   if (current.state !== "ok") {
-    if (current.state === "expired" && now - (last?.renewedAt ?? 0) >= renewEveryMs && renewing(path, now)) {
-      write(path, { ...last, askedAt: last?.askedAt ?? 0, renewedAt: now });
-      void renew(home)
-        .then((loggedIn) => {
-          if (loggedIn !== undefined) write(path, { askedAt: 0, ...readFile(path), loggedOut: !loggedIn });
-        })
-        .finally(() => rmSync(`${path}.renewing`, { force: true }));
-    }
+    if (current.state === "expired") beginRenewal(now, last);
     return last?.usage;
   }
+  if (last?.loggedOut === true && last.tokenHash === tokenHash(current.token)) return last.usage;
   let usage = last?.usage;
   try {
     const response = await request(usageUrl, {
@@ -206,8 +225,14 @@ export async function claudeUsage(
         "User-Agent": "kiln",
       },
     });
+    if (response.status === 401) beginRenewal(now, last, tokenHash(current.token));
     const windows = response.ok ? parseClaudeUsage(await response.json()) : undefined;
     if (windows) usage = { windows, fetchedAt: now };
+    if (response.status === 401) {
+      const state = readFile(path);
+      write(path, { ...state, askedAt: now, usage });
+      return usage;
+    }
   } catch {
     // A request that failed leaves the last good read standing.
   }
