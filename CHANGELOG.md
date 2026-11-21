@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-21
+
 - **Subagents no longer notify the desktop.** A session kiln nests under a parent never sends a desktop or phone notification; kiln tells the parent instead when the child ends a turn without messaging it, with its state, last reply and the `kiln close` command. A turn that ends into background work notifies once, and that work finishing does not notify again.
 - **Desktop notifications carry a category.** `notify-send` gets `--category` `kiln.needs-input`, `kiln.turn-finished` or `kiln.usage`, so a notification daemon such as mako can give each its own sound or style.
 - **An exited parent's children are cleaned up.** When a parent's process is gone, `kiln serve` closes its idle children and hands working or waiting ones to their grandparent, or leaves them for you when there is none.
