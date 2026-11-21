@@ -9,6 +9,7 @@ import {
   reconcile,
   recordSpawn,
   rememberParents,
+  reparent,
   restartStopped,
   spawnRecord,
 } from "./saved-sessions";
@@ -217,6 +218,18 @@ test("the saved list is stored, and forgetting removes one session from it", () 
   expect(ids()).toEqual(["a", "b"]);
   forget(running, path);
   expect(ids()).toEqual(["b"]);
+});
+
+test("a child handed to its grandparent keeps that parent, recorded or not", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  const grandparent: Session = { ...running, id: "lead" };
+  const spawned: Session = { ...running, id: "child" };
+  recordSpawn({ agent: "claude", id: "child", cwd: "/repo", parent: "claude:gone", startedAt: 2 }, path);
+  reparent(spawned, grandparent, path);
+  expect(attachParents([spawned], path)[0]?.spawnParent).toBe("claude:lead");
+  const unrecorded: Session = { ...running, id: "other" };
+  reparent(unrecorded, grandparent, path);
+  expect(attachParents([unrecorded], path)[0]?.spawnParent).toBe("claude:lead");
 });
 
 test("a state file a newer kiln gave another column still lists the sessions a restart stopped", () => {

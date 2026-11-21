@@ -341,6 +341,34 @@ export function recordSpawn(
   }
 }
 
+/**
+ * Record a new parent for a child whose parent exited, so its later questions, turn ends and exit report go to the
+ * session it was handed to.
+ */
+export function reparent(child: Session, parent: Session, path = statePath()): void {
+  if (child.id === undefined) return;
+  try {
+    const { changes } = open(path)
+      .query("UPDATE sessions SET parent = ? WHERE agent = ? AND id = ?")
+      .run(sessionIdentity(parent), child.agent, child.id);
+    if (changes) return;
+  } catch {
+    // An unreadable row is recorded afresh below.
+  }
+  recordSpawn(
+    {
+      agent: child.agent,
+      id: child.id,
+      cwd: child.cwd,
+      title: child.title,
+      parent: sessionIdentity(parent),
+      startedAt: child.startedAt,
+      pid: child.pid,
+    },
+    path,
+  );
+}
+
 /** The spawn recorded for a tmux session, which its exit hook names after the child's process has gone. */
 export function spawnRecord(pane: string, path = statePath()): Saved | undefined {
   try {

@@ -19,7 +19,7 @@ function observe(exited: number[]) {
   const check = orphanedChildren(
     (child) => closed.push(child.id ?? ""),
     (child, parent, grandparent) => reported.push(`${child.id}:${parent.id}->${grandparent.id}`),
-    (pid) => !exited.includes(pid),
+    (parent) => !exited.includes(parent.pid ?? -1),
   );
   return { closed, reported, check };
 }

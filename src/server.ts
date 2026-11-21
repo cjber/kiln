@@ -32,6 +32,7 @@ import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
 import { type QuotaAccount, readQuota } from "./quota";
 import { limitedUntil } from "./routing";
+import { reparent } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import {
   type Agent,
@@ -218,7 +219,10 @@ export function startServer({
   quotaInterval = 60_000,
   orphans = orphanedChildren(
     (child) => void closeSession(child).catch(() => {}),
-    (child, parent, grandparent) => reportOrphan(child, parent, grandparent),
+    (child, parent, grandparent) => {
+      reparent(child, grandparent);
+      reportOrphan(child, parent, grandparent);
+    },
   ),
 }: {
   port: number;

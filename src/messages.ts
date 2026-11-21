@@ -435,14 +435,22 @@ export async function flush(
   const outcomes = new Map<string, Outcome>();
   await Promise.all(
     [...queues.values()].map(async (queue) => {
+      // The route depends on the sender, so a message held for typing must also hold the ones queued behind it, or a
+      // later message reaches the agent first.
+      let held: string | undefined;
       for (const message of queue) {
         const session = byName.get(message.to);
         if (!session) {
           outcomes.set(message.id, { message, delivered: false, reason: "it is not running; it can read it later" });
           continue;
         }
+        if (held) {
+          outcomes.set(message.id, { message, delivered: false, reason: held });
+          continue;
+        }
         const way = route(session, options.inboxExists, message.from);
         if (!("push" in way)) {
+          if ("wait" in way) held = way.wait;
           outcomes.set(message.id, { message, delivered: false, reason: "wait" in way ? way.wait : way.inbox });
           continue;
         }
@@ -458,6 +466,7 @@ export async function flush(
           const refused = error instanceof NotNow;
           release(message.id, !refused, path);
           const reason = error instanceof Error ? error.message : String(error);
+          if (refused) held = reason;
           outcomes.set(message.id, {
             message,
             delivered: false,

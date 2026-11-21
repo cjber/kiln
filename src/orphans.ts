@@ -1,5 +1,11 @@
-import { existsSync } from "node:fs";
-import { type Session, sessionIdentity, sessionParents } from "./sessions";
+import { processStartTicks, type Session, sessionIdentity, sessionParents } from "./sessions";
+
+/** Whether the parent's own process still runs: its pid, started when the parent was listed, not a reused pid. */
+function running(parent: Session): boolean {
+  if (parent.pid === undefined) return false;
+  const started = processStartTicks(parent.pid);
+  return started !== undefined && (parent.processStart === undefined || started === parent.processStart);
+}
 
 /**
  * Act on children whose parent has exited. An idle child, with no turn running and nothing waiting on an answer, has
@@ -10,7 +16,7 @@ import { type Session, sessionIdentity, sessionParents } from "./sessions";
 export function orphanedChildren(
   close: (child: Session) => unknown,
   report: (child: Session, parent: Session, grandparent: Session) => unknown,
-  alive: (pid: number) => boolean = (pid) => existsSync(`/proc/${pid}`),
+  alive: (parent: Session) => boolean = running,
 ) {
   let previous = new Map<string, { parent: Session; grandparent?: Session }>();
   return (sessions: readonly Session[]): void => {
@@ -20,7 +26,7 @@ export function orphanedChildren(
       const orphan = present.get(child);
       if (!orphan || present.has(sessionIdentity(parent)) || parent.pid === undefined) continue;
       // Missing from this listing but still running: keep watching it under the parent it had.
-      if (alive(parent.pid)) {
+      if (alive(parent)) {
         next.set(child, { parent, grandparent });
         continue;
       }

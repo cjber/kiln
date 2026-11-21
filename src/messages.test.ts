@@ -241,6 +241,26 @@ test("flush types each deliverable message once, framed with its sender, and kee
   expect(typed).toHaveLength(1);
 });
 
+test("a phone prompt held for typing holds a later peer message to the same Claude, so order is kept", async () => {
+  const path = mailbox();
+  const pushed: string[] = [];
+  const send = {
+    claude: async (_target: Session, _text: string, message: { body: string }) => void pushed.push(message.body),
+    tmux: async (_target: Session, _text: string, message: { body: string }) => void pushed.push(message.body),
+  } as unknown as Transports;
+  const busy = session({ id: "busy", claudeInbox: true, activity: "working" });
+  post(phoneSender("Pixel 9a"), "claude:busy", "first", path);
+  post("claude:other", "claude:busy", "second", path);
+  const outcomes = await flush([busy], { path, send });
+  expect(pushed).toEqual([]);
+  expect(outcomes.map((outcome) => (outcome.delivered ? "delivered" : outcome.reason))).toEqual([
+    "Claude is working",
+    "Claude is working",
+  ]);
+  await flush([{ ...busy, activity: "idle" }], { path, send });
+  expect(pushed).toEqual(["first", "second"]);
+});
+
 test("a message Claude holds at its approval prompt says so, rather than that it may be lost", async () => {
   const path = mailbox();
   const send = {
