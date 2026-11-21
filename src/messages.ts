@@ -8,7 +8,7 @@ import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
-import { savedRow } from "./saved-sessions";
+import { savedRow, spawnRecord } from "./saved-sessions";
 import {
   type Agent,
   agentName,
@@ -523,8 +523,14 @@ export function reportTurnEnd(
   send: typeof post = post,
   turn: typeof lastTurn = lastTurn,
   messaged: (from: string, to: string, since: number) => boolean = sentSince,
+  headless: (pane: string) => boolean = (pane) => {
+    const record = spawnRecord(pane);
+    return record !== undefined && !record.interactive;
+  },
 ): boolean {
   if (!reachable(child) || !reachable(parent)) return false;
+  // A headless child's process exits with its turn, and its exit report carries the same last output.
+  if (child.place.kind === "kiln" && headless(child.place.name)) return false;
   const name = sessionIdentity(child);
   const to = sessionIdentity(parent);
   const ended = turn(child);
@@ -558,6 +564,31 @@ export function reportTurnEnd(
     return true;
   } catch {
     // A full mailbox or a send limit: the child's reply stays in its conversation for the parent to read.
+    return false;
+  }
+}
+
+/**
+ * Hand a child whose parent has exited to its grandparent: its reports would otherwise go to a mailbox nobody reads, and
+ * a working child left with no reader runs on unseen.
+ */
+export function reportOrphan(child: Session, parent: Session, grandparent: Session, send: typeof post = post): boolean {
+  if (!reachable(child) || !reachable(grandparent)) return false;
+  const name = sessionIdentity(child);
+  const titled = child.title ? ` ("${child.title}")` : "";
+  const state = child.activity === "waiting" ? "is waiting on input or an approval" : "is still working";
+  try {
+    send(
+      spawnReportSender(name),
+      sessionIdentity(grandparent),
+      `Child ${name}${titled} ${state}, but ${sessionIdentity(parent)}, which started it, has exited. Its reports would reach nobody, so it is yours now.\n\nMessage it with: kiln msg send ${name} "<your message>"\nWhen its work is in, close it: kiln close ${name}`,
+      undefined,
+      undefined,
+      `orphan:${name}:${sessionIdentity(parent)}`,
+    );
+    return true;
+  } catch {
+    // A full mailbox or a send limit: the child stays listed for the person.
     return false;
   }
 }

@@ -10,7 +10,7 @@ import { collisionWatch, warn } from "./collisions";
 import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
 import { ledgers, turnSummaries } from "./edits";
-import { resumeStopped, startFromPhone } from "./launcher";
+import { closeSession, resumeStopped, startFromPhone } from "./launcher";
 import { pending, post } from "./mailbox";
 import {
   flush,
@@ -20,10 +20,12 @@ import {
   interruption,
   phoneSender,
   reachable,
+  reportOrphan,
   route,
 } from "./messages";
 import { nativeNotifications, notify } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
+import { orphanedChildren } from "./orphans";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
@@ -214,6 +216,10 @@ export function startServer({
   awake = () => {},
   quota = readQuota,
   quotaInterval = 60_000,
+  orphans = orphanedChildren(
+    (child) => void closeSession(child).catch(() => {}),
+    (child, parent, grandparent) => reportOrphan(child, parent, grandparent),
+  ),
 }: {
   port: number;
   pairing: Pairing;
@@ -238,6 +244,8 @@ export function startServer({
   offer?: (sessions: readonly Session[], settings: Settings) => string[];
   /** Each session's pull requests; `gh` is asked only while a phone watches or `pr_messages` is on. */
   prs?: ReturnType<typeof pullRequests>;
+  /** Close the idle children of an exited parent, and hand its working ones to their grandparent. */
+  orphans?: (sessions: readonly Session[]) => void;
   /** Posts what changed on each session's pull requests to its agent, when `pr_messages` is on. */
   tell?: ReturnType<typeof autopilot>;
   /** Each session's edits, read incrementally from its transcript. */
@@ -783,6 +791,12 @@ export function startServer({
           edits.sweep(sessions);
         } catch {
           // A broken mailbox or an unreadable transcript never fails a refresh.
+        }
+      if (!stale)
+        try {
+          orphans(sessions);
+        } catch {
+          // Closing an orphan is housekeeping and never fails a refresh.
         }
       try {
         transitions(sessions, alerting);

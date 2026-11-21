@@ -374,8 +374,8 @@ test("a child that ends its turn silently is reported to its parent once per rep
   const send: typeof post = (from, to, body, _path, now, id) => post(from, to, body, path, now, id);
   const turn = () => ({ started: 1_000, reply: { id: "r1", text: "Done: PR opened." } });
   const never = () => false;
-  expect(reportTurnEnd(child, parent, send, turn, never)).toBe(true);
-  expect(reportTurnEnd(child, parent, send, turn, never)).toBe(true);
+  expect(reportTurnEnd(child, parent, send, turn, never, never)).toBe(true);
+  expect(reportTurnEnd(child, parent, send, turn, never, never)).toBe(true);
   const [report] = pending(path);
   expect(pending(path)).toHaveLength(1);
   expect(report).toMatchObject({ to: "claude:p1" });
@@ -390,10 +390,13 @@ test("a child that ends its turn silently is reported to its parent once per rep
       send,
       later,
       (from, to, since) => from === "claude:c2" && to === "claude:p1" && since === 2_000,
+      never,
     ),
   ).toBe(false);
+  // A headless child's exit report carries its last output, so its turn end is not reported twice.
+  expect(reportTurnEnd(child, parent, send, later, never, () => true)).toBe(false);
   // A child waiting on an approval is told apart, and closing it is not suggested.
-  expect(reportTurnEnd({ ...child, activity: "waiting" }, parent, send, later, never)).toBe(true);
+  expect(reportTurnEnd({ ...child, activity: "waiting" }, parent, send, later, never, never)).toBe(true);
   const waiting = pending(path).find((message) => message.body.includes("more"));
   expect(waiting?.body).toContain("waiting on input or an approval");
   expect(waiting?.body).not.toContain("kiln close");
