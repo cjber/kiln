@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-21
+
 - **Claude account homes keep their sandbox files linked.** Config homes now retain the shared `launch.json` entry even when Claude creates it later, and no longer copy transient Claude config locks into another account.
 - **Claude account homes repair stale config links.** Preparing an account removes an old lock link it created into the shared Claude home, so trust updates no longer wait on a lock that belongs to another home.
 - **Expired Claude tokens are removed from account routing.** A 401 from Claude's usage endpoint now starts the normal renewal check, and an account whose renewal fails shows `login` and is not selected for a new run.
