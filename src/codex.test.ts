@@ -11,7 +11,7 @@ import {
   codexThreads,
   messageCodexSession,
 } from "./codex";
-import { closeSession } from "./launcher";
+import { archiveClosed, closeSession } from "./launcher";
 import { restartStopped } from "./saved-sessions";
 
 let root: string;
@@ -19,6 +19,7 @@ let server: ReturnType<typeof Bun.serve>;
 let originalHome: string | undefined;
 let originalState: string | undefined;
 let rejectArchive: boolean;
+let writerBusy: number;
 let messagingStatus: { type: string; activeFlags?: string[] } | undefined;
 let newestTurn: { id: string; status: string };
 let rejectSteer: boolean;
@@ -48,6 +49,7 @@ beforeEach(() => {
   archived = new Set(["already-archived"]);
   archivePages = 0;
   rejectArchive = false;
+  writerBusy = 0;
   messagingStatus = undefined;
   newestTurn = { id: "turn-current", status: "inProgress" };
   rejectSteer = false;
@@ -117,6 +119,11 @@ beforeEach(() => {
             };
             break;
           case "thread/archive":
+            if (writerBusy > 0) {
+              writerBusy--;
+              ws.send(JSON.stringify({ id: request.id, error: { message: "thread x already has an active writer" } }));
+              return;
+            }
             if (rejectArchive) {
               ws.send(JSON.stringify({ id: request.id, error: { message: "archive refused" } }));
               return;
@@ -182,7 +189,7 @@ describe("Codex archive", () => {
     })) as unknown as typeof Bun.spawnSync);
     try {
       expect(await closeSession(ownedSession)).toContain(
-        "terminal closed, but archiving failed: thread/archive: archive refused",
+        "the session stopped; only archiving failed: thread/archive: archive refused",
       );
       expect((await codexThreads()).map((row) => row.id)).toEqual(["active"]);
       rejectArchive = false;
@@ -191,6 +198,20 @@ describe("Codex archive", () => {
     } finally {
       spawn.mockRestore();
     }
+  });
+
+  test("a close archives only once the session's process has exited and let go of its writer lock", async () => {
+    let alive = 3;
+    // The daemon refuses while the process runs, as Codex does while its writer holds the thread.
+    writerBusy = Number.POSITIVE_INFINITY;
+    const running = () => {
+      if (alive-- > 0) return true;
+      writerBusy = 0;
+      return false;
+    };
+    await archiveClosed({ ...ownedSession, pid: 4242 }, "active", 5_000, running);
+    expect(requests.filter((request) => request.method === "thread/archive")).toHaveLength(1);
+    expect(await codexThreads()).toEqual([]);
   });
 
   test("older local Codex terminals still close without a daemon", async () => {

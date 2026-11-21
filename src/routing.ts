@@ -77,8 +77,10 @@ export function chooseRoute(
     // An agent with one login lists it unnamed, and `default` still names it.
     const found = own.find((account) => (account.name ?? defaultAccount) === requested);
     if (!found) {
-      if (!own.length) throw new Error(`${agent} has no accounts to pick --account ${requested} from`);
-      throw new Error(`no ${agent} account ${requested}; accounts: ${own.map((account) => account.name).join(", ")}`);
+      const named = own.flatMap((account) => (account.name === undefined ? [] : [account.name]));
+      if (!named.length)
+        throw new Error(`${agent} has no named accounts and runs on its default login; drop --account ${requested}`);
+      throw new Error(`no ${agent} account ${requested}; accounts: ${named.join(", ")}`);
     }
     if (found.disabled) throw new Error(`${agent} account ${requested} is disabled in kiln's config`);
     if (found.needsLogin) throw new Error(`${agent} account ${requested} is signed out; ${signIn(found)}`);

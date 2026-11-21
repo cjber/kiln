@@ -9,6 +9,7 @@ import * as opencode from "./opencode";
 import { recordSpawn, restartStopped } from "./saved-sessions";
 import * as sessions from "./sessions";
 import {
+  assertOnboarded,
   claudeGrants,
   exitHook,
   exitMessage,
@@ -308,6 +309,20 @@ test("an interactive Claude held at a startup dialog fails the spawn and closes 
     expect(exists(name)).toBe(false);
   } finally {
     kill(name);
+  }
+});
+
+test("an interactive spawn into a home with unfinished first-run setup is refused up front", () => {
+  const home = mkdtempSync(join(tmpdir(), "kiln-onboarding-"));
+  const json = join(home, ".claude.json");
+  try {
+    expect(() => assertOnboarded(json, home)).not.toThrow();
+    writeFileSync(json, JSON.stringify({ projects: {} }));
+    expect(() => assertOnboarded(json, home)).toThrow("first-run setup is not finished");
+    writeFileSync(json, JSON.stringify({ hasCompletedOnboarding: true }));
+    expect(() => assertOnboarded(json, home)).not.toThrow();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
 
@@ -1140,6 +1155,14 @@ test("a resumed Claude child carries on its conversation in the directory it beg
     );
     expect(() => spawnOptions(["claude", "--resume", id, "--dir", dir, "--", "go"])).toThrow("drop --dir");
     expect(() => spawnOptions(["pi", "--resume", id, "--", "go"])).toThrow("claude only");
+    // A Code Mode conversation resumes only in the interactive terminal, so a headless resume is refused up front.
+    const coded = "5a1c0e22-3b0f-4a35-9c4e-1d5f0c0a9b11";
+    writeFileSync(
+      join(config, "projects", "-somewhere", `${coded}.jsonl`),
+      `${JSON.stringify({ type: "user", cwd: dir, sessionId: coded })}\n${JSON.stringify({ type: "repl-mode", replMode: true })}\n`,
+    );
+    expect(() => spawnOptions(["claude", "--resume", coded, "--", "go"])).toThrow("--interactive");
+    expect(spawnOptions(["claude", "--resume", coded, "--interactive", "--", "go"]).resume?.codeMode).toBe(true);
   } finally {
     if (previous === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
     else Bun.env.CLAUDE_CONFIG_DIR = previous;

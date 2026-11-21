@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -89,11 +89,25 @@ function realRoot(agent: AccountAgent): string {
   }
 }
 
-function link(target: string, path: string): void {
+function link(target: string, path: string, allowMissing = false): void {
   try {
     lstatSync(path);
   } catch {
-    if (existsSync(target)) symlinkSync(target, path);
+    if (allowMissing || existsSync(target)) symlinkSync(target, path);
+  }
+}
+
+function removeLockLinks(home: string, root: string): void {
+  const rootPath = resolve(root);
+  for (const entry of readdirSync(home)) {
+    const path = join(home, entry);
+    try {
+      if (!lstatSync(path).isSymbolicLink()) continue;
+      const target = resolve(home, readlinkSync(path));
+      if (target.startsWith(`${rootPath}/`) && basename(target).endsWith(".lock")) unlinkSync(path);
+    } catch {
+      // The account may be changed while its links are being repaired.
+    }
   }
 }
 
@@ -103,7 +117,7 @@ function link(target: string, path: string): void {
  * `zoxide` keep working inside the session). Muse's settings and trust, and Codex's config and instructions, are
  * linked so an account behaves as the default does. A Claude account links everything but its login, so every account
  * has the same settings, skills, memory and transcripts, and a conversation begun on one resumes on another.
- * Idempotent: it only adds what is missing.
+ * Idempotent: it repairs stale lock links and only adds missing shared entries.
  */
 export function prepareHome(account: Account, root = realRoot(account.agent)): void {
   mkdirSync(account.home, { recursive: true, mode: 0o700 });
@@ -112,8 +126,12 @@ export function prepareHome(account: Account, root = realRoot(account.agent)): v
       // The conversations and the session registry must exist to be linked: created inside an account instead, they
       // would be that account's alone, and its conversations could not be found or resumed from another.
       for (const shared of ["projects", "sessions"]) mkdirSync(join(root, shared), { recursive: true, mode: 0o700 });
+      removeLockLinks(account.home, root);
       for (const entry of readdirSync(root))
-        if (!claudeLogin.includes(entry)) link(join(root, entry), join(account.home, entry));
+        if (!claudeLogin.includes(entry) && !entry.endsWith(".lock"))
+          link(join(root, entry), join(account.home, entry));
+      // Claude's sandbox binds this file even when it has not created it in the shared home yet.
+      link(join(root, "launch.json"), join(account.home, "launch.json"), true);
       return;
     case "codex":
       for (const entry of ["config.toml", "AGENTS.md", "skills"]) link(join(root, entry), join(account.home, entry));

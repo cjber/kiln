@@ -23,6 +23,24 @@ function archiveConversation(session: Session, id: string, terminalClosed = fals
   return session.agent === "opencode" ? archiveOpencodeSession(id) : archiveCodexThread(id, terminalClosed);
 }
 
+/** How long a close waits for a session's process to exit after its terminal closed. */
+const exitWaitMs = 5_000;
+
+/**
+ * Archive a session whose terminal has just closed. Its process holds the thread's writer lock until it exits, and the
+ * provider refuses the archive while it does, so the archive waits for that process to be gone.
+ */
+export async function archiveClosed(
+  session: Session,
+  id: string,
+  waitMs = exitWaitMs,
+  running: (pid: number) => boolean = (pid) => existsSync(`/proc/${pid}`),
+): Promise<void> {
+  const deadline = Date.now() + waitMs;
+  while (session.pid !== undefined && running(session.pid) && Date.now() < deadline) await Bun.sleep(50);
+  await archiveConversation(session, id, true);
+}
+
 /** What the view does next: hand the terminal to a tmux session, or only say something. */
 export type Outcome =
   | { kind: "attach"; name: string; notice?: string }
@@ -416,10 +434,10 @@ export async function closeSession(session: Session): Promise<true | string> {
         if (!kill(place.name)) throw new Error("tmux could not close this session");
         if ((session.agent === "codex" || session.agent === "opencode") && session.id) {
           try {
-            await archiveConversation(session, session.id, true);
+            await archiveClosed(session, session.id);
           } catch (error) {
             throw new Error(
-              `terminal closed, but archiving failed: ${error instanceof Error ? error.message : String(error)}`,
+              `the session stopped; only archiving failed: ${error instanceof Error ? error.message : String(error)}`,
             );
           }
         }
