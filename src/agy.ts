@@ -69,18 +69,26 @@ export function agyTime(text: string): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-/**
- * Fields read from `conversation_summaries.raw_summary`, a serialized `CascadeTrajectorySummary` protobuf:
- * field 8 is repeated `waiting_steps` (length-delimited), field 18 is `has_active_children` (varint bool).
- */
-export function agyRawSummaryFlags(raw: Uint8Array | null | undefined): {
+export type AgySummaryFlags = {
+  /** Field 8 (`waiting_steps`): at least one non-empty, well-formed `CortexTrajectoryStepWithIndex` entry. */
   hasWaitingSteps: boolean;
+  /** Field 30 (`has_running_subagents`) or deprecated field 18 (`has_active_children`). */
   hasActiveChildren: boolean;
-} {
-  const empty = { hasWaitingSteps: false, hasActiveChildren: false };
-  if (!raw?.length) return empty;
-  let hasWaitingSteps = false;
-  let hasActiveChildren = false;
+  /** Field 21 (`not_fully_idle`): active turn, background task, or subagent work. */
+  notFullyIdle: boolean;
+};
+
+const emptySummaryFlags: AgySummaryFlags = {
+  hasWaitingSteps: false,
+  hasActiveChildren: false,
+  notFullyIdle: false,
+};
+
+/** Walk a protobuf wire-format buffer; returns false on any malformed tag, wire type, varint, or truncated field. */
+function scanProtobuf(
+  raw: Uint8Array,
+  onField?: (field: number, wire: number, value: bigint | Uint8Array) => boolean,
+): boolean {
   let offset = 0;
   const readVarint = (): bigint | undefined => {
     let value = 0n;
@@ -96,49 +104,84 @@ export function agyRawSummaryFlags(raw: Uint8Array | null | undefined): {
   };
   while (offset < raw.length) {
     const tag = readVarint();
-    if (tag === undefined || tag === 0n) return empty;
+    if (tag === undefined || tag > 0xffffffffn) return false;
     const field = Number(tag >> 3n);
+    if (field === 0) return false;
     const wire = Number(tag & 7n);
     switch (wire) {
       case 0: {
         const value = readVarint();
-        if (value === undefined) return empty;
-        if (field === 18 && value !== 0n) hasActiveChildren = true;
+        if (value === undefined) return false;
+        if (onField && !onField(field, wire, value)) return false;
         break;
       }
       case 1:
-        if (offset + 8 > raw.length) return empty;
+        if (offset + 8 > raw.length) return false;
         offset += 8;
         break;
       case 2: {
         const length = readVarint();
-        if (length === undefined || length > BigInt(raw.length - offset)) return empty;
+        if (length === undefined || length > BigInt(raw.length - offset)) return false;
         const bytes = Number(length);
-        if (field === 8 && bytes > 0) hasWaitingSteps = true;
+        const slice = raw.subarray(offset, offset + bytes);
         offset += bytes;
+        if (onField && !onField(field, wire, slice)) return false;
         break;
       }
       case 5:
-        if (offset + 4 > raw.length) return empty;
+        if (offset + 4 > raw.length) return false;
         offset += 4;
         break;
       default:
-        return empty;
+        return false;
     }
   }
-  return { hasWaitingSteps, hasActiveChildren };
+  return true;
+}
+
+/**
+ * Flags read from `conversation_summaries.raw_summary`, a serialized `CascadeTrajectorySummary` protobuf:
+ * field 8 is repeated `waiting_steps`, field 18 is deprecated `has_active_children`, field 21 is `not_fully_idle`,
+ * and field 30 is `has_running_subagents`.
+ */
+export function agyRawSummaryFlags(raw: unknown): AgySummaryFlags {
+  if (!(raw instanceof Uint8Array) || !raw.length) return { ...emptySummaryFlags };
+  let hasWaitingSteps = false;
+  let legacyHasActiveChildren = false;
+  let hasRunningSubagents = false;
+  let notFullyIdle = false;
+  const ok = scanProtobuf(raw, (field, wire, value) => {
+    if (wire === 0 && typeof value === "bigint") {
+      if (field === 18) legacyHasActiveChildren = value !== 0n;
+      else if (field === 21) notFullyIdle = value !== 0n;
+      else if (field === 30) hasRunningSubagents = value !== 0n;
+    } else if (wire === 2 && value instanceof Uint8Array && field === 8) {
+      // agy skips empty CortexTrajectoryStepWithIndex entries (unset step); validate non-empty payloads.
+      if (value.length > 0) {
+        if (!scanProtobuf(value)) return false;
+        hasWaitingSteps = true;
+      }
+    }
+    return true;
+  });
+  if (!ok) return { ...emptySummaryFlags };
+  return {
+    hasWaitingSteps,
+    hasActiveChildren: hasRunningSubagents || legacyHasActiveChildren,
+    notFullyIdle,
+  };
 }
 
 /**
  * The activity a summary row reports. `agy` keeps `status` as RUNNING or BUSY while a step waits on the user for
  * approval or input, and lists those steps in `raw_summary`'s `waiting_steps`. Following agy's own notifier, waiting
- * steps count only while active (`RUNNING`, `BUSY`, or `IDLE` with active children), never while canceling or fully
- * idle; unknown statuses stay unknown.
+ * steps count only while active (`RUNNING`, `BUSY`, or `IDLE` with active children/background work), never while
+ * canceling or fully idle; unknown statuses stay unknown.
  */
-export function agyActivity(status: string, waiting = false, hasActiveChildren = false): Activity | undefined {
+export function agyActivity(status: string, waiting = false, hasActiveWork = false): Activity | undefined {
   switch (status) {
     case "CASCADE_RUN_STATUS_IDLE":
-      return waiting && hasActiveChildren ? "waiting" : "idle";
+      return waiting && hasActiveWork ? "waiting" : "idle";
     case "CASCADE_RUN_STATUS_RUNNING":
     case "CASCADE_RUN_STATUS_BUSY":
       return waiting ? "waiting" : "working";
@@ -149,6 +192,30 @@ export function agyActivity(status: string, waiting = false, hasActiveChildren =
   }
 }
 
+type AgySummaryRow = {
+  conversation_id: string;
+  title: string;
+  status: string;
+  parent_conversation_id: string;
+  last_modified_time: string;
+  raw_summary?: Uint8Array | null;
+};
+
+type AgyChildRow = {
+  conversation_id: string;
+  parent_conversation_id: string;
+  status: string;
+  raw_summary: Uint8Array | null;
+};
+
+function canSurfaceChildWait(status: string): boolean {
+  return (
+    status === "CASCADE_RUN_STATUS_RUNNING" ||
+    status === "CASCADE_RUN_STATUS_BUSY" ||
+    status === "CASCADE_RUN_STATUS_IDLE"
+  );
+}
+
 /** The summary rows of `ids` from `agy`'s own database, opened read-only; unreadable means none are known. */
 export function readAgySummaries(ids: readonly string[], home = agyHome()): Map<string, AgySummary> {
   const found = new Map<string, AgySummary>();
@@ -156,56 +223,73 @@ export function readAgySummaries(ids: readonly string[], home = agyHome()): Map<
   let database: Database | undefined;
   try {
     database = new Database(join(home, "conversation_summaries.db"), { readonly: true });
-    const columns = database.query("pragma table_info(conversation_summaries)").all() as { name: string }[];
-    const hasRawSummary = columns.some((column) => column.name === "raw_summary");
-    const select = hasRawSummary
-      ? "conversation_id, title, status, parent_conversation_id, last_modified_time, raw_summary"
-      : "conversation_id, title, status, parent_conversation_id, last_modified_time";
-    const rows = database
-      .query(`select ${select} from conversation_summaries where conversation_id in (${ids.map(() => "?").join(",")})`)
-      .all(...ids) as {
-      conversation_id: string;
-      title: string;
-      status: string;
-      parent_conversation_id: string;
-      last_modified_time: string;
-      raw_summary?: Uint8Array | null;
-    }[];
-    const parentsWithChildren: string[] = [];
+    const baseColumns = "conversation_id, title, status, parent_conversation_id, last_modified_time";
+    const placeholders = ids.map(() => "?").join(",");
+    let hasRawSummary = true;
+    let rows: AgySummaryRow[];
+    try {
+      rows = database
+        .query(
+          `select ${baseColumns}, raw_summary from conversation_summaries where conversation_id in (${placeholders})`,
+        )
+        .all(...ids) as AgySummaryRow[];
+    } catch (error) {
+      if (!(error instanceof Error) || !/no such column:\s*raw_summary/i.test(error.message)) throw error;
+      hasRawSummary = false;
+      rows = database
+        .query(`select ${baseColumns} from conversation_summaries where conversation_id in (${placeholders})`)
+        .all(...ids) as AgySummaryRow[];
+    }
+    // Map each active node to its visible ancestor so nested in-process subagents propagate wait to that ancestor.
+    let frontier = new Map<string, string>();
+    const rootMeta = new Map<string, { status: string; activeWork: boolean }>();
     for (const row of rows) {
-      const flags = hasRawSummary ? agyRawSummaryFlags(row.raw_summary) : undefined;
-      const activity = agyActivity(row.status, flags?.hasWaitingSteps, flags?.hasActiveChildren);
+      const flags = hasRawSummary ? agyRawSummaryFlags(row.raw_summary) : emptySummaryFlags;
+      const activeWork = flags.hasActiveChildren || flags.notFullyIdle;
+      const activity = agyActivity(row.status, flags.hasWaitingSteps, activeWork);
       found.set(row.conversation_id, {
         title: row.title || undefined,
         activity,
         parentId: isAgyConversationId(row.parent_conversation_id) ? row.parent_conversation_id : undefined,
         lastActiveAt: agyTime(row.last_modified_time),
       });
-      if (flags?.hasActiveChildren && activity !== "waiting") parentsWithChildren.push(row.conversation_id);
+      if (hasRawSummary && flags.hasActiveChildren && activity !== "waiting" && canSurfaceChildWait(row.status)) {
+        frontier.set(row.conversation_id, row.conversation_id);
+        rootMeta.set(row.conversation_id, { status: row.status, activeWork });
+      }
     }
-    if (hasRawSummary && parentsWithChildren.length) {
-      const requested = new Set(ids);
-      const children = database
-        .query(
-          `select conversation_id, parent_conversation_id, status, raw_summary from conversation_summaries where parent_conversation_id in (${parentsWithChildren.map(() => "?").join(",")}) and status in ('CASCADE_RUN_STATUS_RUNNING', 'CASCADE_RUN_STATUS_BUSY')`,
-        )
-        .all(...parentsWithChildren) as {
-        conversation_id: string;
-        parent_conversation_id: string;
-        status: string;
-        raw_summary: Uint8Array | null;
-      }[];
-      for (const child of children) {
-        if (requested.has(child.conversation_id)) continue;
-        const flags = agyRawSummaryFlags(child.raw_summary);
-        if (agyActivity(child.status, flags.hasWaitingSteps, flags.hasActiveChildren) === "waiting") {
-          const parent = found.get(child.parent_conversation_id);
-          if (parent) parent.activity = "waiting";
+    if (hasRawSummary && frontier.size) {
+      const visited = new Set<string>(ids);
+      while (frontier.size) {
+        const parentIds = [...frontier.keys()];
+        const children = database
+          .query(
+            `select conversation_id, parent_conversation_id, status, raw_summary from conversation_summaries where parent_conversation_id in (${parentIds.map(() => "?").join(",")}) and status in ('CASCADE_RUN_STATUS_RUNNING', 'CASCADE_RUN_STATUS_BUSY', 'CASCADE_RUN_STATUS_IDLE')`,
+          )
+          .all(...parentIds) as AgyChildRow[];
+        const nextFrontier = new Map<string, string>();
+        for (const child of children) {
+          if (visited.has(child.conversation_id)) continue;
+          visited.add(child.conversation_id);
+          const rootId = frontier.get(child.parent_conversation_id);
+          if (!rootId) continue;
+          const root = found.get(rootId);
+          const meta = rootMeta.get(rootId);
+          if (!root || !meta || root.activity === "waiting") continue;
+          const flags = agyRawSummaryFlags(child.raw_summary);
+          const childActiveWork = flags.hasActiveChildren || flags.notFullyIdle;
+          if (agyActivity(child.status, flags.hasWaitingSteps, childActiveWork) === "waiting") {
+            root.activity = agyActivity(meta.status, true, meta.activeWork);
+          } else if (flags.hasActiveChildren) {
+            nextFrontier.set(child.conversation_id, rootId);
+          }
         }
+        frontier = nextFrontier;
       }
     }
   } catch {
-    // A database that is locked or missing leaves the rows as unknown; the next pass reads it again.
+    // A database that is locked or missing leaves the rows as unknown; never return a partial snapshot.
+    found.clear();
   } finally {
     database?.close();
   }
