@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **The README leads with what kiln does.** It opens with one line on running every supported agent in one list, then agents messaging and spawning each other, account failover and the Android client, and adds badges and a quickstart.
+
 ## [0.36.0] - 2026-11-21
 
 - **Claude account homes keep their sandbox files linked.** Config homes now retain the shared `launch.json` entry even when Claude creates it later, and no longer copy transient Claude config locks into another account.

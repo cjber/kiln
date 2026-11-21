@@ -1,6 +1,6 @@
 # AGENTS.md
 
-kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex, OpenCode and Pi TUIs, plus read-only cloud discovery, a localhost phone API and an Android client. Arch users install it from the AUR as `kiln-agents`, which a `v*` tag publishes.
+kiln is a Bun + TypeScript terminal UI (OpenTUI React) that opens native Claude, Codex, OpenCode, Pi, Muse and Antigravity TUIs, plus read-only cloud discovery, a localhost phone API and an Android client. Arch users install it from the AUR as `kiln-agents`, which a `v*` tag publishes.
 
 ## Commands
 
