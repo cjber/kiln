@@ -9,9 +9,9 @@
 
 **Run Claude Code, Codex, OpenCode, Pi, Muse and Antigravity sessions side by side in one vim-keyed terminal list, and let them work together.**
 
-- **Agents from different vendors message, interrupt and spawn each other.** A Claude session can start a Codex reviewer, and the reviewer's report arrives in the parent's prompt when it finishes.
-- **A Claude session that hits its usage limit carries on.** Kiln restarts it on another of your accounts, in the same conversation.
-- **An Android client** shows the same sessions, their progress and pull requests, and, with phone writes turned on, lets you message them.
+- **Agents from different vendors message, interrupt and spawn each other.** A Claude session can start a Codex reviewer; when the reviewer exits, kiln messages its report to the parent, which reads it as soon as it is idle. Interrupting a turn works for Claude sessions kiln started, Codex and OpenCode.
+- **A Claude session that hits its usage limit carries on.** An interactive Claude session in a kiln pane is restarted on another of your accounts, in the same conversation, when one has allowance.
+- **An Android client** shows the same sessions, their progress and pull requests. With phone writes turned on it messages running sessions; cloud tasks and stopped sessions are read-only.
 
 [![CI](https://github.com/cjber/kiln/actions/workflows/ci.yml/badge.svg)](https://github.com/cjber/kiln/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/cjber/kiln)](https://github.com/cjber/kiln/releases/latest)
