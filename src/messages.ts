@@ -2,12 +2,13 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "n
 import { basename, join } from "node:path";
 import { ClaudeNotQueued, claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
-import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
+import { conversationReader, type Item } from "./conversation";
+import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release, sentSince } from "./mailbox";
 import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
 import { emptyInput } from "./prompt";
-import { savedRow } from "./saved-sessions";
+import { savedRow, spawnRecord } from "./saved-sessions";
 import {
   type Agent,
   agentName,
@@ -46,6 +47,7 @@ export function kilnNotice(text: string): boolean {
 
 /** The name a message typed on a paired phone carries. */
 export const phoneSender = (device: string) => `phone:${device}`;
+const fromPhone = (from: string) => from.startsWith(phoneSender(""));
 
 /** Each agent puts its own session id in the environment of the commands it runs. */
 const sessionVariables: Record<Agent, string> = {
@@ -157,7 +159,7 @@ export type Route =
   | { inbox: string };
 
 /** How a message reaches a session. Only an agent's own queue takes one while it works; typing waits until its turn ends. */
-export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox): Route {
+export function route(session: Session, inboxExists: (pid: number) => boolean = isPiInbox, from?: string): Route {
   // Nothing a stopped process holds, its own queue included, is read until it continues.
   if (session.paused) return { wait: "its process is stopped; it is delivered once the process continues" };
   const busy = () =>
@@ -184,6 +186,9 @@ export function route(session: Session, inboxExists: (pid: number) => boolean = 
           ? { wait: "Codex is waiting" }
           : { push: "codex" };
     case "claude":
+      // Claude frames whatever its inbox takes as another session's message, so the person's own words from a phone are
+      // typed at the prompt of a terminal kiln started, where Claude reads them as theirs.
+      if (from !== undefined && fromPhone(from) && session.place.kind === "kiln") return busy() ?? { push: "tmux" };
       // Claude's inbox queues a message while a turn runs, as Codex's daemon does; a question waits for its answer.
       if (session.claudeInbox)
         return session.activity === "waiting" && !session.turnEnded
@@ -284,10 +289,15 @@ export function frame(message: Message, sender: Session | undefined, command = r
     message.from === terminal ||
     message.from === autopilotSender ||
     message.from.startsWith(spawnSender) ||
-    message.from.startsWith(phoneSender(""))
+    fromPhone(message.from)
       ? ""
       : `\n\n[Reply with: ${quoted} msg send ${message.from} "<your reply>"]`;
   return `[kiln message from ${message.from}${where}]\n\n${message.body}${reply}`;
+}
+
+/** What a transport puts in front of the recipient: the person's own phone words as they wrote them, typed as theirs. */
+export function typedText(message: Message, sender: Session | undefined): string {
+  return fromPhone(message.from) ? message.body : frame(message, sender);
 }
 
 /** A transport throws this when it refused before sending anything, so the message can simply wait. */
@@ -386,9 +396,13 @@ function typingHold(name: string): string | undefined {
  * then delivers it. Nothing when it can go now, or when it never goes by itself: it is not running, or it reads its
  * mailbox, which `sessionAbilities` reports as `inbox`.
  */
-export function heldBecause(session: Session, inboxExists?: (pid: number) => boolean): string | undefined {
+export function heldBecause(
+  session: Session,
+  inboxExists?: (pid: number) => boolean,
+  from?: string,
+): string | undefined {
   if (!reachable(session)) return undefined;
-  const way = route(session, inboxExists);
+  const way = route(session, inboxExists, from);
   if ("wait" in way) return way.wait;
   if ("inbox" in way) return undefined;
   return way.push === "tmux" && session.place.kind === "kiln" ? typingHold(session.place.name) : undefined;
@@ -421,25 +435,38 @@ export async function flush(
   const outcomes = new Map<string, Outcome>();
   await Promise.all(
     [...queues.values()].map(async (queue) => {
+      // The route depends on the sender, so a message held for typing must also hold the ones queued behind it, or a
+      // later message reaches the agent first.
+      let held: string | undefined;
       for (const message of queue) {
         const session = byName.get(message.to);
         if (!session) {
           outcomes.set(message.id, { message, delivered: false, reason: "it is not running; it can read it later" });
           continue;
         }
-        const way = route(session, options.inboxExists);
+        if (held) {
+          outcomes.set(message.id, { message, delivered: false, reason: held });
+          continue;
+        }
+        const way = route(session, options.inboxExists, message.from);
         if (!("push" in way)) {
+          if ("wait" in way) held = way.wait;
           outcomes.set(message.id, { message, delivered: false, reason: "wait" in way ? way.wait : way.inbox });
           continue;
         }
         if (!claim(message.id, path)) continue;
         try {
-          await (options.send ?? transports)[way.push](session, frame(message, byName.get(message.from)), message);
+          const text =
+            way.push === "tmux"
+              ? typedText(message, byName.get(message.from))
+              : frame(message, byName.get(message.from));
+          await (options.send ?? transports)[way.push](session, text, message);
           outcomes.set(message.id, { message, delivered: true });
         } catch (error) {
           const refused = error instanceof NotNow;
           release(message.id, !refused, path);
           const reason = error instanceof Error ? error.message : String(error);
+          if (refused) held = reason;
           outcomes.set(message.id, {
             message,
             delivered: false,
@@ -489,6 +516,114 @@ export function askParents(sessions: readonly Session[], send: typeof post = pos
     }
   }
   return posted;
+}
+
+/** The mailbox id of kiln's report that a child's turn ended: one per reply, however many processes saw it end. */
+export const turnReportId = (child: string, reply: string) => `turn:${child}:${reply}`;
+
+/** What a child's turn left, read from its own conversation; undefined when its provider keeps none kiln reads. */
+export function lastTurn(session: Session): { started?: number; reply?: { id: string; text: string } } | undefined {
+  const read = conversationReader(session);
+  if (!read) return undefined;
+  let items: Item[];
+  try {
+    items = read().items;
+  } catch {
+    return undefined;
+  }
+  return currentTurn(items);
+}
+
+/**
+ * The latest turn in a conversation: when its prompt arrived and the reply that followed it. A typed prompt, a peer
+ * message and a task notification each start a turn, and a reply from before that prompt belongs to an earlier turn.
+ */
+export function currentTurn(items: readonly Item[]): { started?: number; reply?: { id: string; text: string } } {
+  const start = items.findLastIndex((item) => item.kind === "you" || item.kind === "notice");
+  const reply = items.slice(start + 1).findLast((item) => item.kind === "agent");
+  return {
+    started: items[start]?.at,
+    reply: reply && "text" in reply ? { id: reply.id, text: reply.text } : undefined,
+  };
+}
+
+/**
+ * A child whose own turn ended tells the session that started it, unless it messaged that session itself during the
+ * turn: its state, its last reply, and how to close it once its work is in. One report per reply, under its own id, so
+ * the list and the phone server, which both see the turn end, post it once. Returns whether a report was posted.
+ */
+export function reportTurnEnd(
+  child: Session,
+  parent: Session,
+  send: typeof post = post,
+  turn: typeof lastTurn = lastTurn,
+  messaged: (from: string, to: string, since: number) => boolean = sentSince,
+  headless: (pane: string) => boolean = (pane) => {
+    const record = spawnRecord(pane);
+    return record !== undefined && !record.interactive;
+  },
+): boolean {
+  if (!reachable(child) || !reachable(parent)) return false;
+  // A headless child's process exits with its turn, and its exit report carries the same last output.
+  if (child.place.kind === "kiln" && headless(child.place.name)) return false;
+  const name = sessionIdentity(child);
+  const to = sessionIdentity(parent);
+  const ended = turn(child);
+  // No reply in this turn: nothing new to report. The TUI runs this too, so it prints nothing.
+  if (!ended?.reply) return false;
+  if (ended.started !== undefined && messaged(name, to, ended.started)) return false;
+  const titled = child.title ? ` ("${child.title}")` : "";
+  const state =
+    child.activity === "waiting"
+      ? "is waiting on input or an approval"
+      : child.turnEnded
+        ? "ended its turn while its background work still runs"
+        : "finished its turn";
+  const next =
+    child.activity === "waiting"
+      ? `Answer it with: kiln msg send ${name} "<your reply>"`
+      : child.turnEnded
+        ? `It reports again when that work is done.`
+        : `If its work is in, close it: kiln close ${name}`;
+  try {
+    send(
+      spawnReportSender(name),
+      to,
+      `Child ${name}${titled} ${state} without messaging you.\n\nLast output:\n\n${ended.reply.text.trim()}\n\n${next}`,
+      undefined,
+      undefined,
+      turnReportId(name, ended.reply.id),
+    );
+    return true;
+  } catch {
+    // A full mailbox or a send limit: the child's reply stays in its conversation for the parent to read.
+    return false;
+  }
+}
+
+/**
+ * Hand a child whose parent has exited to its grandparent: its reports would otherwise go to a mailbox nobody reads, and
+ * a working child left with no reader runs on unseen.
+ */
+export function reportOrphan(child: Session, parent: Session, grandparent: Session, send: typeof post = post): boolean {
+  if (!reachable(child) || !reachable(grandparent)) return false;
+  const name = sessionIdentity(child);
+  const titled = child.title ? ` ("${child.title}")` : "";
+  const state = child.activity === "waiting" ? "is waiting on input or an approval" : "is still working";
+  try {
+    send(
+      spawnReportSender(name),
+      sessionIdentity(grandparent),
+      `Child ${name}${titled} ${state}, but ${sessionIdentity(parent)}, which started it, has exited. Its reports would reach nobody, so it is yours now.\n\nMessage it with: kiln msg send ${name} "<your message>"\nWhen its work is in, close it: kiln close ${name}`,
+      undefined,
+      undefined,
+      `orphan:${name}:${sessionIdentity(parent)}`,
+    );
+    return true;
+  } catch {
+    // A full mailbox or a send limit: the child stays listed for the person.
+    return false;
+  }
 }
 
 let flushing = false;

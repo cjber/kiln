@@ -74,6 +74,31 @@ export function claudeShellRunning(pid: number, dir = claudeConfigDir()): boolea
     .some((child) => read(`/proc/${child}/cmdline`).includes(snapshots));
 }
 
+/**
+ * Whether a background agent the conversation at `transcript` launched since `since` (ms) still runs. Claude writes each
+ * subagent's `subagents/agent-<id>.meta.json` beside the transcript as it launches, with `requestShape` and, once the
+ * agent is done, `finished: true`. A print-mode process runs such an agent in-process, so no child shell shows it.
+ */
+export function claudeBackgroundAgentRunning(transcript: string, since: number): boolean {
+  const dir = join(transcript.replace(/\.jsonl$/, ""), "subagents");
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((name) => name.endsWith(".meta.json"));
+  } catch {
+    return false;
+  }
+  return names.some((name) => {
+    try {
+      const path = join(dir, name);
+      if (statSync(path).mtimeMs < since) return false;
+      const meta = JSON.parse(readFileSync(path, "utf8"));
+      return meta.requestShape === "background" && meta.finished !== true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** The socket a Claude session reads other sessions' messages from, and the token that lets a sender in. */
 export type ClaudeInbox = { socket: string; token: string };
 

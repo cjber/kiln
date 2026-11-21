@@ -154,6 +154,16 @@ export function lastFrom(from: string, path = mailboxPath()): Message | undefine
   return row ? message(row) : undefined;
 }
 
+/** Whether one sender has posted to one recipient at or after `since`, whatever has become of the message. */
+export function sentSince(from: string, to: string, since: number, path = mailboxPath()): boolean {
+  if (!existsSync(path)) return false;
+  return !!open(path)
+    .query<{ found: number }, [string, string, number]>(
+      'SELECT 1 AS found FROM messages WHERE "from" = ? AND "to" = ? AND createdAt >= ? LIMIT 1',
+    )
+    .get(from, to, since);
+}
+
 /** The recipient's undelivered messages, marked read as they are handed over. */
 export function takeUnread(to: string, path = mailboxPath(), now = Date.now()): Message[] {
   if (!existsSync(path)) return [];

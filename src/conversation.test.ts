@@ -293,3 +293,9 @@ test("a session that has ended is read by its full name from the transcript its 
     });
   }
 });
+
+test("a message another session sent shows in the conversation, though Claude records it as meta", () => {
+  const peer = { ...typed("p1", "[kiln message from claude:x]\n\nhi"), isMeta: true, origin: { kind: "peer" } };
+  expect(recordItems(peer)).toMatchObject([{ id: "p1", kind: "notice" }]);
+  expect(recordItems({ ...peer, origin: undefined })).toEqual([]);
+});

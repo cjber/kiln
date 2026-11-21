@@ -10,7 +10,7 @@ import { collisionWatch, warn } from "./collisions";
 import { conversationReader } from "./conversation";
 import { type PullRequest, pullRequests, stageOf } from "./dashboard";
 import { ledgers, turnSummaries } from "./edits";
-import { resumeStopped, startFromPhone } from "./launcher";
+import { closeSession, resumeStopped, startFromPhone } from "./launcher";
 import { pending, post } from "./mailbox";
 import {
   flush,
@@ -20,16 +20,19 @@ import {
   interruption,
   phoneSender,
   reachable,
+  reportOrphan,
   route,
 } from "./messages";
 import { nativeNotifications, notify } from "./notifications";
 import { opencodeLinks, opencodeToken, servedOpencodeOrigin } from "./opencode-web";
+import { orphanedChildren } from "./orphans";
 import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
 import { type QuotaAccount, readQuota } from "./quota";
 import { limitedUntil } from "./routing";
+import { reparent } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import {
   type Agent,
@@ -214,6 +217,13 @@ export function startServer({
   awake = () => {},
   quota = readQuota,
   quotaInterval = 60_000,
+  orphans = orphanedChildren(
+    (child) => void closeSession(child).catch(() => {}),
+    (child, parent, grandparent) => {
+      reparent(child, grandparent);
+      reportOrphan(child, parent, grandparent);
+    },
+  ),
 }: {
   port: number;
   pairing: Pairing;
@@ -238,6 +248,8 @@ export function startServer({
   offer?: (sessions: readonly Session[], settings: Settings) => string[];
   /** Each session's pull requests; `gh` is asked only while a phone watches or `pr_messages` is on. */
   prs?: ReturnType<typeof pullRequests>;
+  /** Close the idle children of an exited parent, and hand its working ones to their grandparent. */
+  orphans?: (sessions: readonly Session[]) => void;
   /** Posts what changed on each session's pull requests to its agent, when `pr_messages` is on. */
   tell?: ReturnType<typeof autopilot>;
   /** Each session's edits, read incrementally from its transcript. */
@@ -418,7 +430,7 @@ export function startServer({
       .filter((message) => message.to === sessionIdentity(session))
       .map(({ id: messageId, from, body, createdAt }) => ({ id: messageId, from, text: body, at: createdAt }));
     // Why they wait, so the phone can say they send by themselves; read only while something waits.
-    const waiting = queued.length ? (heldBecause(session) ?? null) : null;
+    const waiting = queued.length ? (heldBecause(session, undefined, queued[0]?.from) ?? null) : null;
     const read = conversationReader(session);
     try {
       if (read) return { abilities, prompt, queued, waiting, ...read(cursor ?? undefined) };
@@ -711,7 +723,8 @@ export function startServer({
         const current = settings();
         void failOverLimited(sessions, current).then(
           (events) => {
-            if (current.notifications) for (const event of events) notify("Claude usage limit", failoverNotice(event));
+            if (current.notifications)
+              for (const event of events) notify("kiln.usage", "Claude usage limit", failoverNotice(event));
           },
           () => {},
         );
@@ -723,7 +736,7 @@ export function startServer({
               const usable = read.filter((account) => !accountDisabled(current, account.agent, account.name));
               if (current.notifications)
                 for (const account of availableAgain(usable))
-                  notify("Usage limit reset", `${account} has allowance again`);
+                  notify("kiln.usage", "Usage limit reset", `${account} has allowance again`);
               pushAvailable(usable, readAt);
             })
             // A read that failed, or a pairing closed under it, leaves the last comparison standing.
@@ -782,6 +795,12 @@ export function startServer({
           edits.sweep(sessions);
         } catch {
           // A broken mailbox or an unreadable transcript never fails a refresh.
+        }
+      if (!stale)
+        try {
+          orphans(sessions);
+        } catch {
+          // Closing an orphan is housekeeping and never fails a refresh.
         }
       try {
         transitions(sessions, alerting);

@@ -28,6 +28,11 @@ A message cannot reach a session a restart stopped. `kiln resume` lists them, an
 the list: an OpenCode or Codex conversation is archived, not deleted. Close only a session whose work is
 done, such as one whose pull request merged, and never your own.
 
+Close a child you started as soon as its work is in: an idle session still holds its memory (a Claude
+child is about 400 MB). When a child ends its turn without messaging you, kiln sends you its last
+output ending with the exact `kiln close <child>` to run. When you exit or are closed, kiln closes your
+idle children itself and hands any still working to your own parent.
+
 ### Starting a subagent
 
 Use `kiln msg spawn` only when your own session runs in kiln, that is when `$TMUX` names kiln's
@@ -59,7 +64,9 @@ conversation: a `send` to it then fails with `has exited`, and `kiln msg spawn c
 `--interactive` (Claude only) starts Claude's terminal UI instead of headless mode, so a person can
 attach from the list and watch it work. The session stays open after its turns, so its parent hears
 of its exit only when someone closes it: use it for long runs a person watches, not for subagents
-whose exit you wait on.
+whose exit you wait on. An interactive child that ends a turn without messaging you is reported to you
+with its last output, so you hear of it without polling; close it with `kiln close <child>` once its
+work is in.
 
 A child messages its parent with `kiln msg send <parent>` when the work is done, naming what it
 changed and what it could not finish. In a sandbox that hides the sessions, `send` answers `queued`

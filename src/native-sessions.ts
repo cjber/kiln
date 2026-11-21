@@ -1,7 +1,14 @@
 import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { accountOf } from "./accounts";
 import { agyProcesses } from "./agy";
-import { type ClaudeRecord, claudeInbox, claudeRecord, claudeShellRunning, claudeTranscript } from "./claude-inbox";
+import {
+  type ClaudeRecord,
+  claudeBackgroundAgentRunning,
+  claudeInbox,
+  claudeRecord,
+  claudeShellRunning,
+  claudeTranscript,
+} from "./claude-inbox";
 import { type CodexThread, codexThreads } from "./codex";
 import { kittyWindows } from "./kitty";
 import { callerIdentity } from "./messages";
@@ -37,7 +44,7 @@ import { readTranscript } from "./transcript";
  * A listed session's status. `claude agents` reports `shell` (a turn that ended with background shells running) as
  * `busy`, so a busy session's own record tells them apart. Claude writes a print-mode (`claude -p`, entrypoint
  * `sdk-cli`) record only as the process starts, so there the transcript says when a turn has ended, and the process then
- * waits on its background shells (`shell`) or, with none running, only on a wakeup or a message (`idle`). A failed
+ * waits on its background shells or in-process background agents (`shell`) or, with none running, only on a wakeup or a message (`idle`). A failed
  * listing has no status, and stays unknown.
  *
  * An interactive Claude can stay `busy` with no turn running, as it does while it compacts an idle conversation. Its
@@ -50,6 +57,7 @@ export function claudeStatus(
   turnEnded: boolean | undefined,
   shellRunning: () => boolean,
   turnShown: () => boolean | undefined = () => undefined,
+  agentRunning: () => boolean = () => false,
 ): string | undefined {
   if (listed !== "busy") return listed;
   if (record.entrypoint !== "sdk-cli") {
@@ -57,7 +65,7 @@ export function claudeStatus(
     return turnEnded && turnShown() === false ? "idle" : "busy";
   }
   if (!turnEnded) return "busy";
-  return shellRunning() ? "shell" : "idle";
+  return shellRunning() || agentRunning() ? "shell" : "idle";
 }
 
 /**
@@ -316,6 +324,7 @@ async function claudeSessions(
           const shown = pane === undefined ? undefined : screen(pane);
           return shown && claudeTurnShown(shown.text);
         },
+        () => transcript !== undefined && claudeBackgroundAgentRunning(transcript, item.startedAt ?? 0),
       );
       const session = {
         pid: item.pid,

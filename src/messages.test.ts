@@ -7,6 +7,7 @@ import {
   approvalShown,
   askParents,
   callerIdentity,
+  currentTurn,
   findRecipient,
   flush,
   frame,
@@ -14,11 +15,14 @@ import {
   heldBecause,
   lastExit,
   NotNow,
+  phoneSender,
   processAgent,
   replyCommand,
+  reportTurnEnd,
   route,
   spawnSender,
   type Transports,
+  typedText,
 } from "./messages";
 import type { Saved } from "./saved-sessions";
 import type { Session } from "./sessions";
@@ -134,6 +138,31 @@ test("a spawned Codex run answers to the process name its spawn returned and to 
   expect(() => findRecipient([{ ...run, id: undefined }], "codex:40:7.5")).toThrow("no running session");
 });
 
+test("the person's own phone message is typed into a kiln Claude as their prompt, not sent as a peer's", () => {
+  const phone = phoneSender("Pixel 9a");
+  const message = { id: "1", from: "terminal", to: "claude:a", body: "hi", createdAt: 0 };
+  // Claude frames anything its inbox takes as another session's message, so the person's words wait for the prompt.
+  expect(route(session({ claudeInbox: true }), undefined, phone)).toEqual({ push: "tmux" });
+  expect(route(session({ claudeInbox: true, activity: "working" }), undefined, phone)).toEqual({
+    wait: "Claude is working",
+  });
+  expect(route(session({ claudeInbox: true, activity: "working", turnEnded: true }), undefined, phone)).toEqual({
+    push: "tmux",
+  });
+  // Another session's message still queues in Claude's inbox while a turn runs.
+  expect(route(session({ claudeInbox: true, activity: "working" }), undefined, "claude:other")).toEqual({
+    push: "claude",
+  });
+  // Outside kiln there is no terminal to type into, so the inbox is the only way in.
+  expect(route(session({ claudeInbox: true, place: { kind: "elsewhere" } }), undefined, phone)).toEqual({
+    push: "claude",
+  });
+  expect(typedText({ ...message, from: phone }, undefined)).toBe("hi");
+  expect(typedText({ ...message, from: "claude:other" }, undefined)).toBe(
+    frame({ ...message, from: "claude:other" }, undefined),
+  );
+});
+
 test("typing waits for an idle session; an agent's own queue takes a message at once", () => {
   expect(route(session({}))).toEqual({ push: "tmux" });
   // A stopped process reads nothing, its own queue included, so nothing is delivered to it (#280).
@@ -210,6 +239,26 @@ test("flush types each deliverable message once, framed with its sender, and kee
   expect(pending(path).map((message) => message.to)).toEqual(["claude:busy", "claude:missing", "claude:open"]);
   expect(await flush(sessions, { path, send })).toHaveLength(3);
   expect(typed).toHaveLength(1);
+});
+
+test("a phone prompt held for typing holds a later peer message to the same Claude, so order is kept", async () => {
+  const path = mailbox();
+  const pushed: string[] = [];
+  const send = {
+    claude: async (_target: Session, _text: string, message: { body: string }) => void pushed.push(message.body),
+    tmux: async (_target: Session, _text: string, message: { body: string }) => void pushed.push(message.body),
+  } as unknown as Transports;
+  const busy = session({ id: "busy", claudeInbox: true, activity: "working" });
+  post(phoneSender("Pixel 9a"), "claude:busy", "first", path);
+  post("claude:other", "claude:busy", "second", path);
+  const outcomes = await flush([busy], { path, send });
+  expect(pushed).toEqual([]);
+  expect(outcomes.map((outcome) => (outcome.delivered ? "delivered" : outcome.reason))).toEqual([
+    "Claude is working",
+    "Claude is working",
+  ]);
+  await flush([{ ...busy, activity: "idle" }], { path, send });
+  expect(pushed).toEqual(["first", "second"]);
 });
 
 test("a message Claude holds at its approval prompt says so, rather than that it may be lost", async () => {
@@ -359,4 +408,58 @@ test("a reply names this kiln while its executable exists, and the kiln on PATH 
   expect(replyCommand(kiln)).toBe(kiln);
   const removed = join(mailbox(), "removed-install", "kiln");
   expect(replyCommand(removed)).toBe(Bun.which("kiln") ?? "kiln");
+});
+
+test("a turn starts at the latest prompt, a peer message included, and keeps only the reply after it", () => {
+  const first = [
+    { id: "u1", at: 1_000, kind: "you" as const, text: "start" },
+    { id: "a1", at: 1_100, kind: "agent" as const, text: "messaged parent" },
+  ];
+  expect(currentTurn(first)).toEqual({ started: 1_000, reply: { id: "a1", text: "messaged parent" } });
+  // The parent's follow-up arrives as a peer notice and starts the second turn.
+  const second = [...first, { id: "n1", at: 2_000, kind: "notice" as const, text: "next step" }];
+  expect(currentTurn(second)).toEqual({ started: 2_000, reply: undefined });
+  const answered = [...second, { id: "a2", at: 2_100, kind: "agent" as const, text: "done" }];
+  expect(currentTurn(answered)).toEqual({ started: 2_000, reply: { id: "a2", text: "done" } });
+});
+
+test("a child that ends its turn silently is reported to its parent once per reply, with how to close it", () => {
+  const path = mailbox();
+  const parent = session({ id: "p1", pid: 10, activity: "working" });
+  const child = session({
+    id: "c2",
+    pid: 11,
+    parentSessionPid: 10,
+    title: "fix it",
+    place: { kind: "kiln", name: "claude-c2" },
+  });
+  const send: typeof post = (from, to, body, _path, now, id) => post(from, to, body, path, now, id);
+  const turn = () => ({ started: 1_000, reply: { id: "r1", text: "Done: PR opened." } });
+  const never = () => false;
+  expect(reportTurnEnd(child, parent, send, turn, never, never)).toBe(true);
+  expect(reportTurnEnd(child, parent, send, turn, never, never)).toBe(true);
+  const [report] = pending(path);
+  expect(pending(path)).toHaveLength(1);
+  expect(report).toMatchObject({ to: "claude:p1" });
+  expect(report?.body).toContain("Done: PR opened.");
+  expect(report?.body.endsWith("kiln close claude:c2")).toBe(true);
+  // A child that messaged its parent during the turn has reported already.
+  const later = () => ({ started: 2_000, reply: { id: "r2", text: "more" } });
+  expect(
+    reportTurnEnd(
+      child,
+      parent,
+      send,
+      later,
+      (from, to, since) => from === "claude:c2" && to === "claude:p1" && since === 2_000,
+      never,
+    ),
+  ).toBe(false);
+  // A headless child's exit report carries its last output, so its turn end is not reported twice.
+  expect(reportTurnEnd(child, parent, send, later, never, () => true)).toBe(false);
+  // A child waiting on an approval is told apart, and closing it is not suggested.
+  expect(reportTurnEnd({ ...child, activity: "waiting" }, parent, send, later, never, never)).toBe(true);
+  const waiting = pending(path).find((message) => message.body.includes("more"));
+  expect(waiting?.body).toContain("waiting on input or an approval");
+  expect(waiting?.body).not.toContain("kiln close");
 });

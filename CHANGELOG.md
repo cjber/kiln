@@ -9,6 +9,14 @@ verbatim.
 
 ## [Unreleased]
 
+- **Subagents no longer notify the desktop.** A session kiln nests under a parent never sends a desktop or phone notification; kiln tells the parent instead when the child ends a turn without messaging it, with its state, last reply and the `kiln close` command. A turn that ends into background work notifies once, and that work finishing does not notify again.
+- **Desktop notifications carry a category.** `notify-send` gets `--category` `kiln.needs-input`, `kiln.turn-finished` or `kiln.usage`, so a notification daemon such as mako can give each its own sound or style.
+- **An exited parent's children are cleaned up.** When a parent's process is gone, `kiln serve` closes its idle children and hands working or waiting ones to their grandparent, or leaves them for you when there is none.
+- **`kiln serve` restarts after an upgrade.** Under systemd it exits once its executable is replaced, so the service starts the new version instead of running the old code against the new config.
+- **Dead child panes are reaped.** A gone child's record stays until its exit report reaps its pane, so exited children no longer leave dead panes open.
+- **A print-mode Claude running a background agent shows working.** An in-process background agent that has not finished counts as background work, as a background shell does.
+- **A phone message to a Claude in a kiln terminal arrives as your own prompt.** It is typed at the prompt once the turn ends instead of going through Claude's peer inbox, and the conversation view shows peer messages as notices.
+
 ## [0.34.1] - 2026-11-21
 
 - **Antigravity (`agy`) sessions show `needs input` when waiting on you.** `agy` keeps `status` as running while waiting for approval or an answer and records waiting steps in `raw_summary`. kiln now reads `waiting_steps` from `raw_summary` (including nested in-process subagents) so waiting `agy` sessions turn yellow, fire desktop and phone notifications, and hold queued `kiln msg send` typing.

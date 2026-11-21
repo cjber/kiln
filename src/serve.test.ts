@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { serveOptions, setupTailscale } from "./serve";
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { serveOptions, setupTailscale, watchExecutable } from "./serve";
 
 test("serve validates options before configuring a tunnel", () => {
   expect(serveOptions(["--port", "8000", "--origin", "https://phone.example/"])).toEqual({
@@ -43,4 +46,23 @@ test("one-command serving preserves other Tailscale services and rejects disconn
   calls.length = 0;
   await expect(setupTailscale(7437, execute)).rejects.toThrow("not connected");
   expect(calls).toHaveLength(1);
+});
+
+test("a replaced executable is noticed once, and an unchanged one never", async () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-serve-"));
+  try {
+    const path = join(root, "kiln");
+    writeFileSync(path, "old");
+    let replaced = 0;
+    const stop = watchExecutable(() => replaced++, path, 5);
+    await Bun.sleep(30);
+    expect(replaced).toBe(0);
+    writeFileSync(join(root, "kiln.new"), "new");
+    renameSync(join(root, "kiln.new"), path);
+    await Bun.sleep(30);
+    expect(replaced).toBe(1);
+    stop();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

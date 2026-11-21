@@ -160,6 +160,14 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         };
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);
+        const { watchExecutable } = await import("./serve");
+        watchExecutable(() => {
+          // systemd names each run of a unit; under it the restart policy starts the new version.
+          if (process.env.INVOCATION_ID) {
+            console.log("kiln: kiln was upgraded; exiting so the service starts the new version");
+            stop();
+          } else console.log("kiln: kiln was upgraded; restart kiln serve to run the new version");
+        });
         await new Promise(() => {});
       }
       if (command === "setup") {

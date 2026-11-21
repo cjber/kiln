@@ -9,6 +9,7 @@ import {
   reconcile,
   recordSpawn,
   rememberParents,
+  reparent,
   restartStopped,
   spawnRecord,
 } from "./saved-sessions";
@@ -217,6 +218,18 @@ test("the saved list is stored, and forgetting removes one session from it", () 
   expect(ids()).toEqual(["a", "b"]);
   forget(running, path);
   expect(ids()).toEqual(["b"]);
+});
+
+test("a child handed to its grandparent keeps that parent, recorded or not", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "kiln-saved-")), "kiln", "sessions.sqlite");
+  const grandparent: Session = { ...running, id: "lead" };
+  const spawned: Session = { ...running, id: "child" };
+  recordSpawn({ agent: "claude", id: "child", cwd: "/repo", parent: "claude:gone", startedAt: 2 }, path);
+  reparent(spawned, grandparent, path);
+  expect(attachParents([spawned], path)[0]?.spawnParent).toBe("claude:lead");
+  const unrecorded: Session = { ...running, id: "other" };
+  reparent(unrecorded, grandparent, path);
+  expect(attachParents([unrecorded], path)[0]?.spawnParent).toBe("claude:lead");
 });
 
 test("a state file a newer kiln gave another column still lists the sessions a restart stopped", () => {
@@ -460,4 +473,50 @@ test("a spawned Codex run keeps its recorded parent and title once its thread id
   expect(attachParents([named], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
   expect(restartStopped([named], path)).toEqual([]);
   expect(attachParents([named], path)[0]).toMatchObject({ spawnParent: "claude:lead", title: "audit" });
+});
+
+test("a child's record outlives its process while its pane waits for the exit report, so the report can reap it", () => {
+  const spawned = { ...running, place: { kind: "kiln" as const, name: "codex-a" } };
+  const { saved } = reconcile([], [spawned], "boot-1", 0, dead, unknown);
+  const child = saved.map((item) => ({ ...item, parent: "claude:p", pane: "codex-a" }));
+  const kept = (pane: string) => pane === "codex-a";
+  // The exit hook can run long after the process is gone; until it reaps the pane, its record is what it reports from.
+  const gone = reconcile(
+    child,
+    [],
+    "boot-1",
+    10_000_000,
+    dead,
+    unknown,
+    () => true,
+    () => false,
+    kept,
+  );
+  const waiting = reconcile(
+    gone.saved,
+    [],
+    "boot-1",
+    10_500_000,
+    dead,
+    unknown,
+    () => true,
+    () => false,
+    kept,
+  );
+  expect(waiting.saved).toMatchObject([{ id: "a", pane: "codex-a" }]);
+  expect(waiting.stopped).toHaveLength(0);
+  // Once the report has reaped the pane, the record goes as any closed child's does.
+  expect(
+    reconcile(
+      waiting.saved,
+      [],
+      "boot-1",
+      20_000_000,
+      dead,
+      unknown,
+      () => true,
+      () => false,
+      () => false,
+    ).saved,
+  ).toHaveLength(0);
 });
