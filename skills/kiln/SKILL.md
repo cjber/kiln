@@ -54,6 +54,13 @@ what you already tried and what you want back.
 Run from a shell that belongs to no agent session (a timer, a cron job, a person's terminal), it
 starts a top-level session with no parent, listed in kiln like any other.
 
+A headless Claude child stays alive while any of its background tasks runs (a `run_in_background`
+command, a background subagent, a Monitor), is woken as each finishes, and exits once a turn ends
+with nothing left running. So a child that must wait on something runs that wait as its own
+background task, never as a message it expects later. Exiting frees its memory and keeps its
+conversation: a `send` to it then fails with `has exited`, and `kiln msg spawn claude --resume <name>
+-- "<next step>"` carries it on in the same directory, with its title, as your child again.
+
 `--interactive` (Claude only) starts Claude's terminal UI instead of headless mode, so a person can
 attach from the list and watch it work. The session stays open after its turns, so its parent hears
 of its exit only when someone closes it: use it for long runs a person watches, not for subagents
