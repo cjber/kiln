@@ -7,9 +7,18 @@
 
 </div>
 
-kiln opens native Claude, Codex, OpenCode, Pi, Muse and Antigravity terminal sessions and pairs with an Android client. Kiln also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
+**Run Claude Code, Codex, OpenCode, Pi, Muse and Antigravity sessions side by side in one vim-keyed terminal list, and let them work together.**
 
-Claude and Codex keep their own TUIs for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity.
+- **Agents from different vendors message, interrupt and spawn each other.** A Claude session can start a Codex reviewer; when the reviewer exits, kiln messages its report to the parent, which reads it as soon as it is idle. Interrupting a turn works for Claude sessions kiln started, Codex and OpenCode.
+- **A Claude session that hits its usage limit carries on.** An interactive Claude session in a kiln pane is restarted on another of your accounts, in the same conversation, when one has allowance.
+- **An Android client** shows the same sessions, their progress and pull requests. With phone writes turned on it messages running sessions; cloud tasks and stopped sessions are read-only.
+
+[![CI](https://github.com/cjber/kiln/actions/workflows/ci.yml/badge.svg)](https://github.com/cjber/kiln/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cjber/kiln)](https://github.com/cjber/kiln/releases/latest)
+[![AUR](https://img.shields.io/aur/version/kiln-agents-bin)](https://aur.archlinux.org/packages/kiln-agents-bin)
+[![Licence: MIT](https://img.shields.io/github/license/cjber/kiln)](LICENSE)
+
+Each agent keeps its own native TUI for messages, prompts and approvals. Kiln discovers native sessions and reads provider status updates without starting a second agent. Terminal output never establishes activity. It also lists read-only Codex Cloud tasks and optional Claude cloud sessions.
 
 <img src="assets/list.png" alt="kiln sessions grouped by repository" />
 
@@ -28,6 +37,18 @@ bun start
 ```
 
 Install Claude Code, Codex CLI, OpenCode, Pi, Muse or Antigravity CLI (`agy`), and sign in through each provider's own CLI. Native commands and their arguments can be overridden in settings.
+
+## Quickstart
+
+```sh
+kiln                                  # the list; n starts a session, Enter opens one, Ctrl+Q comes back
+kiln msg spawn codex --dir ~/repo --title "review" -- "Review the diff on this branch and message me what is wrong"
+kiln msg list                         # the reviewer nests under the session that spawned it
+```
+
+Run `kiln msg spawn` from inside a session and the child's report comes back to that session as a message. See [Agents talking to each other](#agents-talking-to-each-other) and [Settings](#settings) for accounts.
+
+Help: [CONTRIBUTING](https://github.com/cjber/.github/blob/main/CONTRIBUTING.md), [SECURITY](https://github.com/cjber/.github/blob/main/SECURITY.md) and the [issue tracker](https://github.com/cjber/kiln/issues).
 
 ## Set up with your agent
 
