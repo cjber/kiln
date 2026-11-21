@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { findClaudeTranscript } from "./claude-inbox";
 import { type Agent, gitBranch, processIdentity, processStartTicks, type Session, sessionIdentity } from "./sessions";
-import { endedPane } from "./tmux";
+import { endedPane, paneState } from "./tmux";
 
 /** A terminal session as it was last seen running, kept so a restart does not lose it. */
 export type Saved = {
@@ -131,7 +131,8 @@ function resumable(session: Session): session is Session & { id: string } {
  * by the restart, and stays as a stopped row until it is seen running again or forgotten. A top-level row whose spawn
  * pane `paneCutOff` finds dead on a failed or killed agent was cut off in this boot, as an OOM kill leaves it when nothing reaped the pane,
  * and is stopped too. A row whose conversation its provider lists as finished, or whose conversation `hasConversation`
- * cannot find, is dropped: there is nothing a restart cut off to resume.
+ * cannot find, is dropped: there is nothing a restart cut off to resume. A gone row whose pane `paneKept` still finds
+ * stays until its exit report reaps that pane.
  */
 export function reconcile(
   saved: readonly Saved[],
@@ -142,6 +143,7 @@ export function reconcile(
   started: (pid: number) => number | undefined,
   hasConversation: (item: Saved) => boolean = () => true,
   paneCutOff: (pane: string) => boolean = () => false,
+  paneKept: (pane: string) => boolean = () => false,
 ): { saved: Saved[]; stopped: Session[] } {
   const next = new Map<string, Saved>();
   const previous = new Map(saved.map((item) => [key(item), item]));
@@ -210,7 +212,12 @@ export function reconcile(
     else if (!item.parent && item.pane !== undefined && paneCutOff(item.pane)) {
       cutOff.add(key(item));
       next.set(key(item), item);
-    } else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
+    }
+    // A pane kept after its process exited waits for the exit hook or watcher, which reports from this record and then
+    // reaps the pane. Dropping the record first leaves the report with nothing to read and the dead pane open for good.
+    else if (item.pane !== undefined && paneKept(item.pane))
+      next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
+    else if (now - (item.goneAt ?? now) < closedAfterMs) next.set(key(item), { ...item, goneAt: item.goneAt ?? now });
   }
   const kept = [...next.values()].sort((left, right) => (key(left) < key(right) ? -1 : 1));
   return {
@@ -278,6 +285,7 @@ export function restartStopped(sessions: readonly Session[], path = statePath())
         savedConversation,
         // An agent that exits with status 0 quit on its own, as a person closing it leaves it.
         (pane) => (endedPane(pane)?.status ?? 0) !== 0,
+        (pane) => paneState(pane) !== "gone",
       );
       if (JSON.stringify(result.saved) !== JSON.stringify(before)) {
         db.exec("DELETE FROM sessions");
