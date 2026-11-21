@@ -172,6 +172,7 @@ test("typing waits for an idle session; an agent's own queue takes a message at 
   // agy has no push transport: kiln types into its own pane once its summary row says idle.
   expect(route(session({ agent: "agy", activity: "idle" }))).toEqual({ push: "tmux" });
   expect(route(session({ agent: "agy", activity: "working" }))).toEqual({ wait: "Agy is working" });
+  expect(route(session({ agent: "agy", activity: "waiting" }))).toEqual({ wait: "Agy is waiting" });
   expect("inbox" in route(session({ agent: "agy", activity: "idle", agyExec: true }))).toBe(true);
   expect("inbox" in route(session({ agent: "agy", activity: "idle", place: { kind: "elsewhere" } }))).toBe(true);
 });
