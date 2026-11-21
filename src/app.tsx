@@ -274,7 +274,7 @@ export function App({
           if (loadSessions) return;
           for (const account of availableAgain(usable)) {
             setNotice(`${account} has allowance again`);
-            if (routing.notifications) notify("Usage limit reset", `${account} has allowance again`);
+            if (routing.notifications) notify("kiln.usage", "Usage limit reset", `${account} has allowance again`);
           }
         },
         () => {},
@@ -300,7 +300,7 @@ export function App({
             (events) => {
               for (const event of events) {
                 setNotice(failoverNotice(event));
-                if (getSettings().notifications) notify("Claude usage limit", failoverNotice(event));
+                if (getSettings().notifications) notify("kiln.usage", "Claude usage limit", failoverNotice(event));
               }
             },
             () => {},

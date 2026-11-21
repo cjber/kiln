@@ -16,15 +16,23 @@ export function nativeNotifications(send = notifySessionEvent) {
   };
 }
 
+/**
+ * The notification server's category for each kind of kiln notification, so a desktop can give each its own
+ * sound or style (mako matches `[app-name=kiln category=kiln.needs-input]`).
+ */
+export type NotificationCategory = "kiln.needs-input" | "kiln.turn-finished" | "kiln.usage";
+
 export function notifySessionEvent(session: Session): void {
+  const waiting = session.activity === "waiting";
   notify(
-    `${session.title || `${agentName(session.agent)} session`} · ${session.activity === "waiting" ? "Needs input" : "Turn finished"}`,
+    waiting ? "kiln.needs-input" : "kiln.turn-finished",
+    `${session.title || `${agentName(session.agent)} session`} · ${waiting ? "Needs input" : "Turn finished"}`,
     `${agentName(session.agent)} · ${sessionDirectory(session)}`,
   );
 }
 
 /** A desktop notification from kiln; `body` is plain text. */
-export function notify(summary: string, body = ""): void {
+export function notify(category: NotificationCategory, summary: string, body = ""): void {
   const command = Bun.which("notify-send");
   if (!command) return;
   try {
@@ -32,6 +40,7 @@ export function notify(summary: string, body = ""): void {
       [
         command,
         "--app-name=kiln",
+        `--category=${category}`,
         "--",
         summary,
         body.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),

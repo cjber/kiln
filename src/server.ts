@@ -711,7 +711,7 @@ export function startServer({
         const current = settings();
         void failOverLimited(sessions, current).then(
           (events) => {
-            if (current.notifications) for (const event of events) notify("Claude usage limit", failoverNotice(event));
+            if (current.notifications) for (const event of events) notify("kiln.usage", "Claude usage limit", failoverNotice(event));
           },
           () => {},
         );
@@ -723,7 +723,7 @@ export function startServer({
               const usable = read.filter((account) => !accountDisabled(current, account.agent, account.name));
               if (current.notifications)
                 for (const account of availableAgain(usable))
-                  notify("Usage limit reset", `${account} has allowance again`);
+                  notify("kiln.usage", "Usage limit reset", `${account} has allowance again`);
               pushAvailable(usable, readAt);
             })
             // A read that failed, or a pairing closed under it, leaves the last comparison standing.
