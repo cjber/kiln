@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **Antigravity (`agy`) sessions show `needs input` when waiting on you.** `agy` leaves its summary row's `status` column as running while a step waits for tool approval or an answer to a question, recording those steps in `raw_summary` instead. kiln now reads `waiting_steps` from `raw_summary` (and from active in-process subagents) so waiting `agy` sessions highlight in yellow, increment the header count, trigger desktop and phone notifications, and hold queued `kiln msg send` typing until the prompt is answered.
 - **The kiln skill explains how a headless child waits.** A headless Claude child stays alive while its background tasks run and exits when nothing is left, so a child that waits does so as its own background task; once it has exited, `kiln msg spawn claude --resume <name>` carries it on.
 
 ## [0.34.0] - 2026-11-20

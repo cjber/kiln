@@ -70,15 +70,78 @@ export function agyTime(text: string): number | undefined {
 }
 
 /**
- * The activity a summary's run status reports. `agy` records IDLE between turns and RUNNING, BUSY or CANCELING while
- * one runs; anything else stays unknown rather than guessed.
+ * Fields read from `conversation_summaries.raw_summary`, a serialized `CascadeTrajectorySummary` protobuf:
+ * field 8 is repeated `waiting_steps` (length-delimited), field 18 is `has_active_children` (varint bool).
  */
-export function agyActivity(status: string): Activity | undefined {
+export function agyRawSummaryFlags(raw: Uint8Array | null | undefined): {
+  hasWaitingSteps: boolean;
+  hasActiveChildren: boolean;
+} {
+  const empty = { hasWaitingSteps: false, hasActiveChildren: false };
+  if (!raw?.length) return empty;
+  let hasWaitingSteps = false;
+  let hasActiveChildren = false;
+  let offset = 0;
+  const readVarint = (): bigint | undefined => {
+    let value = 0n;
+    let shift = 0n;
+    while (offset < raw.length) {
+      const byte = raw[offset++] as number;
+      value |= BigInt(byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return value;
+      shift += 7n;
+      if (shift > 63n) return undefined;
+    }
+    return undefined;
+  };
+  while (offset < raw.length) {
+    const tag = readVarint();
+    if (tag === undefined || tag === 0n) return empty;
+    const field = Number(tag >> 3n);
+    const wire = Number(tag & 7n);
+    switch (wire) {
+      case 0: {
+        const value = readVarint();
+        if (value === undefined) return empty;
+        if (field === 18 && value !== 0n) hasActiveChildren = true;
+        break;
+      }
+      case 1:
+        if (offset + 8 > raw.length) return empty;
+        offset += 8;
+        break;
+      case 2: {
+        const length = readVarint();
+        if (length === undefined || length > BigInt(raw.length - offset)) return empty;
+        const bytes = Number(length);
+        if (field === 8 && bytes > 0) hasWaitingSteps = true;
+        offset += bytes;
+        break;
+      }
+      case 5:
+        if (offset + 4 > raw.length) return empty;
+        offset += 4;
+        break;
+      default:
+        return empty;
+    }
+  }
+  return { hasWaitingSteps, hasActiveChildren };
+}
+
+/**
+ * The activity a summary row reports. `agy` keeps `status` as RUNNING or BUSY while a step waits on the user for
+ * approval or input, and lists those steps in `raw_summary`'s `waiting_steps`. Following agy's own notifier, waiting
+ * steps count only while active (`RUNNING`, `BUSY`, or `IDLE` with active children), never while canceling or fully
+ * idle; unknown statuses stay unknown.
+ */
+export function agyActivity(status: string, waiting = false, hasActiveChildren = false): Activity | undefined {
   switch (status) {
     case "CASCADE_RUN_STATUS_IDLE":
-      return "idle";
+      return waiting && hasActiveChildren ? "waiting" : "idle";
     case "CASCADE_RUN_STATUS_RUNNING":
     case "CASCADE_RUN_STATUS_BUSY":
+      return waiting ? "waiting" : "working";
     case "CASCADE_RUN_STATUS_CANCELING":
       return "working";
     default:
@@ -93,24 +156,54 @@ export function readAgySummaries(ids: readonly string[], home = agyHome()): Map<
   let database: Database | undefined;
   try {
     database = new Database(join(home, "conversation_summaries.db"), { readonly: true });
+    const columns = database.query("pragma table_info(conversation_summaries)").all() as { name: string }[];
+    const hasRawSummary = columns.some((column) => column.name === "raw_summary");
+    const select = hasRawSummary
+      ? "conversation_id, title, status, parent_conversation_id, last_modified_time, raw_summary"
+      : "conversation_id, title, status, parent_conversation_id, last_modified_time";
     const rows = database
-      .query(
-        `select conversation_id, title, status, parent_conversation_id, last_modified_time from conversation_summaries where conversation_id in (${ids.map(() => "?").join(",")})`,
-      )
+      .query(`select ${select} from conversation_summaries where conversation_id in (${ids.map(() => "?").join(",")})`)
       .all(...ids) as {
       conversation_id: string;
       title: string;
       status: string;
       parent_conversation_id: string;
       last_modified_time: string;
+      raw_summary?: Uint8Array | null;
     }[];
-    for (const row of rows)
+    const parentsWithChildren: string[] = [];
+    for (const row of rows) {
+      const flags = hasRawSummary ? agyRawSummaryFlags(row.raw_summary) : undefined;
+      const activity = agyActivity(row.status, flags?.hasWaitingSteps, flags?.hasActiveChildren);
       found.set(row.conversation_id, {
         title: row.title || undefined,
-        activity: agyActivity(row.status),
+        activity,
         parentId: isAgyConversationId(row.parent_conversation_id) ? row.parent_conversation_id : undefined,
         lastActiveAt: agyTime(row.last_modified_time),
       });
+      if (flags?.hasActiveChildren && activity !== "waiting") parentsWithChildren.push(row.conversation_id);
+    }
+    if (hasRawSummary && parentsWithChildren.length) {
+      const requested = new Set(ids);
+      const children = database
+        .query(
+          `select conversation_id, parent_conversation_id, status, raw_summary from conversation_summaries where parent_conversation_id in (${parentsWithChildren.map(() => "?").join(",")}) and status in ('CASCADE_RUN_STATUS_RUNNING', 'CASCADE_RUN_STATUS_BUSY')`,
+        )
+        .all(...parentsWithChildren) as {
+        conversation_id: string;
+        parent_conversation_id: string;
+        status: string;
+        raw_summary: Uint8Array | null;
+      }[];
+      for (const child of children) {
+        if (requested.has(child.conversation_id)) continue;
+        const flags = agyRawSummaryFlags(child.raw_summary);
+        if (agyActivity(child.status, flags.hasWaitingSteps, flags.hasActiveChildren) === "waiting") {
+          const parent = found.get(child.parent_conversation_id);
+          if (parent) parent.activity = "waiting";
+        }
+      }
+    }
   } catch {
     // A database that is locked or missing leaves the rows as unknown; the next pass reads it again.
   } finally {
