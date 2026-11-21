@@ -16,6 +16,7 @@ import {
   NotNow,
   processAgent,
   replyCommand,
+  reportTurnEnd,
   route,
   spawnSender,
   type Transports,
@@ -358,4 +359,42 @@ test("a reply names this kiln while its executable exists, and the kiln on PATH 
   expect(replyCommand(kiln)).toBe(kiln);
   const removed = join(mailbox(), "removed-install", "kiln");
   expect(replyCommand(removed)).toBe(Bun.which("kiln") ?? "kiln");
+});
+
+test("a child that ends its turn silently is reported to its parent once per reply, with how to close it", () => {
+  const path = mailbox();
+  const parent = session({ id: "p1", pid: 10, activity: "working" });
+  const child = session({
+    id: "c2",
+    pid: 11,
+    parentSessionPid: 10,
+    title: "fix it",
+    place: { kind: "kiln", name: "claude-c2" },
+  });
+  const send: typeof post = (from, to, body, _path, now, id) => post(from, to, body, path, now, id);
+  const turn = () => ({ started: 1_000, reply: { id: "r1", text: "Done: PR opened." } });
+  const never = () => false;
+  expect(reportTurnEnd(child, parent, send, turn, never)).toBe(true);
+  expect(reportTurnEnd(child, parent, send, turn, never)).toBe(true);
+  const [report] = pending(path);
+  expect(pending(path)).toHaveLength(1);
+  expect(report).toMatchObject({ to: "claude:p1" });
+  expect(report?.body).toContain("Done: PR opened.");
+  expect(report?.body.endsWith("kiln close claude:c2")).toBe(true);
+  // A child that messaged its parent during the turn has reported already.
+  const later = () => ({ started: 2_000, reply: { id: "r2", text: "more" } });
+  expect(
+    reportTurnEnd(
+      child,
+      parent,
+      send,
+      later,
+      (from, to, since) => from === "claude:c2" && to === "claude:p1" && since === 2_000,
+    ),
+  ).toBe(false);
+  // A child waiting on an approval is told apart, and closing it is not suggested.
+  expect(reportTurnEnd({ ...child, activity: "waiting" }, parent, send, later, never)).toBe(true);
+  const waiting = pending(path).find((message) => message.body.includes("more"));
+  expect(waiting?.body).toContain("waiting on input or an approval");
+  expect(waiting?.body).not.toContain("kiln close");
 });

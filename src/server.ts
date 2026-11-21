@@ -711,7 +711,8 @@ export function startServer({
         const current = settings();
         void failOverLimited(sessions, current).then(
           (events) => {
-            if (current.notifications) for (const event of events) notify("kiln.usage", "Claude usage limit", failoverNotice(event));
+            if (current.notifications)
+              for (const event of events) notify("kiln.usage", "Claude usage limit", failoverNotice(event));
           },
           () => {},
         );

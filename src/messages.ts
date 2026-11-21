@@ -2,7 +2,8 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "n
 import { basename, join } from "node:path";
 import { ClaudeNotQueued, claudeInbox, claudeTranscript, InboxClosed, sendClaudeInbox } from "./claude-inbox";
 import { CodexNotReady, interruptCodexSession, messageCodexSession } from "./codex";
-import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release } from "./mailbox";
+import { conversationReader, type Item } from "./conversation";
+import { claim, lastFrom, type Message, mailboxPath, pending, post, posted, release, sentSince } from "./mailbox";
 import { MuseNotReady, messageMuseSession } from "./muse";
 import { interruptOpencodeSession, messageOpencodeSession } from "./opencode";
 import { piInbox } from "./pi-status";
@@ -489,6 +490,76 @@ export function askParents(sessions: readonly Session[], send: typeof post = pos
     }
   }
   return posted;
+}
+
+/** The mailbox id of kiln's report that a child's turn ended: one per reply, however many processes saw it end. */
+export const turnReportId = (child: string, reply: string) => `turn:${child}:${reply}`;
+
+/** What a child's turn left, read from its own conversation; undefined when its provider keeps none kiln reads. */
+export function lastTurn(session: Session): { started?: number; reply?: { id: string; text: string } } | undefined {
+  const read = conversationReader(session);
+  if (!read) return undefined;
+  let items: Item[];
+  try {
+    items = read().items;
+  } catch {
+    return undefined;
+  }
+  const reply = items.findLast((item) => item.kind === "agent");
+  return {
+    started: items.findLast((item) => item.kind === "you")?.at,
+    reply: reply && "text" in reply ? { id: reply.id, text: reply.text } : undefined,
+  };
+}
+
+/**
+ * A child whose own turn ended tells the session that started it, unless it messaged that session itself during the
+ * turn: its state, its last reply, and how to close it once its work is in. One report per reply, under its own id, so
+ * the list and the phone server, which both see the turn end, post it once. Returns whether a report was posted.
+ */
+export function reportTurnEnd(
+  child: Session,
+  parent: Session,
+  send: typeof post = post,
+  turn: typeof lastTurn = lastTurn,
+  messaged: (from: string, to: string, since: number) => boolean = sentSince,
+): boolean {
+  if (!reachable(child) || !reachable(parent)) return false;
+  const name = sessionIdentity(child);
+  const to = sessionIdentity(parent);
+  const ended = turn(child);
+  if (!ended?.reply) {
+    console.warn(`kiln: ${name}'s turn ended, but its conversation has no reply to report to ${to}`);
+    return false;
+  }
+  if (ended.started !== undefined && messaged(name, to, ended.started)) return false;
+  const titled = child.title ? ` ("${child.title}")` : "";
+  const state =
+    child.activity === "waiting"
+      ? "is waiting on input or an approval"
+      : child.turnEnded
+        ? "ended its turn while its background work still runs"
+        : "finished its turn";
+  const next =
+    child.activity === "waiting"
+      ? `Answer it with: kiln msg send ${name} "<your reply>"`
+      : child.turnEnded
+        ? `It reports again when that work is done.`
+        : `If its work is in, close it: kiln close ${name}`;
+  try {
+    send(
+      spawnReportSender(name),
+      to,
+      `Child ${name}${titled} ${state} without messaging you.\n\nLast output:\n\n${ended.reply.text.trim()}\n\n${next}`,
+      undefined,
+      undefined,
+      turnReportId(name, ended.reply.id),
+    );
+    return true;
+  } catch {
+    // A full mailbox or a send limit: the child's reply stays in its conversation for the parent to read.
+    return false;
+  }
 }
 
 let flushing = false;
