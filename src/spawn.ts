@@ -145,8 +145,8 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     prompt: prompt.join(" "),
     interactive: values.interactive,
     ...(resume ? { resume } : {}),
-    ...(values.as === undefined ? {} : { as: values.as }),
-    ...(values.json ? { json: true } : {}),
+    as: values.as,
+    json: values.json,
   };
 }
 
