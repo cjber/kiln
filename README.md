@@ -175,13 +175,14 @@ Nebula reaches kiln through its local device daemon. The daemon runs the same ma
 ```sh
 kiln msg list --json
 kiln msg send codex:session-id "Check the failing tests" --as @nebula:fix-tests --json
+kiln msg spawn codex --dir ~/repo --as @nebula:fix-tests --json -- "Fix the failing tests and message @nebula:fix-tests what you changed"
 kiln msg inbox --as @nebula:fix-tests --peek --wait 60 --json
 # Forward the returned messages, deduplicating by id, then acknowledge each id:
 kiln msg ack message-id --as @nebula:fix-tests
 kiln msg view codex:session-id --json
 ```
 
-`--wait` accepts up to 300 seconds and returns when mail arrives or the timeout expires. `--peek` leaves messages unread until `ack`; ordinary `inbox` marks them read immediately. Transcript pages return a cursor for the next read. `kiln msg spawn` also works from the daemon's shell without a parent session.
+`--wait` accepts up to 300 seconds and returns when mail arrives or the timeout expires. `--peek` leaves messages unread until `ack`; ordinary `inbox` marks them read immediately. Transcript pages return a cursor for the next read. `kiln msg spawn --as @peer` makes the peer the child's parent: the child's exit report, and anything the child sends to that name, arrive in `kiln msg inbox --as @peer`. With `--json` it prints the child's `name`, `directory` and `parent`. Without `--as`, a spawn from the daemon's shell starts a child with no parent.
 
 Peer access trusts the local operating-system user: any program running as that user can use any peer name. The daemon owns cloud authentication, connectivity and agent wakeups. When it stops or the computer sleeps, delivery waits; mailbox messages expire after seven days. Kiln's phone pairing API remains separate from this bridge.
 

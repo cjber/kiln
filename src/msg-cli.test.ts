@@ -2,8 +2,8 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { peekUnread } from "./mailbox";
-import { isPeer, peerName, runMsgCli } from "./msg-cli";
+import { isPeer, peekUnread, peerName } from "./mailbox";
+import { runMsgCli } from "./msg-cli";
 import * as sessions from "./sessions";
 import * as tmux from "./tmux";
 
@@ -71,6 +71,12 @@ test("a sandboxed child addresses its parent by full name without seeing the ses
       body: "done",
     });
     expect(printed.mock.calls[0]?.[0]).toContain("claude:parent-1: queued");
+    // A peer parent is a mailbox the sandbox cannot write either, so it goes through the outbox too (#333).
+    await runMsgCli(["send", "@nebula", "peer done"]);
+    const peerFiles = readdirSync(root).filter((file) => file.endsWith(".json") && !files.includes(file));
+    expect(peerFiles.map((file) => JSON.parse(readFileSync(join(root, file), "utf8")))).toEqual([
+      { to: "@nebula", body: "peer done" },
+    ]);
     // Every other session is found only by discovery, so a broadcast still says why it cannot.
     await expect(runMsgCli(["send", "--all", "done"])).rejects.toThrow("name the recipient");
     // Without an outbox the message goes straight to the mailbox, where only a full name reaches anyone.

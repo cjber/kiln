@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { conversationReader, endedConversationReader, type Page } from "./conversation";
-import { acknowledge, peekUnread, post, takeUnread, writeOutbox } from "./mailbox";
+import { acknowledge, isPeer, peekUnread, peerName, post, takeUnread, writeOutbox } from "./mailbox";
 import { callerIdentity, findRecipient, flush, frame, interrupt, reachable, route, terminal } from "./messages";
 import { archiveOpencodeSession } from "./opencode";
 import {
@@ -30,29 +30,6 @@ const usage = `usage: kiln msg list [--json]          the sessions you can messa
                                    read a session transcript page
        kiln msg whoami                 your own name
        ${spawnUsage.slice("usage: ".length)}`;
-
-/** A peer is a mailbox identity that is not a running session, named with a leading `@`. */
-const PEER = /^@[A-Za-z0-9._:-]{1,63}$/;
-
-/**
- * A sender or recipient that is not one of kiln's sessions.
- *
- * `--as` exists so a program outside kiln (a Nebula agent, the CLI) can hold a
- * mailbox of its own: it sends as `@name`, a session answers it with
- * `kiln msg send @name`, and reads the answer with `kiln msg inbox --as @name`.
- * The leading `@` is what keeps an override from impersonating a session, whose
- * names have no `@`.
- */
-export function peerName(raw: string): string {
-  if (!PEER.test(raw))
-    throw new Error(`a peer is @ followed by letters, digits, ".", "_", ":" or "-" (at most 64); got ${raw}`);
-  return raw;
-}
-
-/** Whether a name addresses a mailbox peer rather than a running session. */
-export function isPeer(name: string): boolean {
-  return name.startsWith("@");
-}
 
 /** The sessions that can be written to, and why a running one may be absent from them. */
 async function observe(): Promise<Pick<Discovered, "sessions" | "missing">> {
@@ -88,7 +65,7 @@ function queueUnseen(
   if (name === undefined) throw new Error(`${hidden}; name the recipient, and kiln delivers it from outside`);
   if (name === me) throw new Error("you cannot message yourself");
   if (outbox) writeOutbox(outbox, name, body);
-  else if (isFullName(name)) post(me ?? terminal, name, body);
+  else if (isFullName(name) || isPeer(name)) post(me ?? terminal, name, body);
   else throw new Error(`${hidden}; name the recipient in full, as agent:id, and kiln delivers it from outside`);
   return { to: name, delivered: false, reason: "this sandbox hides the sessions, so kiln delivers it from outside" };
 }
@@ -116,8 +93,12 @@ async function transcriptReader(name: string): Promise<(cursor?: string) => Page
 export async function runMsgCli(args: string[]): Promise<void> {
   const [first] = args;
   if (first === "spawn") {
-    // Outside an agent session (a timer, a person's shell) the child starts with no parent.
-    console.log(await spawnAgent(spawnOptions(args.slice(1)), callerIdentity()));
+    // A peer named with --as is the parent, so a program outside kiln hears the child's exit in its own mailbox.
+    // Otherwise the calling session is; outside an agent session (a timer, a person's shell) the child has no parent.
+    const { as, json, ...options } = spawnOptions(args.slice(1));
+    const parent = as === undefined ? callerIdentity() : peerName(as);
+    const name = await spawnAgent(options, parent);
+    console.log(json ? JSON.stringify({ name, directory: options.dir, parent: parent ?? null }, null, 2) : name);
     return;
   }
   // A spawned child's kept pane calls this from its pane-died hook when its process exits.
@@ -216,7 +197,8 @@ export async function runMsgCli(args: string[]): Promise<void> {
       // A peer is not in the roster, so it is never typed into: the message waits in its mailbox.
       const peer = name !== undefined && isPeer(name) ? peerName(name) : undefined;
       if (peer !== undefined && peer === me) throw new Error("you cannot message yourself");
-      const hidden = peer === undefined ? await sessionsHidden() : undefined;
+      // A peer needs no discovery, but a sandboxed child cannot write the mailbox: it leaves the message in its outbox.
+      const hidden = peer === undefined || Bun.env.KILN_OUTBOX ? await sessionsHidden() : undefined;
       if (hidden) {
         const result = queueUnseen(hidden, name, body, me);
         console.log(values.json ? JSON.stringify([result], null, 2) : `${result.to}: queued; ${result.reason}.`);
