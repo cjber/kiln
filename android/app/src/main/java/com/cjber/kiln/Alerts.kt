@@ -11,7 +11,6 @@ private const val NEEDS_INPUT = "needs-input"
 private const val TURN_FINISHED = "turn-finished"
 private const val CHECKS_FAILED = "checks-failed"
 private const val ACCOUNTS = "accounts"
-const val WATCHING = "watching"
 const val OPEN_SESSION = "com.cjber.kiln.OPEN_SESSION"
 const val EXTRA_ORIGIN = "origin"
 const val EXTRA_SESSION = "session"
@@ -117,11 +116,6 @@ object Alerts {
                         .apply {
                             description =
                                 "A session moved to another account, or an account has allowance again"
-                        },
-                    NotificationChannel(WATCHING, "Watching", NotificationManager.IMPORTANCE_LOW)
-                        .apply {
-                            description =
-                                "Shown while kiln keeps the connection open for notifications"
                         },
                 )
             )

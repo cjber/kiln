@@ -278,7 +278,9 @@ class MainActivity : ComponentActivity() {
                 pairing = true
             }
         }
-        LaunchedEffect(Unit) {
+        LaunchedEffect(foreground) {
+            if (!foreground) return@LaunchedEffect
+            clock = System.currentTimeMillis()
             while (true) {
                 delay(1000)
                 clock = System.currentTimeMillis()
@@ -352,7 +354,8 @@ class MainActivity : ComponentActivity() {
         // Ask for notifications the first time a session works, never at launch.
         LaunchedEffect(snapshot) {
             if (
-                notify &&
+                push &&
+                    notify &&
                     !canNotify() &&
                     !askedPreferences.getBoolean("asked", false) &&
                     snapshot?.rows.orEmpty().any {
@@ -409,7 +412,9 @@ class MainActivity : ComponentActivity() {
                 }
             target = null
         }
-        DisposableEffect(Unit) {
+        DisposableEffect(foreground) {
+            if (!foreground) return@DisposableEffect onDispose {}
+            tailscaleOn = vpnOn()
             val manager = getSystemService(ConnectivityManager::class.java)
             val callback =
                 object : ConnectivityManager.NetworkCallback() {
@@ -586,7 +591,14 @@ class MainActivity : ComponentActivity() {
         } else if (host != null && opened != null) {
             val row = snapshot?.rows?.find { it.id == opened }
             if (row == null) LaunchedEffect(snapshot) { if (snapshot != null) opened = null }
-            else SessionView(host, row, back = { opened = null }, details = { details = row })
+            else
+                SessionView(
+                    host,
+                    row,
+                    foreground,
+                    back = { opened = null },
+                    details = { details = row },
+                )
         } else {
             screenState.SaveableStateProvider(host?.origin ?: "unpaired") {
                 key(host?.origin) {
@@ -601,7 +613,7 @@ class MainActivity : ComponentActivity() {
                             if (host != null) {
                                 setNotifyEnabled(this@MainActivity, host.origin, on)
                                 notify = on
-                                if (on && !canNotify()) requestNotifications()
+                                if (on && push && !canNotify()) requestNotifications()
                             }
                         },
                         push = push,

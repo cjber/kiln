@@ -323,7 +323,7 @@ The list supports search, ordering, activity/agent filters, collapsed children a
 
 ### Notifications with the app closed
 
-While the app is open, or while a session works, the phone keeps its own connection and notifies you when a session needs input or finishes a turn. Android closes that connection after a while in the background. To be notified with the app closed as well:
+The app closes its live connection when you leave it or lock the phone. To get notifications with the app closed:
 
 1. Install [ntfy](https://ntfy.sh) on the phone. Any [UnifiedPush](https://unifiedpush.org) distributor works.
 2. In kiln, open Machines and turn on "Notify when the app is closed". Pick ntfy if Android asks.

@@ -37,6 +37,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -308,7 +309,7 @@ private fun errorText(code: Int, body: String): String =
     }
 
 @Composable
-fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
+fun SessionView(host: Host, row: Row, foreground: Boolean, back: () -> Unit, details: () -> Unit) {
     BackHandler(onBack = back)
     val client = remember(host, row.id) { SessionClient(host, row.id) }
     var lines by remember(row.id) { mutableStateOf(emptyList<Line>()) }
@@ -325,9 +326,10 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
+    var cursor by remember(client) { mutableStateOf("") }
     // The view is polled while open; each poll returns only what was appended since the cursor.
-    LaunchedEffect(client) {
-        var cursor = ""
+    LaunchedEffect(client, foreground) {
+        if (!foreground) return@LaunchedEffect
         while (true) {
             try {
                 val (code, body) = withContext(Dispatchers.IO) { client.view(cursor) }
@@ -341,6 +343,8 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
                         lines = page.lines
                     problem = ""
                 } else problem = errorText(code, body)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 problem = "Cannot reach ${host.name}"
             }
@@ -348,11 +352,14 @@ fun SessionView(host: Host, row: Row, back: () -> Unit, details: () -> Unit) {
         }
     }
     // The edits are read while they are shown; the machine sends counts and paths, never file text.
-    LaunchedEffect(client, showEdits) {
-        while (showEdits) {
+    LaunchedEffect(client, foreground, showEdits) {
+        if (!foreground || !showEdits) return@LaunchedEffect
+        while (true) {
             try {
                 val (code, body) = withContext(Dispatchers.IO) { client.edits() }
                 if (code == 200) edits = parseEdits(body) else problem = errorText(code, body)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 problem = "Cannot reach ${host.name}"
             }
