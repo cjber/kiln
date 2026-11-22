@@ -9,6 +9,10 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-11-22
+
+- **Kiln for Android closes its live connection when you leave the app.** UnifiedPush can still deliver notifications if you enable it.
+
 ## [0.37.0] - 2026-11-22
 
 - **`kiln msg list` no longer rereads every Claude transcript.** Every kiln process now shares how far it has read each transcript in `~/.cache/kiln/transcripts.sqlite`, so a listing reads only what was appended since kiln last looked, instead of each transcript from its start. With 11 Claude sessions whose transcripts total about 500 MB, a listing went from about 1.15 s to about 0.5 s of CPU.

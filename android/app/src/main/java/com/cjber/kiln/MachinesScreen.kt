@@ -94,7 +94,7 @@ fun MachinesScreen(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Notify me", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "When a session on this machine needs input or finishes a turn",
+                        "Send push notifications for sessions on this machine",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
