@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-22
+
 - **`kiln msg list` no longer rereads every Claude transcript.** Every kiln process now shares how far it has read each transcript in `~/.cache/kiln/transcripts.sqlite`, so a listing reads only what was appended since kiln last looked, instead of each transcript from its start. With 11 Claude sessions whose transcripts total about 500 MB, a listing went from about 1.15 s to about 0.5 s of CPU.
 - **`kiln msg spawn --as @peer` starts a child for a program outside kiln.** The peer becomes the child's parent, so its exit report and its messages to that name land in `kiln msg inbox --as @peer`, including from a sandboxed child. `--json` prints the child's name, directory and parent for a host tool to parse.
 - **The README leads with what kiln does.** It opens with one line on running every supported agent in one list, then agents messaging and spawning each other, account failover and the Android client, and adds badges and a quickstart.
