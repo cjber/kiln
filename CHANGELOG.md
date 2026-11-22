@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-11-22
+
 - **Kiln for Android closes its live connection when you leave the app.** UnifiedPush can still deliver notifications if you enable it.
 
 ## [0.37.0] - 2026-11-22
