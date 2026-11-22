@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln msg list` no longer rereads every Claude transcript.** Every kiln process now shares how far it has read each transcript in `~/.cache/kiln/transcripts.sqlite`, so a listing reads only what was appended since kiln last looked, instead of each transcript from its start. With 11 Claude sessions whose transcripts total about 500 MB, a listing went from about 1.15 s to about 0.5 s of CPU.
 - **The README leads with what kiln does.** It opens with one line on running every supported agent in one list, then agents messaging and spawning each other, account failover and the Android client, and adds badges and a quickstart.
 
 ## [0.36.0] - 2026-11-21
