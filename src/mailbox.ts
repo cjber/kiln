@@ -26,6 +26,29 @@ export const sendLimit = { count: 20, perMs: 10 * 60 * 1000 };
 export const mailboxPath = () =>
   join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "mailbox.sqlite");
 
+/** A peer is a mailbox identity that is not a running session, named with a leading `@`. */
+const PEER = /^@[A-Za-z0-9._:-]{1,63}$/;
+
+/**
+ * A sender or recipient that is not one of kiln's sessions.
+ *
+ * `--as` exists so a program outside kiln (a Nebula agent, the CLI) can hold a
+ * mailbox of its own: it sends as `@name`, a session answers it with
+ * `kiln msg send @name`, and reads the answer with `kiln msg inbox --as @name`.
+ * The leading `@` is what keeps an override from impersonating a session, whose
+ * names have no `@`.
+ */
+export function peerName(raw: string): string {
+  if (!PEER.test(raw))
+    throw new Error(`a peer is @ followed by letters, digits, ".", "_", ":" or "-" (at most 64); got ${raw}`);
+  return raw;
+}
+
+/** Whether a name addresses a mailbox peer rather than a running session. */
+export function isPeer(name: string): boolean {
+  return name.startsWith("@");
+}
+
 /**
  * Where a spawned child leaves messages it sends from a sandbox that hides the sessions. Kiln grants the child this one
  * directory and its spawn's exit watcher, outside the sandbox, relays each file into the mailbox as from that child, so
