@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTranscript } from "./transcript";
@@ -115,6 +115,38 @@ test("a usage-limit refusal marks the conversation limited until the next prompt
     });
     appendFileSync(path, `${JSON.stringify({ type: "user", message: { role: "user", content: "carry on" } })}\n`);
     expect(readTranscript(path).limited).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a new process carries on from where any kiln process last read a transcript", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-shared-"));
+  const path = join(root, "session.jsonl");
+  const titled = record({ type: "ai-title", aiTitle: "First title" });
+  // Each read is its own process, as each `kiln msg list` is, so only the shared store links them.
+  const read = () =>
+    JSON.parse(
+      Bun.spawnSync(
+        [
+          "bun",
+          "-e",
+          `console.log(JSON.stringify(require(${JSON.stringify(require.resolve("./transcript"))}).readTranscript(${JSON.stringify(path)})))`,
+        ],
+        { env: { ...Bun.env, XDG_CACHE_HOME: join(root, "cache") } },
+      ).stdout.toString(),
+    );
+  try {
+    writeFileSync(path, titled);
+    expect(read().title).toBe("First title");
+    // Blank the record already read, in place: a process that read from the start again would lose the title.
+    writeFileSync(path, `${" ".repeat(titled.length - 1)}\n`);
+    appendFileSync(path, record({ type: "user", message: { role: "user", content: "next" } }));
+    expect(read()).toEqual({ title: "First title", turnEnded: false });
+    // A transcript replaced by another file is read from its start.
+    writeFileSync(join(root, "next.jsonl"), record({ type: "ai-title", aiTitle: "Second title" }));
+    renameSync(join(root, "next.jsonl"), path);
+    expect(read()).toEqual({ title: "Second title" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
