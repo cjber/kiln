@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as mailbox from "./mailbox";
 import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
+import * as messages from "./messages";
 import { findRecipient } from "./messages";
+import { runMsgCli } from "./msg-cli";
 import * as opencode from "./opencode";
-import { recordSpawn, restartStopped } from "./saved-sessions";
+import { recordSpawn, restartStopped, spawnRecord } from "./saved-sessions";
 import * as sessions from "./sessions";
 import {
   assertOnboarded,
@@ -74,6 +76,16 @@ test("spawn takes the agent, an optional directory and title, and the prompt aft
       prompt: "--not-a-flag",
     });
     expect(spawnOptions(["claude", "--model", "claude-sonnet-5", "--", "work"], dir).model).toBe("claude-sonnet-5");
+    // --as and --json pick the parent and the output; the prompt after -- keeps a literal --as.
+    expect(spawnOptions(["pi", "--as", "@nebula", "--json", "--", "--as", "@x"], dir)).toEqual({
+      agent: "pi",
+      dir,
+      title: undefined,
+      model: undefined,
+      prompt: "--as @x",
+      as: "@nebula",
+      json: true,
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1080,6 +1092,57 @@ test("a spawn with no caller reports its exit to the parent its record names", a
   }
 });
 
+test("a spawn from a plain shell with --as @peer reports its exit to that peer's inbox (#333)", async () => {
+  const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME };
+  const root = join(paneDir, "peer-parent");
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  const pi = join(root, "pi.sh");
+  writeFileSync(pi, "#!/bin/sh\nsleep 0.2\necho peer work done\n", { mode: 0o755 });
+  writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\npi = [${JSON.stringify(pi)}]\n`);
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  // A plain shell: no agent session is the caller.
+  const caller = spyOn(messages, "callerIdentity").mockReturnValue(undefined);
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  const printed = spyOn(console, "log").mockImplementation(() => {});
+  let pane = "";
+  try {
+    await runMsgCli(["spawn", "pi", "--dir", root, "--as", "@nebula", "--json", "--", "do the work"]);
+    const spawned = JSON.parse(String(printed.mock.calls[0]?.[0]));
+    expect(spawned).toEqual({ name: expect.stringMatching(/^pi:/), directory: root, parent: "@nebula" });
+    pane = `pi-${spawned.name
+      .slice("pi:".length)
+      .replaceAll(/[^A-Za-z0-9]/g, "")
+      .slice(0, 20)}`;
+    for (let waited = 0; !ended(pane) && exists(pane) && waited < 5_000; waited += 20) await Bun.sleep(20);
+    // The hook or the watcher may have reported already; the report is posted once under its id either way.
+    await reportSpawnExit(pane, spawned.name, "@nebula", String(spawnRecord(pane)?.startedAt ?? ""));
+    printed.mockClear();
+    await runMsgCli(["inbox", "--as", "@nebula", "--wait", "5", "--json"]);
+    const inbox = JSON.parse(String(printed.mock.calls[0]?.[0]));
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0].to).toBe("@nebula");
+    expect(inbox[0].body).toContain(`${spawned.name}`);
+    expect(inbox[0].body).toContain("peer work done");
+    // A name that is not a peer is refused before anything starts.
+    await expect(runMsgCli(["spawn", "pi", "--dir", root, "--as", "nebula", "--", "go"])).rejects.toThrow(
+      "a peer is @",
+    );
+  } finally {
+    caller.mockRestore();
+    discovery.mockRestore();
+    printed.mockRestore();
+    if (pane) kill(pane);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+}, 40_000);
+
 test("kiln's tmux server outlives its last session, so a start right after a reap cannot meet it shutting down", () => {
   const name = "server-keeper";
   try {
@@ -1232,6 +1295,7 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
     writeOutbox(outboxPath(name), "claude:outbox-parent", "review done");
     writeOutbox(outboxPath(name), "reviewer", "lost?");
     writeOutbox(outboxPath(name), "codex:outbox-thread", "me");
+    writeOutbox(outboxPath(name), "@nebula", "for the peer");
     let messages: mailbox.Message[] = [];
     for (let waited = 0; !messages.length && waited < 2_000; waited += 20) {
       await Bun.sleep(20);
@@ -1239,6 +1303,10 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
     }
     expect(messages.map(({ from, body }) => ({ from, body }))).toEqual([
       { from: "codex:outbox-thread", body: "review done" },
+    ]);
+    // A peer is a mailbox, not a session, so it is posted as named rather than looked up.
+    expect(peekUnread("@nebula").map(({ from, body }) => ({ from, body }))).toEqual([
+      { from: "codex:outbox-thread", body: "for the peer" },
     ]);
     // A name that finds no one, or the child's own, comes back to the child with the reason, since it was told "queued".
     // Sends in one millisecond have no order between them, so these are compared sorted.
@@ -1280,12 +1348,15 @@ test("an exit without discovery relays full names, and the resumed run relays th
     mkdirSync(box(1_000), { recursive: true });
     writeOutbox(box(1_000), "claude:offline-parent", "done");
     writeOutbox(box(1_000), "reviewer", "later");
+    writeOutbox(box(1_000), "@nebula", "peer");
     kill(name);
     await reportSpawnExit(name, child, "claude:offline-parent", "1000");
     expect(peekUnread("claude:offline-parent").map(({ from, body }) => ({ from, body }))[0]).toEqual({
       from: child,
       body: "done",
     });
+    // A peer needs no discovery, so it is relayed too.
+    expect(peekUnread("@nebula").map(({ body }) => body)).toEqual(["peer"]);
     expect(readdirSync(box(1_000)).filter((file) => file.endsWith(".json"))).toHaveLength(1);
 
     // The resumed run has its own outbox, and relays what the first one left once discovery is back.

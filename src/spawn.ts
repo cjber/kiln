@@ -8,7 +8,7 @@ import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { detectLimit } from "./limits";
-import { outboxPath, pending, post, posted } from "./mailbox";
+import { isPeer, outboxPath, pending, post, posted } from "./mailbox";
 import { findRecipient, flush, spawnReportSender } from "./messages";
 import { afterMuseWord } from "./muse";
 import { codexThreadId } from "./native-sessions";
@@ -38,7 +38,7 @@ import {
 } from "./tmux";
 import { readTranscript } from "./transcript";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] -- <prompt>`;
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -87,8 +87,16 @@ function claudeConversation(
   return undefined;
 }
 
+/** A spawn command's flags that pick its parent and its output rather than how the child runs. */
+export type SpawnCommand = SpawnOptions & {
+  /** The peer that hears the child's reports and exit, in place of the calling session. */
+  as?: string;
+  /** Print the child's name and directory as JSON. */
+  json?: boolean;
+};
+
 /** Parse one spawn command; the prompt follows `--`, so a leading dash stays text. */
-export function spawnOptions(args: readonly string[], cwd = process.cwd()): SpawnOptions {
+export function spawnOptions(args: readonly string[], cwd = process.cwd()): SpawnCommand {
   const { values, positionals } = parseArgs({
     args: [...args],
     allowPositionals: true,
@@ -99,6 +107,8 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
       account: { type: "string" },
       interactive: { type: "boolean" },
       resume: { type: "string" },
+      as: { type: "string" },
+      json: { type: "boolean" },
     },
   });
   const [agent, ...prompt] = positionals;
@@ -135,6 +145,8 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
     prompt: prompt.join(" "),
     interactive: values.interactive,
     ...(resume ? { resume } : {}),
+    ...(values.as === undefined ? {} : { as: values.as }),
+    ...(values.json ? { json: true } : {}),
   };
 }
 
@@ -353,10 +365,11 @@ function drainOutbox(box: string, from: string, sessions: readonly Session[] | u
     }
     if (typeof message.to === "string" && typeof message.body === "string") {
       let [sender, to, body] = [from, message.to, message.body];
-      // Without discovery only a full name can be addressed; any other waits in the outbox for a pass that has it.
+      // Without discovery only a full name or a peer can be addressed; any other waits in the outbox for a pass that has
+      // it. A peer is a mailbox, never a session, so its name is posted as given.
       if (!sessions) {
-        if (!isFullName(message.to)) continue;
-      } else
+        if (!isFullName(message.to) && !isPeer(message.to)) continue;
+      } else if (!isPeer(message.to))
         try {
           to = sessionIdentity(findRecipient(sessions, message.to));
         } catch (error) {

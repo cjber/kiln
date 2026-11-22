@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln msg spawn --as @peer` starts a child for a program outside kiln.** The peer becomes the child's parent, so its exit report and its messages to that name land in `kiln msg inbox --as @peer`, including from a sandboxed child. `--json` prints the child's name, directory and parent for a host tool to parse.
 - **The README leads with what kiln does.** It opens with one line on running every supported agent in one list, then agents messaging and spawning each other, account failover and the Android client, and adds badges and a quickstart.
 
 ## [0.36.0] - 2026-11-21
