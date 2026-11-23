@@ -163,3 +163,18 @@ test("an account seen at its limit is reported once when the limit has gone, and
   expect(availableAgain([account(0)], at + 3_700_000, limited)).toEqual(["claude account work"]);
   expect(availableAgain([account(0)], at + 3_800_000, limited)).toEqual([]);
 });
+
+test("a full OpenCode Go window is never seen at its limit, a recorded limit is reported when it passes", () => {
+  const limited = mkdtempSync(join(tmpdir(), "kiln-limited-opencode-"));
+  const at = Date.parse("2026-11-19T23:15:00Z");
+  const go = (extra: Partial<QuotaAccount> = {}): QuotaAccount => ({
+    agent: "opencode",
+    windows: [{ label: "mo", percent: 100, resetsAt: at + 3_600_000 }],
+    source: "opencode-go",
+    ...extra,
+  });
+  expect(availableAgain([go()], at, limited)).toEqual([]);
+  expect(availableAgain([go({ spentUntil: at + 3_600_000 })], at, limited)).toEqual([]);
+  expect(availableAgain([go()], at + 3_700_000, limited)).toEqual(["opencode"]);
+  expect(availableAgain([go()], at + 3_800_000, limited)).toEqual([]);
+});
