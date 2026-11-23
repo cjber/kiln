@@ -230,7 +230,7 @@ test("a Codex child runs outside a git repository, and a Muse child loads its wo
 
 for (const status of [1, 0]) {
   test(`a Codex spawn that exits with status ${status} before starting its thread fails with the reason, leaving nothing behind (#270)`, async () => {
-    const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME };
+    const saved = { state: Bun.env.XDG_STATE_HOME, config: Bun.env.XDG_CONFIG_HOME, codex: Bun.env.CODEX_HOME };
     const root = join(paneDir, `codex-refused-${status}`);
     const state = join(root, "state");
     mkdirSync(join(root, "config", "kiln"), { recursive: true });
@@ -239,6 +239,8 @@ for (const status of [1, 0]) {
     writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\ncodex = [${JSON.stringify(codex)}]\n`);
     Bun.env.XDG_STATE_HOME = state;
     Bun.env.XDG_CONFIG_HOME = join(root, "config");
+    // Kiln reads the allowance of the home Codex runs in, so the machine's own login must not be the one it reads.
+    Bun.env.CODEX_HOME = join(root, "codex");
     try {
       await expect(spawnAgent({ agent: "codex", dir: root, prompt: "go" }, "claude:parent")).rejects.toThrow(
         `Codex exited with status ${status} before it started:\nNot inside a trusted directory.`,
@@ -265,6 +267,7 @@ for (const status of [1, 0]) {
       for (const [key, value] of [
         ["XDG_STATE_HOME", saved.state],
         ["XDG_CONFIG_HOME", saved.config],
+        ["CODEX_HOME", saved.codex],
       ] as const) {
         if (value === undefined) delete Bun.env[key];
         else Bun.env[key] = value;

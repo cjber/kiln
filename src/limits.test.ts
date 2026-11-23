@@ -18,12 +18,25 @@ describe("limit detection", () => {
   test("a Claude transcript's rate_limit record is a limit, with the reset time the provider gave", () => {
     const limited = join(fixtures, "claude", "limited.jsonl");
     const refused = Date.parse("2026-11-19T23:10:04.000Z");
-    expect(claudeLimit("id", refused - 4000, limited)).toEqual({ resetsAt: 1795392000_000 });
+    expect(claudeLimit("id", refused - 4000, limited)).toEqual({
+      resetsAt: 1795392000_000,
+      limit: { kind: "account", label: "weekly limit" },
+    });
     // A resumed conversation still holds the record that ended its previous run.
     expect(claudeLimit("id", refused + 1, limited)).toBeUndefined();
     // Prose that only mentions the words is not the record, nor is a 429 with no usage window behind it.
     expect(claudeLimit("id", 0, join(fixtures, "claude", "finished.jsonl"))).toBeUndefined();
     expect(claudeLimit("id", 0, join(fixtures, "claude", "absent.jsonl"))).toBeUndefined();
+  });
+
+  test("a refusal of one model's weekly allowance names it, rather than standing for the whole account", () => {
+    const fable = join(fixtures, "claude", "fable.jsonl");
+    const refused = Date.parse("2026-11-20T22:37:25.822Z");
+    // The same weekly reset the account-wide window uses, but only the Fable allowance is used up.
+    expect(claudeLimit("id", refused - 4000, fable)).toEqual({
+      resetsAt: 1795687200_000,
+      limit: { kind: "model", label: "Fable limit" },
+    });
   });
 
   test("Codex is limited when its provider's own read shows the account full", () => {

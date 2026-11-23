@@ -110,7 +110,11 @@ export function chooseRoute(
       .map((account) => startLimitedUntil(account, now))
       .filter((at): at is number => at !== undefined && Number.isFinite(at) && at > now);
     const soonest = resets.length ? ` until ${new Date(Math.min(...resets)).toISOString()}` : "";
-    throw new Error(`every ${agent} account is at its limit${soonest}`);
+    // An account with allowance left that this run already tried stopped on a limit of its own, such as one model's
+    // weekly allowance, so only the accounts this run has not tried are the ones at their limit.
+    const spent = usable.filter((account) => atLimit(account, now));
+    if (spent.length === usable.length) throw new Error(`every ${agent} account is at its limit${soonest}`);
+    throw new Error(`every other ${agent} account is at its limit${soonest}`);
   }
   return routeFor(best, configured);
 }
