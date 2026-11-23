@@ -26,14 +26,25 @@ describe("limit detection", () => {
     expect(claudeLimit("id", 0, join(fixtures, "claude", "absent.jsonl"))).toBeUndefined();
   });
 
-  test("Codex and OpenCode are limited when their provider's own read shows the account full", () => {
+  test("Codex is limited when its provider's own read shows the account full", () => {
+    const full: QuotaAccount = {
+      agent: "codex",
+      windows: [{ label: "wk", percent: 100, resetsAt: now + 3_600_000 }],
+      source: "codex-daemon",
+    };
+    const record = { agent: "codex" as const, id: "ses_1", startedAt: now - 1000 };
+    expect(detectLimit(record, now, [full])?.resetsAt).toBe(now + 3_600_000);
+    expect(detectLimit(record, now, [{ ...full, windows: [{ label: "wk", percent: 40 }] }])).toBeUndefined();
+  });
+
+  test("a full OpenCode Go window alone is not a limit, a recorded one is", () => {
     const full: QuotaAccount = {
       agent: "opencode",
       windows: [{ label: "mo", percent: 100, resetsAt: now + 3_600_000 }],
       source: "opencode-go",
     };
     const record = { agent: "opencode" as const, id: "ses_1", startedAt: now - 1000 };
-    expect(detectLimit(record, now, [full])?.resetsAt).toBe(now + 3_600_000);
-    expect(detectLimit(record, now, [{ ...full, windows: [{ label: "mo", percent: 40 }] }])).toBeUndefined();
+    expect(detectLimit(record, now, [full])).toBeUndefined();
+    expect(detectLimit(record, now, [{ ...full, spentUntil: now + 3_600_000 }])?.resetsAt).toBe(now + 3_600_000);
   });
 });

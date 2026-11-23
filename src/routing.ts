@@ -107,8 +107,8 @@ export function chooseRoute(
   const best = open.toSorted((a, b) => headroom(b) - headroom(a))[0];
   if (!best) {
     const resets = usable
-      .flatMap((account) => [account.spentUntil, ...account.windows.map((w) => w.resetsAt)])
-      .filter((at): at is number => at !== undefined && at > now);
+      .map((account) => startLimitedUntil(account, now))
+      .filter((at): at is number => at !== undefined && Number.isFinite(at) && at > now);
     const soonest = resets.length ? ` until ${new Date(Math.min(...resets)).toISOString()}` : "";
     throw new Error(`every ${agent} account is at its limit${soonest}`);
   }
