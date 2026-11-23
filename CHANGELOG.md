@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Opening a Muse exec session now resumes its conversation.** Its own pane only streams output and takes no input, so Enter on a headless `muse exec` row starts (or reuses) an interactive `muse resume` pane for the same conversation instead of attaching to the stream.
+
 - **OpenCode sessions no longer refuse to start when the OpenCode Go monthly window is full.** Go is one of the providers an OpenCode session can run on, and it keeps answering past a full window, so kiln now shows the window and ranks by it without treating it as a spent account. Only a limit an OpenCode run actually ended on, recorded when it stopped, keeps new sessions from starting until it resets.
 - **The session list footer gives every account its own line.** Usage for each Claude account, Codex, Muse and OpenCode now reads top to bottom instead of being packed onto two lines.
 - **Claude sessions can start from a read-only home when the workspace is already trusted.** Kiln needs write access only when it has to record workspace trust or an import decision.

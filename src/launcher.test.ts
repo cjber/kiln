@@ -86,6 +86,62 @@ test("opening reports what the view should do without touching the terminal", as
   });
 });
 
+test("opening a muse exec run resumes its conversation instead of attaching to its output pane", async () => {
+  const session: Session = {
+    agent: "muse",
+    id: "01a208f4-762b-70b0-bd87-d5004cccab28",
+    cwd: "/nonexistent-kiln-dir",
+    startedAt: 1,
+    museExec: true,
+    place: { kind: "kiln", name: "muse-execpane" },
+  };
+  // The resume path refuses a missing directory; attaching to the exec pane would not check it at all.
+  expect(await openSession(session, defaults)).toEqual({
+    kind: "notice",
+    text: "/nonexistent-kiln-dir is not a directory",
+  });
+  expect(await openSession({ ...session, id: undefined }, defaults)).toEqual({
+    kind: "notice",
+    text: "this session has no conversation to resume",
+  });
+  // A non-Muse row carrying the flag falls through to its own place instead of resuming in Muse.
+  expect(await openSession({ ...session, agent: "claude", cwd: "/repo" }, defaults)).toEqual({
+    kind: "attach",
+    name: "muse-execpane",
+  });
+
+  const commands: string[][] = [];
+  let paneExists = false;
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(((command: string[]) => {
+    commands.push(command);
+    if (command.includes("new-session")) paneExists = true;
+    return {
+      exitCode: command.includes("has-session") ? (paneExists ? 0 : 1) : 0,
+      stdout: Buffer.from(""),
+      stderr: Buffer.from(""),
+    };
+  }) as unknown as typeof Bun.spawnSync);
+  const which = spyOn(Bun, "which").mockReturnValue("/usr/bin/muse");
+  try {
+    const live: Session = { ...session, cwd: tmpdir() };
+    const id = session.id as string;
+    const name = `muse-${new Bun.CryptoHasher("sha256").update(id).digest("hex").slice(0, 16)}`;
+    expect(await openSession(live, defaults)).toEqual({ kind: "attach", name });
+    expect(agentArgv(commands.find((command) => command.includes("new-session"))).slice(-3)).toEqual([
+      "muse",
+      "resume",
+      id,
+    ]);
+    // A second open reuses the running resume pane instead of starting another.
+    const started = commands.filter((command) => command.includes("new-session")).length;
+    expect(await openSession(live, defaults)).toEqual({ kind: "attach", name });
+    expect(commands.filter((command) => command.includes("new-session")).length).toBe(started);
+  } finally {
+    spawn.mockRestore();
+    which.mockRestore();
+  }
+});
+
 test("deleting a finished job runs claude rm and reports its refusal", async () => {
   const job: Session = {
     agent: "claude",
