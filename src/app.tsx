@@ -341,7 +341,7 @@ export function App({
   const rows = useMemo(() => sessionRows(sessions, order, filter, expanded), [sessions, order, filter, expanded]);
   const visible = visibleSessions(rows);
   const current = visible[resolveSelection(visible, selection).index];
-  const footer = useMemo(() => quotaFooter(quota, width - 2, now), [quota, width, now]);
+  const footer = useMemo(() => quotaFooter(quota, now), [quota, now]);
   const pageSize = Math.max(1, height - footer.length - (mode === "agent" ? 5 : 4));
   const selectedRow = rows.findIndex((row) => row.kind === "session" && row.session === current);
   const shown = viewport(rows, Math.max(0, selectedRow), pageSize);

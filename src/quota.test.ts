@@ -37,22 +37,19 @@ describe("footer", () => {
     { agent: "opencode", windows: [], source: "none" },
   ] satisfies QuotaAccount[];
 
-  test("one line at 80 columns, every agent in turn", () => {
-    expect(text(quotaFooter(accounts, 78, now))).toEqual([
-      "claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode",
+  test("one line per account, every agent in turn", () => {
+    expect(text(quotaFooter(accounts, now))).toEqual([
+      "claude jenny 50%·5h 38%·wk",
+      "claude cjberragan 0%·wk",
+      "codex 34%·wk",
+      "muse",
+      "opencode",
     ]);
   });
 
   test("an account whose login has ended shows login instead of its last numbers", () => {
     const ended: QuotaAccount[] = [{ ...accounts[0], needsLogin: true }, accounts[1]];
-    expect(text(quotaFooter(ended, 78, now))).toEqual(["claude jenny login  cjberragan 0%·wk"]);
-  });
-
-  test("wraps onto a second line rather than cutting an agent", () => {
-    expect(text(quotaFooter(accounts, 50, now))).toEqual([
-      "claude jenny 50%·5h 38%·wk  cjberragan 0%·wk",
-      "codex 34%·wk  muse  opencode",
-    ]);
+    expect(text(quotaFooter(ended, now))).toEqual(["claude jenny login", "claude cjberragan 0%·wk"]);
   });
 
   test("an account near its limit shows when it resets", () => {
@@ -62,7 +59,7 @@ describe("footer", () => {
       windows: [{ label: "5h", percent: 96, resetsAt: now + 80 * 60_000 }],
       source: "claude-usage",
     };
-    expect(text(quotaFooter([near], 78, now))).toEqual(["claude a 96%·5h ↻1h20"]);
+    expect(text(quotaFooter([near], now))).toEqual(["claude a 96%·5h ↻1h20"]);
   });
 });
 
@@ -86,6 +83,6 @@ describe("OpenCode Go allowance", () => {
       spentUntil: Date.parse("2026-12-02T09:46:55Z"),
       source: "opencode-go",
     };
-    expect(text(quotaFooter([spent], 120, now))).toEqual(["opencode spent ↻Dec 2 100%·mo ↻12d10h"]);
+    expect(text(quotaFooter([spent], now))).toEqual(["opencode spent ↻Dec 2 100%·mo ↻12d10h"]);
   });
 });
