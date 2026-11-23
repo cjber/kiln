@@ -77,8 +77,9 @@ function attachNative(session: Session, id: string, attach: string[]): Outcome {
 
 export async function openSession(session: Session, settings: Settings): Promise<Outcome> {
   // A muse exec run's pane only streams its output and takes no input, so opening it resumes the conversation
-  // interactively instead, in a pane of its own that a second open reuses. The pane is kept, so a resume Muse
-  // refuses at once (for instance while the exec run is still writing) leaves its refusal on screen.
+  // interactively instead, in a pane of its own that a second open reuses, whatever terminal the run was found
+  // in. The pane is kept, so a resume Muse refuses at once (for instance while the exec run is still writing)
+  // leaves its refusal on screen.
   if (session.agent === "muse" && session.museExec) {
     if (!session.id) return notice("this session has no conversation to resume");
     return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id, undefined, true);
