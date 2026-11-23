@@ -31,7 +31,18 @@ export function limitedUntil(account: QuotaAccount, now: number): number | undef
     : undefined;
 }
 
-export const atLimit = (account: QuotaAccount, now: number): boolean => limitedUntil(account, now) !== undefined;
+/**
+ * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
+ * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
+ * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
+ * a limit a run actually ended on, recorded as `spentUntil`, does.
+ */
+export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
+  if (account.agent !== "opencode") return limitedUntil(account, now);
+  return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
+}
+
+export const atLimit = (account: QuotaAccount, now: number): boolean => startLimitedUntil(account, now) !== undefined;
 
 /** Spare allowance in the account's tightest window; an account whose provider reports no numbers ranks in the middle. */
 export function headroom(account: QuotaAccount): number {
@@ -96,8 +107,8 @@ export function chooseRoute(
   const best = open.toSorted((a, b) => headroom(b) - headroom(a))[0];
   if (!best) {
     const resets = usable
-      .flatMap((account) => [account.spentUntil, ...account.windows.map((w) => w.resetsAt)])
-      .filter((at): at is number => at !== undefined && at > now);
+      .map((account) => startLimitedUntil(account, now))
+      .filter((at): at is number => at !== undefined && Number.isFinite(at) && at > now);
     const soonest = resets.length ? ` until ${new Date(Math.min(...resets)).toISOString()}` : "";
     throw new Error(`every ${agent} account is at its limit${soonest}`);
   }

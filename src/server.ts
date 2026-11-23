@@ -31,7 +31,7 @@ import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
 import { type QuotaAccount, readQuota } from "./quota";
-import { limitedUntil } from "./routing";
+import { startLimitedUntil } from "./routing";
 import { reparent } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import {
@@ -686,7 +686,7 @@ export function startServer({
       if (account.needsLogin) continue;
       const key = `${account.agent}:${account.name ?? ""}`;
       now.delete(key);
-      if (limitedUntil(account, at) !== undefined) now.add(key);
+      if (startLimitedUntil(account, at) !== undefined) now.add(key);
       else if (spent.has(key))
         pushAll({
           v: 1,

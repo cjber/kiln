@@ -18,7 +18,7 @@ export type QuotaAccount = {
   /** Which of the agent's accounts; absent for an agent with one. */
   name?: string;
   windows: QuotaWindow[];
-  /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
+  /** The provider ended a run on its limit: out of allowance until then, ms. */
   spentUntil?: number;
   /** The settings say never to start a run on it. */
   disabled?: boolean;
@@ -165,9 +165,6 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
         agent: "opencode",
         name,
         windows: current(allowance?.windows ?? [], now),
-        ...(allowance?.limitedUntil !== undefined && allowance.limitedUntil > now
-          ? { spentUntil: allowance.limitedUntil }
-          : {}),
         source: allowance ? "opencode-go" : "none",
       };
     }),
@@ -231,50 +228,34 @@ function resetDay(resetsAt: number): string {
 }
 
 /**
- * The footer: `claude jenny 50%·5h 38%·wk  cjberragan 0%·wk  codex 34%·wk  muse  opencode`, one chunk per
- * agent, wrapped onto at most two lines of `width`. A window past 85% adds when it resets (`96%·5h ↻1h20`);
- * a read older than 30 minutes is dimmed, an account a run found spent shows `spent ↻Nov 23` in red, and one whose
- * login has ended shows `login` in red instead of numbers.
+ * The footer: one line per account, in agent order, so each account's numbers stay readable:
+ * `claude jenny 50%·5h 38%·wk` on its own line, then the next account. A window past 85% adds when it resets
+ * (`96%·5h ↻1h20`); a read older than 30 minutes is dimmed, an account a run found spent shows
+ * `spent ↻Nov 23` in red, and one whose login has ended shows `login` in red instead of numbers.
  */
-export function quotaFooter(accounts: readonly QuotaAccount[], width: number, now: number): FooterSegment[][] {
-  const chunks: FooterSegment[][] = [];
+export function quotaFooter(accounts: readonly QuotaAccount[], now: number): FooterSegment[][] {
+  const lines: FooterSegment[][] = [];
   for (const agent of ["claude", "codex", "muse", "opencode"] as const) {
-    const own = accounts.filter((account) => account.agent === agent);
-    if (!own.length) continue;
-    const chunk: FooterSegment[] = [{ text: agent, fg: color.fgDim }];
-    for (const account of own) {
+    for (const account of accounts.filter((candidate) => candidate.agent === agent)) {
+      const line: FooterSegment[] = [{ text: agent, fg: color.fgDim }];
       const stale = account.fetchedAt !== undefined && now - account.fetchedAt > staleMs;
-      if (account.name) chunk.push({ text: ` ${account.name}`, fg: stale ? color.comment : color.fg });
+      if (account.name) line.push({ text: ` ${account.name}`, fg: stale ? color.comment : color.fg });
       if (account.needsLogin) {
         // Its last numbers describe a login no run can use.
-        chunk.push({ text: " login", fg: color.red }, { text: " ", fg: color.fg });
+        line.push({ text: " login", fg: color.red });
+        lines.push(line);
         continue;
       }
       if (account.spentUntil !== undefined)
-        chunk.push({ text: ` spent ↻${resetDay(account.spentUntil)}`, fg: color.red });
+        line.push({ text: ` spent ↻${resetDay(account.spentUntil)}`, fg: color.red });
       for (const window of account.windows) {
         const reset = window.percent >= 85 && window.resetsAt ? ` ↻${untilReset(window.resetsAt, now)}` : "";
-        chunk.push({
+        line.push({
           text: ` ${Math.round(window.percent)}%·${window.label}${reset}`,
           fg: stale ? color.comment : headroomColor(window.percent),
         });
       }
-      chunk.push({ text: " ", fg: color.fg });
-    }
-    chunks.push(chunk);
-  }
-  const lines: FooterSegment[][] = [];
-  let used = 0;
-  for (const chunk of chunks) {
-    const trimmed = chunk.slice(0, -1);
-    const size = trimmed.reduce((total, segment) => total + segment.text.length, 0);
-    const last = lines.at(-1);
-    if (last && used + 2 + size <= width) {
-      last.push({ text: "  ", fg: color.fg }, ...trimmed);
-      used += 2 + size;
-    } else if (lines.length < 2) {
-      lines.push([...trimmed]);
-      used = size;
+      lines.push(line);
     }
   }
   return lines;

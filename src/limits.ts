@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { findClaudeTranscript } from "./claude-inbox";
 import { type LimitHit, museLimit } from "./muse-limit";
 import type { QuotaAccount } from "./quota";
-import { limitedUntil } from "./routing";
+import { startLimitedUntil } from "./routing";
 import type { Agent } from "./sessions";
 import { limitRecord } from "./transcript";
 
@@ -38,8 +38,9 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
 
 /**
  * Whether `account` of `agent`, read fresh from its provider, is now out of allowance, with when it is not. This is how
- * a Codex or OpenCode run's nonzero exit is told to be a limit: neither prints a status code for it, but each
- * provider's own usage read shows the account full or rate-limited.
+ * a Codex run's nonzero exit is told to be a limit: it prints no status code for it, but its provider's own usage
+ * read shows the account full. An OpenCode run is told only by a limit already recorded against it: a full Go
+ * window is not a refusal, so it never spends the account on its own.
  */
 export function providerLimit(
   agent: Agent,
@@ -48,14 +49,14 @@ export function providerLimit(
   now: number,
 ): LimitHit | undefined {
   const found = quota.find((candidate) => candidate.agent === agent && candidate.name === account);
-  const until = found && limitedUntil(found, now);
+  const until = found && startLimitedUntil(found, now);
   return until === undefined ? undefined : { resetsAt: Number.isFinite(until) ? until : undefined };
 }
 
 /**
  * Whether a child that exited nonzero stopped on its account's usage limit, from the provider's own signal: Muse's
- * session log, the refusal in Claude's transcript, or (for Claude, Codex and OpenCode) the account's usage, read fresh
- * in `quota`, which shows it full or rate-limited. Output text is never searched.
+ * session log, the refusal in Claude's transcript, or the account's usage read fresh in `quota` (a recorded limit
+ * for OpenCode, whose Go windows alone are not a refusal). Output text is never searched.
  */
 export function detectLimit(
   record: { agent: Agent; id: string; account?: string; startedAt: number },

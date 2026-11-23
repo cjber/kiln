@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
 import { forgetReads, type QuotaAccount } from "./quota";
-import { limitedUntil, routeNew } from "./routing";
+import { routeNew, startLimitedUntil } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
 import { claudeRefusedAt, headlessSpawn, moveClaude } from "./spawn";
@@ -126,7 +126,7 @@ export function availableAgain(quota: readonly QuotaAccount[], now = Date.now(),
   for (const account of quota) {
     if (account.disabled || account.needsLogin) continue;
     const path = join(dir, `${account.agent}.${account.name ?? defaultAccount}`);
-    const until = limitedUntil(account, now);
+    const until = startLimitedUntil(account, now);
     let recorded: number | undefined;
     try {
       recorded = Number(readFileSync(path, "utf8"));
