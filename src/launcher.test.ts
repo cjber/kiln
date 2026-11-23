@@ -136,6 +136,11 @@ test("opening a muse exec run resumes its conversation instead of attaching to i
     const started = commands.filter((command) => command.includes("new-session")).length;
     expect(await openSession(live, defaults)).toEqual({ kind: "attach", name });
     expect(commands.filter((command) => command.includes("new-session")).length).toBe(started);
+    // An exec run found outside kiln resumes the same way instead of being sent back to its own terminal.
+    expect(await openSession({ ...live, place: { kind: "elsewhere", source: "tmux main" } }, defaults)).toEqual({
+      kind: "attach",
+      name,
+    });
   } finally {
     spawn.mockRestore();
     which.mockRestore();
