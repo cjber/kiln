@@ -7,6 +7,7 @@ import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
 import { agentCommand, claudeCommand, promptArguments } from "./launcher";
+import { spendsAccount } from "./limit-scope";
 import { detectLimit } from "./limits";
 import { isPeer, outboxPath, pending, post, posted } from "./mailbox";
 import { findRecipient, flush, spawnReportSender } from "./messages";
@@ -1066,11 +1067,12 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   const quota = await readQuota(now, settings.accounts).catch(() => []);
   const hit = detectLimit(record, now, quota);
   if (!hit) return;
-  if (hit.resetsAt !== undefined) recordSpent(record.agent, record.account, hit.resetsAt);
+  // A limit that refuses one model leaves the rest of the account working, so only a whole-account limit spends it.
+  if (hit.resetsAt !== undefined && spendsAccount(hit.limit)) recordSpent(record.agent, record.account, hit.resetsAt);
   const identity = `${record.agent}:${record.id}`;
   const tried = [...(record.tried?.split(",").filter(Boolean) ?? []), record.account ?? defaultAccount];
   const reset = hit.resetsAt === undefined ? "" : `, which resets ${new Date(hit.resetsAt).toISOString()}`;
-  const stopped = `Child ${identity} stopped on the usage limit of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
+  const stopped = `Child ${identity} stopped on the ${hit.limit?.label ?? "usage limit"} of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
   let report: string;
   try {
     const route = await routeNew(record.agent, settings, { skip: tried, now, cwd: record.cwd });

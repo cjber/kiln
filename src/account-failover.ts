@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
+import { spendsAccount } from "./limit-scope";
 import { forgetReads, type QuotaAccount } from "./quota";
 import { routeNew, startLimitedUntil } from "./routing";
 import type { Session } from "./sessions";
@@ -70,7 +71,8 @@ export async function failOverLimited(
       if (limited.at < session.startedAt) continue;
       const first = claim(dir, id, limited.at, "seen");
       if (first) {
-        recordSpent("claude", account, limited.resetsAt);
+        // A limit that only refuses one model leaves the account's other models working, so it does not spend it.
+        if (spendsAccount(limited.limit)) recordSpent("claude", account, limited.resetsAt);
         forgetReads();
       }
       let to: Awaited<ReturnType<typeof routeNew>>;
@@ -104,13 +106,14 @@ export async function failOverLimited(
 /** One line saying what happened, for the list's footer and a desktop notification. */
 export function failoverNotice(event: Failover): string {
   const title = event.session.title || "A Claude session";
+  const limit = event.session.limited?.limit?.label ?? "usage limit";
   switch (event.kind) {
     case "moved":
-      return `${title} reached its usage limit and moved to Claude account ${event.to}`;
+      return `${title} reached its ${limit} and moved to Claude account ${event.to}`;
     case "stuck":
-      return `${title} reached its usage limit${event.reason ? `: ${event.reason}` : ""}`;
+      return `${title} reached its ${limit}${event.reason ? `: ${event.reason}` : ""}`;
     case "failed":
-      return `${title} reached its usage limit and could not be restarted on Claude account ${event.to}`;
+      return `${title} reached its ${limit} and could not be restarted on Claude account ${event.to}`;
   }
 }
 

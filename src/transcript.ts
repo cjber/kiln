@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { claudeLimitScope, claudeRateLimit, type LimitScope } from "./limit-scope";
 import { checkout, toolPath } from "./workdir";
 
 /** What the records read so far say; the later records only ever replace a field. */
@@ -94,8 +95,12 @@ function persist(path: string, saved: Progress, size: number) {
   saved.stored = saved.lineEnd;
 }
 
-/** A usage-limit refusal in a Claude transcript: when the window that refused resets, and when it was written (ms). */
-export type Limited = { resetsAt: number; at: number };
+/**
+ * A usage-limit refusal in a Claude transcript: when the window that refused resets, when it was written (ms), and the
+ * limit it names, which `quotaLimits.rateLimitType` says. The limit is absent for a record that named none, which
+ * refuses the whole account.
+ */
+export type Limited = { resetsAt: number; at: number; limit?: LimitScope };
 
 /**
  * The refusal a transcript record holds, if it is one. Claude Code writes the provider's refusal as an assistant
@@ -106,12 +111,14 @@ export function limitRecord(record: {
   error?: unknown;
   isApiErrorMessage?: unknown;
   timestamp?: unknown;
-  quotaLimits?: { resetsAt?: unknown };
+  quotaLimits?: { resetsAt?: unknown; rateLimitType?: unknown };
 }): Limited | undefined {
   if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) return undefined;
   const resetsAt = record.quotaLimits?.resetsAt;
   const at = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : Number.NaN;
-  return typeof resetsAt === "number" && !Number.isNaN(at) ? { resetsAt: resetsAt * 1000, at } : undefined;
+  if (typeof resetsAt !== "number" || Number.isNaN(at)) return undefined;
+  const named = claudeRateLimit(record.quotaLimits?.rateLimitType);
+  return { resetsAt: resetsAt * 1000, at, ...(named ? { limit: claudeLimitScope(named) } : {}) };
 }
 
 /**

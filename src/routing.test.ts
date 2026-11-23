@@ -115,6 +115,15 @@ describe("routing", () => {
     expect(chooseRoute("claude", accounts, configured, now, undefined, ["work"]).name).toBe("jenny");
   });
 
+  test("an account left open that this run already tried is not reported as at its limit", () => {
+    // A limit that refuses one model leaves the account open, so after this run tried it only the others are spent.
+    const mixed = [claude("jenny", [100, 20]), claude("work", [0])];
+    expect(() => chooseRoute("claude", mixed, configured, now, undefined, ["work"])).toThrow(
+      `every other claude account is at its limit until ${new Date(later).toISOString()}`,
+    );
+    expect(() => chooseRoute("claude", mixed, configured, now)).not.toThrow();
+  });
+
   test("a full OpenCode Go window never refuses an opencode start, a recorded limit does", () => {
     const go: QuotaAccount = {
       agent: "opencode",

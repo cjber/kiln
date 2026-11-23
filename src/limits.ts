@@ -28,7 +28,9 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
       const record = JSON.parse(lines[index] as string);
       if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) continue;
       const hit = limitRecord(record);
-      return hit && hit.at >= startedAt ? { resetsAt: hit.resetsAt } : undefined;
+      return hit && hit.at >= startedAt
+        ? { resetsAt: hit.resetsAt, ...(hit.limit ? { limit: hit.limit } : {}) }
+        : undefined;
     } catch {
       // A line Claude is still writing is not a record yet.
     }
@@ -69,7 +71,9 @@ export function detectLimit(
       return museLimit(record.id);
     case "claude": {
       const refused = claudeLimit(record.id, record.startedAt);
-      return refused ? { resetsAt: refused.resetsAt ?? reported?.resetsAt } : reported;
+      return refused
+        ? { resetsAt: refused.resetsAt ?? reported?.resetsAt, ...(refused.limit ? { limit: refused.limit } : {}) }
+        : reported;
     }
     case "codex":
     case "opencode":

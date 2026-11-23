@@ -2,8 +2,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { type LimitScope } from "./limit-scope";
+
 /** A run that ended because its account has no allowance left, and when the provider says it has some again, ms. */
-export type LimitHit = { resetsAt?: number };
+export type LimitHit = {
+  resetsAt?: number;
+  /** The limit the provider named, when it named one; absent refuses the whole account, as every agent's own limits do. */
+  limit?: LimitScope;
+};
 
 const museSessions = () => join(Bun.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "muse", "sessions");
 

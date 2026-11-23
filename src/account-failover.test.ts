@@ -145,6 +145,29 @@ test("a session no account can take is reported once and left in its pane", asyn
   expect(moved).toEqual(["claude-none"]);
 });
 
+test("a session stopped on one model's weekly allowance leaves the account open for every other model", async () => {
+  const now = Date.now();
+  const session: Session = {
+    agent: "claude",
+    id: crypto.randomUUID(),
+    title: "fable",
+    cwd: root,
+    startedAt: now - 2_000,
+    account: "model",
+    limited: { resetsAt: now + 3_600_000, at: now - 1_000, limit: { kind: "model", label: "Fable limit" } },
+    place: { kind: "kiln", name: "claude-fable" },
+  };
+  const settings: Settings = { ...defaults, accounts: [{ agent: "claude", name: "model", home: join(root, "model") }] };
+  const route = async () => ({ name: "two", env: {} });
+  const move = async () => true;
+  const events = await failOverLimited([session], settings, now, join(root, "model-claims"), route, move, () => {
+    return session.limited?.at;
+  });
+  expect(events.map(failoverNotice)).toEqual(["fable reached its Fable limit and moved to Claude account two"]);
+  // The account's other models still answer, so nothing about it is spent: it can take new runs.
+  expect(spentUntil("claude", "model", now)).toBeUndefined();
+});
+
 test("an account seen at its limit is reported once when the limit has gone, and never before its time", () => {
   const limited = mkdtempSync(join(tmpdir(), "kiln-limited-"));
   const at = Date.parse("2026-11-19T23:15:00Z");
