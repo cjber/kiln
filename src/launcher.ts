@@ -76,6 +76,12 @@ function attachNative(session: Session, id: string, attach: string[]): Outcome {
 }
 
 export async function openSession(session: Session, settings: Settings): Promise<Outcome> {
+  // A muse exec run's pane only streams its output and takes no input, so opening it resumes the conversation
+  // interactively instead, in a pane of its own that a second open reuses.
+  if (session.museExec) {
+    if (!session.id) return notice("this session has no conversation to resume");
+    return launch(session.agent, session.cwd, settings, sessionTitle(session), session.id);
+  }
   const place = session.place;
   switch (place.kind) {
     case "kiln":
