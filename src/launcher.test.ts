@@ -124,15 +124,13 @@ test("opening a muse exec run resumes its conversation instead of attaching to i
   const which = spyOn(Bun, "which").mockReturnValue("/usr/bin/muse");
   try {
     const live: Session = { ...session, cwd: tmpdir() };
-    const name = `muse-${new Bun.CryptoHasher("sha256")
-      .update(session.id as string)
-      .digest("hex")
-      .slice(0, 16)}`;
+    const id = session.id as string;
+    const name = `muse-${new Bun.CryptoHasher("sha256").update(id).digest("hex").slice(0, 16)}`;
     expect(await openSession(live, defaults)).toEqual({ kind: "attach", name });
     expect(agentArgv(commands.find((command) => command.includes("new-session"))).slice(-3)).toEqual([
       "muse",
       "resume",
-      session.id,
+      id,
     ]);
     // A second open reuses the running resume pane instead of starting another.
     const started = commands.filter((command) => command.includes("new-session")).length;
