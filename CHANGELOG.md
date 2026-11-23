@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Claude sessions can start from a read-only home when the workspace is already trusted.** Kiln needs write access only when it has to record workspace trust or an import decision.
+
 ## [0.37.1] - 2026-11-22
 
 - **Kiln for Android closes its live connection when you leave the app.** UnifiedPush can still deliver notifications if you enable it.

@@ -111,10 +111,9 @@ export async function withConfigLock<T>(path: string, work: (owned: () => boolea
 
 /**
  * Mark the folder covering `dir` trusted in the Claude config file at `path`, with its imports from outside it allowed
- * unless they were decided before, keeping every other key, under Claude's own config lock. Returns true when it wrote,
- * false when there was nothing to change. Throws for the home directory and the filesystem root, which kiln never
- * trusts, and for a file that does not parse, which it never replaces. The write goes to a temporary file renamed over the original, so a reader sees the whole old file or the
- * whole new one, and running Claude sessions load it.
+ * unless they were decided before, keeping every other key. A complete trust entry requires only a read. When a
+ * change is needed, read again under Claude's config lock and replace the file atomically. Returns true when it
+ * wrote. Throws for the home directory, the filesystem root, or an invalid config.
  */
 export async function trustClaudeWorkspace(dir: string, path: string): Promise<boolean> {
   const key = claudeTrustKey(dir);
@@ -122,15 +121,14 @@ export async function trustClaudeWorkspace(dir: string, path: string): Promise<b
     throw new Error(
       `kiln never marks ${dir} trusted for Claude: an interactive Claude asks there each time. Use a folder below it`,
     );
+  if (!trustUpdate(path, key)) return false;
   return withConfigLock(path, (owned) => writeTrust(path, key, owned));
 }
 
-/** Set the trust entry for `key` in `path` while holding its config lock, committing only while `owned` holds. */
-export function writeTrust(path: string, key: string, owned: () => boolean): boolean {
+function trustUpdate(path: string, key: string) {
   // A symlinked config is updated where it points, so the link stays.
   const target = existsSync(path) ? realpathSync(path) : path;
   let config: Record<string, unknown> = {};
-  let mode = 0o600;
   if (existsSync(target)) {
     const text = readFileSync(target, "utf8");
     let parsed: unknown;
@@ -140,14 +138,13 @@ export function writeTrust(path: string, key: string, owned: () => boolean): boo
       throw new Error(`${path} is not valid JSON, so kiln leaves it alone: ${(error as Error).message}`);
     }
     config = record(parsed, "the file", path);
-    mode = statSync(target).mode & 0o777;
   }
   const projects = record(config.projects ?? {}, "projects", path);
   const project = record(projects[key] ?? {}, `projects["${key}"]`, path);
   // A trusted folder may still import files from outside it, which Claude asks about once in its own dialog that a
   // spawned session has no one to answer. Trusting the folder covers what it imports; a decision already made stands.
   const importsDecided = project.hasClaudeMdExternalIncludesWarningShown === true;
-  if (project.hasTrustDialogAccepted === true && importsDecided) return false;
+  if (project.hasTrustDialogAccepted === true && importsDecided) return undefined;
   projects[key] = {
     ...project,
     hasTrustDialogAccepted: true,
@@ -157,6 +154,15 @@ export function writeTrust(path: string, key: string, owned: () => boolean): boo
     }),
   };
   config.projects = projects;
+  return { target, config };
+}
+
+/** Set the trust entry for `key` in `path` while holding its config lock, committing only while `owned` holds. */
+export function writeTrust(path: string, key: string, owned: () => boolean): boolean {
+  const update = trustUpdate(path, key);
+  if (!update) return false;
+  const { target, config } = update;
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o600;
   mkdirSync(dirname(target), { recursive: true });
   const temporary = `${target}.kiln-${process.pid}-${crypto.randomUUID()}`;
   try {

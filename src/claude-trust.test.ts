@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -133,6 +134,34 @@ test("a trusted folder's outside imports are allowed once, and a decision alread
     },
     [declined]: declinedEntry,
   });
+});
+
+test("an already trusted workspace can use a read-only config directory (#342)", async () => {
+  const config = join(root, "config-read-only");
+  const workspace = join(root, "trusted-read-only");
+  const untrusted = join(root, "untrusted-read-only");
+  for (const dir of [config, workspace, untrusted]) mkdirSync(dir);
+  const path = join(config, ".claude.json");
+  const original = JSON.stringify({
+    projects: {
+      [workspace]: {
+        hasTrustDialogAccepted: true,
+        hasClaudeMdExternalIncludesApproved: false,
+        hasClaudeMdExternalIncludesWarningShown: true,
+      },
+      [untrusted]: { hasTrustDialogAccepted: true },
+    },
+  });
+  writeFileSync(path, original);
+  chmodSync(config, 0o500);
+  try {
+    expect(await trustClaudeWorkspace(workspace, path)).toBe(false);
+    await expect(trustClaudeWorkspace(untrusted, path)).rejects.toThrow("EACCES");
+    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(readdirSync(config)).toEqual([".claude.json"]);
+  } finally {
+    chmodSync(config, 0o700);
+  }
 });
 
 test("a missing file or projects map is created", async () => {
