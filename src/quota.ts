@@ -18,7 +18,7 @@ export type QuotaAccount = {
   /** Which of the agent's accounts; absent for an agent with one. */
   name?: string;
   windows: QuotaWindow[];
-  /** The provider ended a run on its limit, or reports a window rate-limited: out of allowance until then, ms. */
+  /** The provider ended a run on its limit: out of allowance until then, ms. */
   spentUntil?: number;
   /** The settings say never to start a run on it. */
   disabled?: boolean;
@@ -165,9 +165,6 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
         agent: "opencode",
         name,
         windows: current(allowance?.windows ?? [], now),
-        ...(allowance?.limitedUntil !== undefined && allowance.limitedUntil > now
-          ? { spentUntil: allowance.limitedUntil }
-          : {}),
         source: allowance ? "opencode-go" : "none",
       };
     }),

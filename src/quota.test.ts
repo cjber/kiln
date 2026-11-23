@@ -67,7 +67,7 @@ describe("footer", () => {
 });
 
 describe("OpenCode Go allowance", () => {
-  test("a recorded usage response gives the three windows and the limit the provider reports", async () => {
+  test("a recorded usage response gives the three windows", async () => {
     const { parseGoUsage } = await import("./opencode-usage");
     const body = await Bun.file(join(import.meta.dir, "fixtures", "opencode", "go-usage.json")).json();
     const allowance = parseGoUsage(body);
@@ -76,7 +76,6 @@ describe("OpenCode Go allowance", () => {
       ["wk", 5],
       ["mo", 100],
     ]);
-    expect(allowance?.limitedUntil).toBe(Date.parse("2026-12-02T09:46:55.000Z"));
     expect(parseGoUsage({ error: "x" })).toBeUndefined();
   });
 

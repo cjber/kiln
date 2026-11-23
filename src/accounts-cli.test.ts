@@ -45,6 +45,16 @@ test("each account says whether a run can start on it, with its usage and pins",
   ]);
 });
 
+test("a full OpenCode Go window is ok to start on, a recorded limit is spent", () => {
+  const go: QuotaAccount = {
+    agent: "opencode",
+    windows: [{ label: "mo", percent: 100, resetsAt: later }],
+    source: "opencode-go",
+  };
+  expect(accountRows([go], { ...defaults }, now)[0]?.state).toBe("ok");
+  expect(accountRows([{ ...go, spentUntil: later }], { ...defaults }, now)[0]?.state).toBe("spent");
+});
+
 test("mclaude accounts not yet listed are adopted under their login's name, a taken name under its directory", () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-adopt-"));
   const account = (id: string, email?: string, signedIn = true) => {

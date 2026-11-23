@@ -115,6 +115,19 @@ describe("routing", () => {
     expect(chooseRoute("claude", accounts, configured, now, undefined, ["work"]).name).toBe("jenny");
   });
 
+  test("a full OpenCode Go window never refuses an opencode start, a recorded limit does", () => {
+    const go: QuotaAccount = {
+      agent: "opencode",
+      windows: [{ label: "mo", percent: 100, resetsAt: later }],
+      source: "opencode-go",
+    };
+    expect(chooseRoute("opencode", [go], [], now)).toEqual({ env: {} });
+    expect(chooseRoute("opencode", [go], [], now, "default")).toEqual({ env: {} });
+    expect(() => chooseRoute("opencode", [{ ...go, spentUntil: later }], [], now)).toThrow(
+      "every opencode account is at its limit",
+    );
+  });
+
   test("a spent number-less Muse is not chosen", () => {
     const muse: QuotaAccount = { agent: "muse", windows: [], spentUntil: later, source: "none" };
     expect(() => chooseRoute("muse", [muse], [], now)).toThrow("every muse account is at its limit");

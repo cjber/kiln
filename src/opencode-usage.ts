@@ -16,14 +16,17 @@ const usageUrl = "https://opencode.ai/zen/go/v1/usage";
 type GoWindow = { status: "ok" | "rate-limited"; percent: number; resetsAt: string };
 type GoUsage = { usage: { rolling: GoWindow; weekly: GoWindow; monthly: GoWindow } };
 
-export type OpencodeAllowance = { windows: QuotaWindow[]; limitedUntil?: number };
+export type OpencodeAllowance = { windows: QuotaWindow[] };
 
-/** The windows of a Go usage response; `limitedUntil` is when the last window the provider rate-limited resets. */
+/**
+ * The windows of a Go usage response, for display and headroom only. A window the provider marks rate-limited does
+ * not make the account spent: Go is one of the providers an opencode session runs on, and it keeps answering past a
+ * full monthly window. Only a run that actually ended on its limit spends the account (`spent.ts`).
+ */
 export function parseGoUsage(body: unknown): OpencodeAllowance | undefined {
   const usage = (body as GoUsage | null)?.usage;
   if (!usage) return undefined;
   const windows: QuotaWindow[] = [];
-  let limitedUntil: number | undefined;
   for (const [label, window] of [
     ["5h", usage.rolling],
     ["wk", usage.weekly],
@@ -32,10 +35,8 @@ export function parseGoUsage(body: unknown): OpencodeAllowance | undefined {
     if (!window || typeof window.percent !== "number") continue;
     const resetsAt = Date.parse(window.resetsAt);
     windows.push({ label, percent: window.percent, resetsAt: Number.isNaN(resetsAt) ? undefined : resetsAt });
-    if (window.status === "rate-limited" && !Number.isNaN(resetsAt))
-      limitedUntil = Math.max(limitedUntil ?? 0, resetsAt);
   }
-  return windows.length ? { windows, limitedUntil } : undefined;
+  return windows.length ? { windows } : undefined;
 }
 
 type Credential = { type?: string; access?: string; expires?: number; metadata?: { orgID?: unknown } };

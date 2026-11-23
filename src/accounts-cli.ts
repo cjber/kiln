@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 import { type Account, accountDisabled, claudeHome, defaultAccount } from "./accounts";
 import { type QuotaAccount, readQuota } from "./quota";
-import { limitedUntil } from "./routing";
+import { startLimitedUntil } from "./routing";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
 
 const usage = `usage: kiln accounts [--json]            every agent account: its usage, whether a run can start on it, its pins
@@ -26,7 +26,7 @@ export type AccountRow = {
 
 export function accountRows(quota: readonly QuotaAccount[], settings: Settings, now: number): AccountRow[] {
   return quota.map((account) => {
-    const until = limitedUntil(account, now);
+    const until = startLimitedUntil(account, now);
     const state: AccountState = accountDisabled(settings, account.agent, account.name)
       ? "disabled"
       : account.needsLogin

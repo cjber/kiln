@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **OpenCode sessions no longer refuse to start when the OpenCode Go monthly window is full.** Go is one of the providers an OpenCode session can run on, and it keeps answering past a full window, so kiln now shows the window and ranks by it without treating it as a spent account. Only a limit an OpenCode run actually ended on, recorded when it stopped, keeps new sessions from starting until it resets.
 - **Claude sessions can start from a read-only home when the workspace is already trusted.** Kiln needs write access only when it has to record workspace trust or an import decision.
 
 ## [0.37.1] - 2026-11-22
