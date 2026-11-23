@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.3] - 2026-11-23
+
 - **A Claude limit that refuses one model no longer spends the whole account.** A plan keeps a weekly allowance for one model beside the account's own 5-hour and weekly windows, and a run that stopped on it (Claude Code calls it the Fable limit) was recorded as the account having no allowance until the weekly reset, so kiln refused every new run there for days while the account's usage still read 86% used. Only a limit that refuses every model spends the account now, and what kiln reports names the model limit that stopped the run.
 
 ## [0.37.2] - 2026-11-23
