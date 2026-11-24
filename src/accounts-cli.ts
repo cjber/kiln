@@ -20,6 +20,8 @@ export type AccountRow = {
   windows: QuotaAccount["windows"];
   /** When a spent account has allowance again, ms. */
   until?: number;
+  spentSource?: "run" | "usage";
+  usageFetchedAt?: number;
   /** Directories pinned to it. */
   pins: string[];
 };
@@ -39,6 +41,8 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       name: account.name,
       state,
       windows: account.windows,
+      ...(state === "spent" ? { spentSource: until === account.spentUntil ? "run" : "usage" } : {}),
+      ...(account.fetchedAt !== undefined ? { usageFetchedAt: account.fetchedAt } : {}),
       // A full window the provider gave no reset time for is spent with no known end.
       ...(state === "spent" && until !== undefined && Number.isFinite(until) ? { until } : {}),
       pins: settings.pins
@@ -57,7 +61,16 @@ export function formatAccounts(rows: readonly AccountRow[]): string {
     row.name ?? "",
     row.until === undefined ? row.state : `${row.state} until ${minute(row.until)}`,
     row.windows.map((window) => `${Math.round(window.percent)}%·${window.label}`).join(" "),
-    row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
+    [
+      row.spentSource === "run"
+        ? `recorded run limit${row.usageFetchedAt === undefined ? "" : ` (usage read ${minute(row.usageFetchedAt)})`}`
+        : row.spentSource === "usage"
+          ? "usage window full"
+          : "",
+      row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("  "),
   ]);
   const widths = [0, 1, 2, 3].map((column) => Math.max(...cells.map((row) => (row[column] as string).length)));
   return cells

@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln accounts` explains why an account is spent.** It identifies a recorded run limit or a full usage window and shows when usage was last read alongside a recorded limit.
+
 ## [0.37.4] - 2026-11-24
 
 - **A spawned Claude run whose login expired no longer marks the wrong account.** Kiln records the Claude config home each spawn actually used, so the exit report checks and marks that login, whichever process reports the exit, and a login renewed while kiln was asking is not recorded as failed.
