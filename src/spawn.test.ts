@@ -2,6 +2,8 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import * as claudeUsage from "./claude-usage";
+import { claudeNeedsLogin } from "./claude-usage";
 import * as mailbox from "./mailbox";
 import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
 import * as messages from "./messages";
@@ -13,6 +15,7 @@ import * as sessions from "./sessions";
 import {
   assertOnboarded,
   claudeGrants,
+  claudeRunHome,
   exitHook,
   exitMessage,
   exitReporter,
@@ -648,6 +651,8 @@ test("a resumed child that exits before its spawn settles reports to the new par
     mode: 0o755,
   });
   writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\nclaude = [${JSON.stringify(claude)}]\n`);
+  // Its fake home is no real login, so the CLI's auth answer is stubbed: this exit is not an auth failure.
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(true);
   try {
     // The run before this one exited and was reported to its own parent.
     recordSpawn({
@@ -685,6 +690,7 @@ test("a resumed child that exits before its spawn settles reports to the new par
     expect(messages[0]?.id).toBe(exitReportId({ agent: "claude", id, startedAt: record.startedAt }));
     expect(takeUnread("codex:old-parent")).toHaveLength(0);
   } finally {
+    auth.mockRestore();
     kill(name);
     Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);
     for (const [key, value] of [
@@ -720,6 +726,8 @@ test("a resume replaces a pane whose agent was killed, rather than calling it ru
   const claude = join(root, "claude.sh");
   writeFileSync(claude, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   writeFileSync(join(root, "config", "kiln", "config.toml"), `[agents]\nclaude = [${JSON.stringify(claude)}]\n`);
+  // Its fake home is no real login, so the CLI's auth answer is stubbed: this exit is not an auth failure.
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(true);
   try {
     // The earlier run was SIGKILLed, as an OOM killer does, and its kept pane stayed dead: nothing reaped it.
     expect(start(name, dir, ["sh", "-c", "kill -KILL $$"], "killed", true)).toBe(true);
@@ -749,6 +757,7 @@ test("a resume replaces a pane whose agent was killed, rather than calling it ru
       `Child claude:${id} exited with status 137 while working on "killed".`,
     ]);
   } finally {
+    auth.mockRestore();
     kill(name);
     Bun.spawnSync(["tmux", "-L", server, "set-environment", "-gu", "XDG_STATE_HOME"]);
     for (const [key, value] of [
@@ -1393,14 +1402,16 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     ).toBe(0);
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
+    // Only the subdirectories a commit writes are granted, never the common dir itself: its config and hooks
+    // would run unsandboxed later. The grant applies only in a linked worktree: from the main checkout
+    // git add, commit and fetch write root files of the common dir (index, FETCH_HEAD), which a
+    // directory grant cannot name, so no partial grant is made there (#338).
+    const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
       join(common, "worktrees", "tree"),
-      join(common, "objects"),
-      join(common, "refs"),
-      join(common, "logs"),
+      ...shared,
     ]);
-    // A plain checkout keeps Codex's own rule for its .git, and Claude's sandbox already opens a worktree's metadata.
     expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
@@ -1441,5 +1452,292 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(interactive).toContain(grant(["/outbox"]));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("claudeRunHome resolves the home a run actually used", () => {
+  const saved = Bun.env.CLAUDE_CONFIG_DIR;
+  try {
+    const accounts = [{ agent: "claude" as const, name: "jenny", home: "/tmp/jenny-home" }];
+    expect(claudeRunHome("jenny", accounts)).toBe("/tmp/jenny-home");
+    // A named account no longer in settings is unknown: nothing may be marked against another home.
+    expect(claudeRunHome("gone", accounts)).toBeUndefined();
+    // With no named accounts the run used the config dir kiln's own environment names.
+    Bun.env.CLAUDE_CONFIG_DIR = "/tmp/env-home";
+    expect(claudeRunHome(undefined, [])).toBe("/tmp/env-home");
+    expect(claudeRunHome("default", [])).toBe("/tmp/env-home");
+    // An unnamed run is the env route spawnAgent used, even when named accounts exist: a quota
+    // read that failed leaves the route unnamed, and it runs in CLAUDE_CONFIG_DIR, not ~/.claude.
+    expect(claudeRunHome(undefined, accounts)).toBe("/tmp/env-home");
+  } finally {
+    if (saved === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
+    else Bun.env.CLAUDE_CONFIG_DIR = saved;
+  }
+});
+
+test("a Claude child that dies on an expired login marks its account and is not restarted without a usable one (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+  };
+  const root = join(paneDir, "auth-failure");
+  const jenny = join(root, "jenny");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  // The CLI's structured answer for this home: not logged in.
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(false);
+  writeFileSync(
+    join(jenny, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "token", expiresAt: Date.now() + 3_600_000 } }),
+  );
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n\n[[accounts]]\nagent = "claude"\nname = "default"\ndisabled = true\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  const name = "auth-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(
+      start(
+        name,
+        paneDir,
+        ["sh", "-c", "echo 'Failed to authenticate: OAuth session expired and could not be refreshed'; exit 1"],
+        "auth",
+        true,
+      ),
+    ).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-conversation",
+      cwd: paneDir,
+      title: "auth",
+      startedAt: Date.now(),
+      pane: name,
+      account: "jenny",
+      brief: "do the work",
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    // The account had no quota windows, yet kiln no longer calls it usable.
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(true);
+    const messages = takeUnread("claude:parent");
+    expect(messages.map((message) => message.body).join("\n")).toContain("jenny");
+    expect(messages.map((message) => message.body).join("\n")).toContain("kiln login claude jenny");
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+});
+
+test("a login completed while Claude Code is asked is not recorded as failed (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+  };
+  const root = join(paneDir, "auth-race");
+  const jenny = join(root, "jenny");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  writeFileSync(
+    join(jenny, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "old-token", expiresAt: Date.now() + 3_600_000 } }),
+  );
+  // The answer is for the old login; signing in again completes while the ask is in flight, so a
+  // later ask (the quota read below) finds the fresh login signed in.
+  let asks = 0;
+  const auth = spyOn(claudeUsage, "askClaude").mockImplementation(async () => {
+    if (asks++ > 0) return true;
+    writeFileSync(
+      join(jenny, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "fresh-token", expiresAt: Date.now() + 3_600_000 } }),
+    );
+    return false;
+  });
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  const name = "auth-race-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "exit 1"], "auth race", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-race-conversation",
+      cwd: paneDir,
+      title: "auth race",
+      startedAt: Date.now(),
+      pane: name,
+      account: "jenny",
+      brief: "do the work",
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(false);
+    const bodies = takeUnread("claude:parent")
+      .map((message) => message.body)
+      .join("\n");
+    expect(bodies).not.toContain("login has ended");
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+});
+
+test("an exit reporter marks the home recorded at spawn, not its own environment (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+    claudeConfig: Bun.env.CLAUDE_CONFIG_DIR,
+  };
+  const root = join(paneDir, "auth-recorded-home");
+  const jenny = join(root, "jenny");
+  const decoy = join(root, "decoy");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(decoy, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(false);
+  for (const [home, token] of [
+    [jenny, "token"],
+    [decoy, "decoy-token"],
+  ] as const)
+    writeFileSync(
+      join(home, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: Date.now() + 3_600_000 } }),
+    );
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n\n[[accounts]]\nagent = "claude"\nname = "default"\ndisabled = true\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  // The reporter (tmux hook or watcher) runs in another environment than the spawner did.
+  Bun.env.CLAUDE_CONFIG_DIR = decoy;
+  const name = "auth-recorded-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "exit 1"], "auth recorded", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-recorded-conversation",
+      cwd: paneDir,
+      title: "auth recorded",
+      startedAt: Date.now(),
+      pane: name,
+      brief: "do the work",
+      claudeHome: jenny,
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(true);
+    expect(claudeNeedsLogin(Date.now(), decoy)).toBe(false);
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+      ["CLAUDE_CONFIG_DIR", saved.claudeConfig],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+});
+
+test("task output mentioning authentication failed does not mark a logged-in account (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+  };
+  const root = join(paneDir, "auth-mention");
+  const jenny = join(root, "jenny");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  // The CLI's structured answer for this home: still logged in, whatever the pane text said.
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(true);
+  writeFileSync(
+    join(jenny, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "token", expiresAt: Date.now() + 3_600_000 } }),
+  );
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  const name = "auth-mention-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(
+      start(name, paneDir, ["sh", "-c", "echo 'the API said authentication failed'; exit 1"], "auth mention", true),
+    ).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-mention-conversation",
+      cwd: paneDir,
+      title: "auth mention",
+      startedAt: Date.now(),
+      pane: name,
+      account: "jenny",
+      brief: "do the work",
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    // Auth status says logged in, so the account stays usable and no login failover is reported.
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(false);
+    const bodies = takeUnread("claude:parent")
+      .map((message) => message.body)
+      .join("\n");
+    expect(bodies).not.toContain("login has ended");
+    expect(bodies).toContain("exited with status 1");
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
   }
 });

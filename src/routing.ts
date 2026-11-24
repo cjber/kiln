@@ -63,7 +63,7 @@ function routeFor(account: QuotaAccount, configured: readonly Account[]): Route 
 }
 
 /** How a signed-out account is signed in again: kiln's own login for a configured one, the agent's for its default. */
-function signIn(account: QuotaAccount): string {
+export function signIn(account: Pick<QuotaAccount, "agent" | "name">): string {
   return account.name === undefined || account.name === defaultAccount
     ? `sign in with ${account.agent} auth login`
     : `run kiln login ${account.agent} ${account.name}`;

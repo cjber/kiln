@@ -33,6 +33,8 @@ export type Saved = {
   tried?: string;
   /** Its spawn started the agent's full terminal UI, which stays open after a turn, rather than a headless run. */
   interactive?: boolean;
+  /** The Claude config home its spawn ran it with, recorded then since a later reporter runs in another environment. */
+  claudeHome?: string;
 };
 
 /**
@@ -67,18 +69,33 @@ function open(path: string): Database {
     db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, account TEXT, brief TEXT, tried TEXT, interactive INTEGER, PRIMARY KEY (agent, id));",
+      "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, account TEXT, brief TEXT, tried TEXT, interactive INTEGER, claudeHome TEXT, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
-    if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
-    if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
-    if (!columns.some((column) => column.name === "runBound"))
-      db.exec("ALTER TABLE sessions ADD COLUMN runBound INTEGER");
-    for (const column of ["account", "brief", "tried"])
-      if (!columns.some((existing) => existing.name === column))
-        db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
-    if (!columns.some((column) => column.name === "interactive"))
-      db.exec("ALTER TABLE sessions ADD COLUMN interactive INTEGER");
+    // Read and alter inside one immediate transaction, so two processes opening an old database at once
+    // cannot both see a column missing and the second fail adding it.
+    const added: [string, string][] = [
+      ["parent", "TEXT"],
+      ["pane", "TEXT"],
+      ["runBound", "INTEGER"],
+      ["account", "TEXT"],
+      ["brief", "TEXT"],
+      ["tried", "TEXT"],
+      ["interactive", "INTEGER"],
+      ["claudeHome", "TEXT"],
+    ];
+    const created = db;
+    const migrate = created.transaction(() => {
+      const columns = new Set(
+        created
+          .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+          .all()
+          .map((column) => column.name),
+      );
+      for (const [name, type] of added)
+        if (!columns.has(name)) created.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
+    });
+    migrate.immediate();
     databases.set(path, db);
   }
   return db;
@@ -103,6 +120,7 @@ function read(db: Database): Saved[] {
       brief: row.brief ?? undefined,
       tried: row.tried ?? undefined,
       interactive: row.interactive ? true : undefined,
+      claudeHome: row.claudeHome ?? undefined,
     }));
 }
 
@@ -183,6 +201,7 @@ export function reconcile(
       brief: recorded?.brief,
       tried: recorded?.tried,
       interactive: recorded?.interactive,
+      claudeHome: recorded?.claudeHome,
     });
   }
   const running = new Set([...next.values()].map((item) => item.pid));
@@ -241,7 +260,7 @@ export function reconcile(
 /** Columns are named, so a state file a newer kiln gave more columns still takes this kiln's rows. */
 function insert(db: Database, item: Saved): void {
   db.query(
-    "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound, account, brief, tried, interactive) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound, account, brief, tried, interactive, claudeHome) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     item.agent,
     item.id,
@@ -259,6 +278,7 @@ function insert(db: Database, item: Saved): void {
     item.brief ?? null,
     item.tried ?? null,
     item.interactive ? 1 : null,
+    item.claudeHome ?? null,
   );
 }
 
@@ -312,13 +332,14 @@ export function recordSpawn(
     brief?: string;
     tried?: string;
     interactive?: boolean;
+    claudeHome?: string;
   },
   path = statePath(),
 ): void {
   try {
     open(path)
       .query(
-        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound, account, brief, tried, interactive) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound), account = COALESCE(excluded.account, sessions.account), brief = COALESCE(excluded.brief, sessions.brief), tried = COALESCE(excluded.tried, sessions.tried), interactive = excluded.interactive",
+        "INSERT INTO sessions (agent, id, cwd, title, startedAt, lastActiveAt, boot, pid, goneAt, parent, pane, runBound, account, brief, tried, interactive, claudeHome) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(agent, id) DO UPDATE SET cwd = excluded.cwd, title = excluded.title, startedAt = excluded.startedAt, boot = excluded.boot, pid = excluded.pid, goneAt = NULL, parent = excluded.parent, pane = COALESCE(excluded.pane, sessions.pane), runBound = COALESCE(excluded.runBound, sessions.runBound), account = COALESCE(excluded.account, sessions.account), brief = COALESCE(excluded.brief, sessions.brief), tried = COALESCE(excluded.tried, sessions.tried), interactive = excluded.interactive, claudeHome = COALESCE(excluded.claudeHome, sessions.claudeHome)",
       )
       .run(
         item.agent,
@@ -335,6 +356,7 @@ export function recordSpawn(
         item.brief ?? null,
         item.tried ?? null,
         item.interactive ? 1 : null,
+        item.claudeHome ?? null,
       );
   } catch {
     // The child still runs; only its recorded parent is lost.
@@ -390,6 +412,7 @@ export function spawnRecord(pane: string, path = statePath()): Saved | undefined
           brief: row.brief ?? undefined,
           tried: row.tried ?? undefined,
           interactive: row.interactive ? true : undefined,
+          claudeHome: row.claudeHome ?? undefined,
         }
       : undefined;
   } catch {

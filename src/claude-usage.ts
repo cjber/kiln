@@ -92,7 +92,7 @@ function login(home: string, now: number): ClaudeLogin {
  * Ask Claude Code about the login in `home`: `claude auth status` renews a token it can and answers whether it is
  * signed in. kiln never writes a token itself. Undefined when Claude Code is missing or gave no answer.
  */
-async function askClaude(home: string): Promise<boolean | undefined> {
+export async function askClaude(home: string): Promise<boolean | undefined> {
   const claude = Bun.which("claude");
   if (!claude) return undefined;
   // `~/.claude` is Claude Code's home only with its variable unset. A launcher's own variable naming where the
@@ -141,6 +141,25 @@ function tokenHash(token: string): string {
   return new Bun.CryptoHasher("sha256").update(token).digest("hex");
 }
 
+/** The access token in `home`, if its credentials file holds one. */
+function currentToken(home: string): string | undefined {
+  try {
+    const auth = JSON.parse(readFileSync(join(home, ".credentials.json"), "utf8"))?.claudeAiOauth;
+    return typeof auth?.accessToken === "string" && auth.accessToken ? auth.accessToken : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A hash of the token in `home` now, or undefined when it holds none, taken before a slow check so a
+ * caller can tell whether the login it checked is still the login there when the check answers.
+ */
+export function claudeTokenHash(home = claudeHome()): string | undefined {
+  const token = currentToken(home);
+  return token ? tokenHash(token) : undefined;
+}
+
 /**
  * Whether the login in `home` has to be signed in again before a run can start on it: its credentials hold nothing
  * Claude Code can renew, or Claude Code was asked to renew them and called the login signed out.
@@ -153,6 +172,28 @@ export function claudeNeedsLogin(now: number, home = claudeHome(), dir = stateDi
     (current.state === "expired" && read?.loggedOut === true) ||
     (current.state === "ok" && read?.loggedOut === true && read.tokenHash === tokenHash(current.token))
   );
+}
+
+/**
+ * Record that a run on the login in `home` failed to authenticate, so it is treated as signed out until a different
+ * token is written there. No usage read is needed: an account with no quota windows is marked the same way.
+ * `snapshot` is the {@link claudeTokenHash} taken before the check that found the failure (`null` when
+ * the home then held no token): when the token there now is a different one, a login completed while
+ * the check ran, so nothing is marked and this returns false. Without a snapshot it always marks.
+ * Returns whether it marked.
+ */
+export function recordClaudeLoginFailure(
+  home = claudeHome(),
+  dir: string = stateDir(),
+  snapshot?: string | null,
+): boolean {
+  const current = claudeTokenHash(home);
+  if (snapshot !== undefined && current !== (snapshot ?? undefined)) return false;
+  const path = statePath(home, dir);
+  const prior = readFile(path);
+  const mark = { loggedOut: true, ...(current ? { tokenHash: current } : {}) };
+  write(path, prior ? { ...prior, ...mark } : { askedAt: 0, ...mark });
+  return true;
 }
 
 /**
