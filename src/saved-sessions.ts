@@ -72,17 +72,30 @@ function open(path: string): Database {
       "PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS sessions (agent TEXT NOT NULL, id TEXT NOT NULL, cwd TEXT NOT NULL, title TEXT, startedAt REAL NOT NULL, lastActiveAt REAL, boot TEXT NOT NULL, pid INTEGER, goneAt REAL, parent TEXT, pane TEXT, runBound INTEGER, account TEXT, brief TEXT, tried TEXT, interactive INTEGER, claudeHome TEXT, PRIMARY KEY (agent, id));",
     );
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
-    if (!columns.some((column) => column.name === "parent")) db.exec("ALTER TABLE sessions ADD COLUMN parent TEXT");
-    if (!columns.some((column) => column.name === "pane")) db.exec("ALTER TABLE sessions ADD COLUMN pane TEXT");
-    if (!columns.some((column) => column.name === "runBound"))
-      db.exec("ALTER TABLE sessions ADD COLUMN runBound INTEGER");
-    for (const column of ["account", "brief", "tried"])
-      if (!columns.some((existing) => existing.name === column))
-        db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
-    if (!columns.some((column) => column.name === "interactive"))
-      db.exec("ALTER TABLE sessions ADD COLUMN interactive INTEGER");
-    if (!columns.some((column) => column.name === "claudeHome"))
-      db.exec("ALTER TABLE sessions ADD COLUMN claudeHome TEXT");
+    // Read and alter inside one immediate transaction, so two processes opening an old database at once
+    // cannot both see a column missing and the second fail adding it.
+    const added: [string, string][] = [
+      ["parent", "TEXT"],
+      ["pane", "TEXT"],
+      ["runBound", "INTEGER"],
+      ["account", "TEXT"],
+      ["brief", "TEXT"],
+      ["tried", "TEXT"],
+      ["interactive", "INTEGER"],
+      ["claudeHome", "TEXT"],
+    ];
+    const created = db;
+    const migrate = created.transaction(() => {
+      const columns = new Set(
+        created
+          .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+          .all()
+          .map((column) => column.name),
+      );
+      for (const [name, type] of added)
+        if (!columns.has(name)) created.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
+    });
+    migrate.immediate();
     databases.set(path, db);
   }
   return db;
