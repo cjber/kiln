@@ -6,9 +6,11 @@ import { type Account, accountDisabled, claudeHome, defaultAccount } from "./acc
 import { type QuotaAccount, readQuota } from "./quota";
 import { startLimitedUntil } from "./routing";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
+import { clearSpent } from "./spent";
 
 const usage = `usage: kiln accounts [--json]            every agent account: its usage, whether a run can start on it, its pins
-       kiln accounts adopt [--dry-run]  add each mclaude Claude account to [[accounts]], with no new login`;
+       kiln accounts adopt [--dry-run]  add each mclaude Claude account to [[accounts]], with no new login
+       kiln accounts reset-limit NAME  forget a recorded Claude refusal after a provider reset`;
 
 /** Whether a run can start on the account now, and why not. */
 export type AccountState = "ok" | "spent" | "login" | "disabled";
@@ -134,6 +136,21 @@ export async function runAccountsCli(
   root = join(homedir(), ".mclaude", "accounts"),
 ): Promise<void> {
   const [first, ...rest] = args;
+  if (first === "reset-limit") {
+    const [name] = rest;
+    if (rest.length !== 1 || name === undefined) throw new Error(usage);
+    if (
+      name !== defaultAccount &&
+      !settings.accounts.some((account) => account.agent === "claude" && account.name === name)
+    )
+      throw new Error(`no claude account ${name}`);
+    console.log(
+      clearSpent("claude", name)
+        ? `cleared recorded run limit for claude ${name}`
+        : `no recorded run limit for claude ${name}`,
+    );
+    return;
+  }
   if (first === "adopt") {
     if (rest.some((arg) => arg !== "--dry-run")) throw new Error(usage);
     const blocks = adoptable(root, settings).map(block);

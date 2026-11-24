@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **`kiln accounts` explains why an account is spent.** It identifies a recorded run limit or a full usage window and shows when usage was last read alongside a recorded limit.
+- **`kiln accounts` explains why an account is spent.** It identifies a recorded run limit or a full usage window and shows when usage was last read alongside a recorded limit. After Claude resets an account early, run `kiln accounts reset-limit NAME` to clear that account’s recorded refusal.
 
 ## [0.37.4] - 2026-11-24
 
