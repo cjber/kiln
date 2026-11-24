@@ -6,6 +6,7 @@ import { claudeNeedsLogin, claudeSignedIn, claudeUsage, forgetClaudeUsage } from
 import { codexHome, codexRateLimits } from "./codex";
 import { museRecentLimit } from "./muse-limit";
 import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
+import type { Agent } from "./sessions";
 import { spentUntil } from "./spent";
 import { color } from "./tui";
 
@@ -14,7 +15,7 @@ export type QuotaWindow = { label: string; percent: number; resetsAt?: number };
 
 /** One account of one agent. `windows` is empty for an agent whose provider reports nothing kiln can read. */
 export type QuotaAccount = {
-  agent: "claude" | "codex" | "muse" | "opencode";
+  agent: Agent;
   /** Which of the agent's accounts; absent for an agent with one. */
   name?: string;
   windows: QuotaWindow[];
@@ -120,6 +121,7 @@ export async function codexAccount(now: number, home?: string): Promise<QuotaAcc
           now,
         ),
         source: "codex-daemon",
+        fetchedAt: now,
       }
     : codexRollout(now, key);
   codexReads.set(key, { at: now, account });
@@ -177,9 +179,8 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     ...named("claude").map((account) => ({ name: account.name, home: account.home })),
   ];
   const claude = await Promise.all(
-    claudeHomes.map(async ({ name, home }): Promise<QuotaAccount | undefined> => {
-      // A config dir nobody signed in to is not an account a run could start on.
-      if (!claudeSignedIn(home)) return undefined;
+    claudeHomes.map(async ({ name, home }): Promise<QuotaAccount> => {
+      if (!claudeSignedIn(home)) return { agent: "claude", name, windows: [], source: "none", needsLogin: true };
       const usage = await claudeUsage(now, home);
       return {
         agent: "claude",
@@ -192,11 +193,18 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     }),
   );
   const listed = [
-    ...claude.filter((account) => account !== undefined),
-    ...codex.flatMap((account, index) => (account ? [{ ...account, name: codexNames[index] }] : [])),
+    ...claude,
+    ...codex.map(
+      (account, index): QuotaAccount => ({
+        ...(account ?? { agent: "codex", windows: [], source: "none" }),
+        name: codexNames[index],
+      }),
+    ),
     ...withoutNumbers("muse"),
     ...opencode,
-  ];
+    { agent: "agy", windows: [], source: "none" },
+    { agent: "pi", windows: [], source: "none" },
+  ] satisfies QuotaAccount[];
   return listed.map((account) => {
     const until = Math.max(spentUntil(account.agent, account.name, now) ?? 0, account.spentUntil ?? 0);
     return until > now ? { ...account, spentUntil: until } : account;
@@ -235,7 +243,7 @@ function resetDay(resetsAt: number): string {
  */
 export function quotaFooter(accounts: readonly QuotaAccount[], now: number): FooterSegment[][] {
   const lines: FooterSegment[][] = [];
-  for (const agent of ["claude", "codex", "muse", "opencode"] as const) {
+  for (const agent of ["claude", "codex", "muse", "opencode", "agy", "pi"] as const) {
     for (const account of accounts.filter((candidate) => candidate.agent === agent)) {
       const line: FooterSegment[] = [{ text: agent, fg: color.fgDim }];
       const stale = account.fetchedAt !== undefined && now - account.fetchedAt > staleMs;
@@ -255,6 +263,9 @@ export function quotaFooter(accounts: readonly QuotaAccount[], now: number): Foo
           fg: stale ? color.comment : headroomColor(window.percent),
         });
       }
+      if (!account.windows.length) line.push({ text: " usage unknown", fg: color.comment });
+      else if (account.source === "codex-rollout") line.push({ text: " (session history)", fg: color.comment });
+      else if (account.source === "opencode-go") line.push({ text: " (Go)", fg: color.comment });
       lines.push(line);
     }
   }

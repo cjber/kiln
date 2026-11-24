@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Kiln shows every harness and account in its usage list.** Missing usage is marked unknown, and the footer identifies Codex session history and OpenCode Go readings.
+
 ## [0.37.5] - 2026-11-24
 
 - **`kiln accounts` explains why an account is spent.** It identifies a recorded run limit or a full usage window and shows when usage was last read alongside a recorded limit. After Claude resets an account early, run `kiln accounts reset-limit NAME` to clear that account’s recorded refusal.

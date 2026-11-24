@@ -24,6 +24,7 @@ export type AccountRow = {
   until?: number;
   spentSource?: "run" | "usage";
   usageFetchedAt?: number;
+  usageSource: QuotaAccount["source"];
   /** Directories pinned to it. */
   pins: string[];
 };
@@ -43,6 +44,7 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       name: account.name,
       state,
       windows: account.windows,
+      usageSource: account.source,
       ...(state === "spent" ? { spentSource: until === account.spentUntil ? "run" : "usage" } : {}),
       ...(account.fetchedAt !== undefined ? { usageFetchedAt: account.fetchedAt } : {}),
       // A full window the provider gave no reset time for is spent with no known end.
@@ -62,13 +64,17 @@ export function formatAccounts(rows: readonly AccountRow[]): string {
     row.agent,
     row.name ?? "",
     row.until === undefined ? row.state : `${row.state} until ${minute(row.until)}`,
-    row.windows.map((window) => `${Math.round(window.percent)}%·${window.label}`).join(" "),
+    row.windows.length
+      ? row.windows.map((window) => `${Math.round(window.percent)}%·${window.label}`).join(" ")
+      : "usage unknown",
     [
       row.spentSource === "run"
         ? `recorded run limit${row.usageFetchedAt === undefined ? "" : ` (usage read ${minute(row.usageFetchedAt)})`}`
         : row.spentSource === "usage"
           ? "usage window full"
           : "",
+      row.usageSource === "codex-rollout" ? "session history" : "",
+      row.usageSource === "opencode-go" ? "OpenCode Go" : "",
       row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
     ]
       .filter(Boolean)
