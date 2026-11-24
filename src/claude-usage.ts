@@ -187,12 +187,11 @@ export function recordClaudeLoginFailure(
   dir: string = stateDir(),
   snapshot?: string | null,
 ): boolean {
-  const token = currentToken(home);
-  const current = token ? tokenHash(token) : undefined;
+  const current = claudeTokenHash(home);
   if (snapshot !== undefined && current !== (snapshot ?? undefined)) return false;
   const path = statePath(home, dir);
   const prior = readFile(path);
-  const mark = { loggedOut: true, ...(token ? { tokenHash: current as string } : {}) };
+  const mark = { loggedOut: true, ...(current ? { tokenHash: current } : {}) };
   write(path, prior ? { ...prior, ...mark } : { askedAt: 0, ...mark });
   return true;
 }

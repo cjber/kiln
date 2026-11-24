@@ -41,7 +41,7 @@ import {
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
-       a Codex worker that must run git commands spawns with --dir at its linked worktree, not at the main checkout`;
+       at a main checkout only ref and object writes work (no add, commit, merge or plain fetch); a Codex worker that needs full git spawns with --dir at its linked worktree`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -298,18 +298,19 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 }
 
 /**
- * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. Only a linked
- * worktree gets a grant: its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
+ * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. A linked
+ * worktree gets its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
  * plus the common dir's `objects`, `refs` and `logs`, which fetch, merge and commit write, so a worker
- * spawned with `--dir` at its linked worktree can fetch, merge and commit there. The common dir itself
- * is never granted: Codex's `--add-dir` names directories only, so granting it would also make its
- * `config` and `hooks` writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every
- * later checkout, and the common `worktrees/` dir is never granted either, since it holds every sibling
- * worktree's admin dir. From the main checkout there is no grant: `git add` and commit write the common
- * dir's root `index` and lock, and fetch writes its root `FETCH_HEAD`, and a directory grant cannot name
- * single files, so the partial grant of `objects`, `refs` and `logs` alone enabled no git operation
- * there. A worker that must run git therefore spawns with `--dir` at its linked worktree, not at the
- * main checkout. A directory that is not in a repository has none.
+ * spawned with `--dir` at its linked worktree can fetch, merge and commit there. From a main checkout
+ * only the common `objects`, `refs` and `logs` are granted: with only those, `git branch`, `tag` and
+ * `commit-tree` plus `update-ref`, and `fetch --no-write-fetch-head`, work, but `add`, `commit`,
+ * `merge` and plain `fetch` do not, since they write root files of the common dir (its `index` and
+ * `FETCH_HEAD`) that a directory grant cannot name. A Codex worker that must run full git therefore
+ * spawns with `--dir` at its linked worktree. The common dir itself is never granted: Codex's
+ * `--add-dir` names directories only, so granting it would also make its `config` and `hooks`
+ * writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every later checkout,
+ * and the common `worktrees/` dir is never granted either, since it holds every sibling worktree's
+ * admin dir. A directory that is not in a repository has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -321,14 +322,14 @@ function worktreeMetadata(dir: string): string[] {
   );
   if (found.exitCode !== 0) return [];
   const [own, common] = found.stdout.toString().trim().split("\n");
-  if (!own || !common || own === common) return [];
+  if (!own || !common) return [];
   const shared = ["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path));
-  return [own, ...shared];
+  return own === common ? shared : [own, ...shared];
 }
 
 /**
  * The directories a child's agent sandbox must let it write besides its own: the outbox it sends
- * from, and for Codex a linked worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
+ * from, and for Codex its repository's git metadata (see {@link worktreeMetadata}), which Codex otherwise keeps read-only so `git commit` fails. Claude's
  * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
  * commands unsandboxed.
  */
@@ -885,6 +886,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     pane: name,
     runBound: true,
     interactive: options.interactive || undefined,
+    ...(options.agent === "claude" ? { claudeHome: configDir ? expandHome(configDir) : claudeHome() } : {}),
     ...account,
   };
   // A resumed child keeps its pane name, so its hook and watcher carry this run's start time and report only while the
@@ -1036,7 +1038,13 @@ export async function moveClaude(
   if (!respawn(name, cwd, argv, hook, spawned ? { KILN_OUTBOX: outbox } : {})) return false;
   if (!spawned) return (await survives(name, graceMs)) === true;
   const tried = [...(spawned.tried?.split(",").filter(Boolean) ?? []), spawned.account ?? defaultAccount];
-  recordSpawn({ ...spawned, account: route.name, tried: tried.join(","), pid: await panePid(name) });
+  recordSpawn({
+    ...spawned,
+    account: route.name,
+    tried: tried.join(","),
+    claudeHome: configDir ? expandHome(configDir) : claudeHome(),
+    pid: await panePid(name),
+  });
   watchInBackground(name, child, spawned.parent ?? "", token);
   return true;
 }
@@ -1049,12 +1057,13 @@ export const resumedOnAccount =
   "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
 
 /**
- * The Claude config home a run actually used, mirroring {@link spawnAgent}'s config dir: a named account's home,
- * the default `~/.claude` when named accounts exist, and for an unnamed run the `CLAUDE_CONFIG_DIR` kiln itself
- * was started with, whether or not named accounts exist. An unnamed run is the route {@link routeNew} leaves
- * unnamed when its quota read fails, and {@link spawnAgent} runs it in that config dir. Undefined when the run
- * named an account that is no longer in settings: that account is unknown, and no other home's login may be
- * marked for it.
+ * The Claude config home for a spawn record made before the home was recorded, mirroring
+ * {@link spawnAgent}'s config dir: a named account's home, the default `~/.claude` when named
+ * accounts exist, and for an unnamed run the `CLAUDE_CONFIG_DIR` kiln itself was started with,
+ * whether or not named accounts exist. An unnamed run is the route {@link routeNew} leaves
+ * unnamed when its quota read fails, and {@link spawnAgent} runs it in that config dir. Undefined
+ * when the run named an account that is no longer in settings: that account is unknown, and no
+ * other home's login may be marked for it. New records carry `claudeHome`, which outranks this.
  */
 export function claudeRunHome(account: string | undefined, accounts: readonly Account[]): string | undefined {
   const named = accounts.filter((candidate) => candidate.agent === "claude");
@@ -1062,8 +1071,7 @@ export function claudeRunHome(account: string | undefined, accounts: readonly Ac
     const found = named.find((candidate) => candidate.name === account);
     return found ? expandHome(found.home) : undefined;
   }
-  if (account === undefined) return Bun.env.CLAUDE_CONFIG_DIR ? expandHome(Bun.env.CLAUDE_CONFIG_DIR) : claudeHome();
-  if (named.length) return claudeHome();
+  if (account === defaultAccount && named.length) return claudeHome();
   return Bun.env.CLAUDE_CONFIG_DIR ? expandHome(Bun.env.CLAUDE_CONFIG_DIR) : claudeHome();
 }
 
@@ -1144,7 +1152,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   // no quota windows), then restart on a usable account or say how to sign in again. An account no longer in
   // settings is unknown: its home cannot be resolved, so nothing is asked or marked for it.
   if (record.agent === "claude") {
-    const home = claudeRunHome(record.account, settings.accounts);
+    const home = record.claudeHome ?? claudeRunHome(record.account, settings.accounts);
     // The ask can take up to 30 s, so the token is snapshotted first: a login completed while it
     // ran writes a different token, and that fresh login is not the failure the ask answered for.
     const snapshot = home === undefined ? undefined : (claudeTokenHash(home) ?? null);

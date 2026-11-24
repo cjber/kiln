@@ -1403,16 +1403,17 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
     // Only the subdirectories a commit writes are granted, never the common dir itself: its config and hooks
-    // would run unsandboxed later. The grant applies only in a linked worktree: from the main checkout
-    // git add, commit and fetch write root files of the common dir (index, FETCH_HEAD), which a
-    // directory grant cannot name, so no partial grant is made there (#338).
+    // would run unsandboxed later. A linked worktree also gets its own admin dir. At a main checkout
+    // only the shared grant is made, so only ref and object writes work there (no add, commit, merge
+    // or plain fetch): those write root files of the common dir (index, FETCH_HEAD) a directory
+    // grant cannot name (#338).
     const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
       join(common, "worktrees", "tree"),
       ...shared,
     ]);
-    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox", ...shared]);
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",
@@ -1605,6 +1606,72 @@ test("a login completed while Claude Code is asked is not recorded as failed (#3
       ["XDG_STATE_HOME", saved.state],
       ["XDG_CONFIG_HOME", saved.config],
       ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+});
+
+test("an exit reporter marks the home recorded at spawn, not its own environment (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+    claudeConfig: Bun.env.CLAUDE_CONFIG_DIR,
+  };
+  const root = join(paneDir, "auth-recorded-home");
+  const jenny = join(root, "jenny");
+  const decoy = join(root, "decoy");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(decoy, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  const auth = spyOn(claudeUsage, "askClaude").mockResolvedValue(false);
+  for (const [home, token] of [
+    [jenny, "token"],
+    [decoy, "decoy-token"],
+  ] as const)
+    writeFileSync(
+      join(home, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: Date.now() + 3_600_000 } }),
+    );
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n\n[[accounts]]\nagent = "claude"\nname = "default"\ndisabled = true\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  // The reporter (tmux hook or watcher) runs in another environment than the spawner did.
+  Bun.env.CLAUDE_CONFIG_DIR = decoy;
+  const name = "auth-recorded-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "exit 1"], "auth recorded", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-recorded-conversation",
+      cwd: paneDir,
+      title: "auth recorded",
+      startedAt: Date.now(),
+      pane: name,
+      brief: "do the work",
+      claudeHome: jenny,
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(true);
+    expect(claudeNeedsLogin(Date.now(), decoy)).toBe(false);
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+      ["CLAUDE_CONFIG_DIR", saved.claudeConfig],
     ] as const) {
       if (value === undefined) delete Bun.env[key];
       else Bun.env[key] = value;
