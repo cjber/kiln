@@ -10,14 +10,14 @@
     "gate:changed": "scripts/gate-changed.sh"
   },
   "dependencies": {
-    "@opentui/core": "^0.9.3",
-    "@opentui/react": "^0.9.3",
+    "@opentui/core": "^0.9.7",
+    "@opentui/react": "^0.9.7",
     "qrcode": "1.5.4",
     "react": "^19.3.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
-    "@types/bun": "^1.4.4",
+    "@types/bun": "^1.4.5",
     "@types/qrcode": "1.5.6",
     "@types/react": "^19.3.0",
     "typescript": "^7.0.2"
