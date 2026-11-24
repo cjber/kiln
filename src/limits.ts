@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { findClaudeTranscript } from "./claude-inbox";
 import { type LimitHit, museLimit } from "./muse-limit";
-import type { QuotaAccount } from "./quota";
-import { startLimitedUntil } from "./routing";
+import { type QuotaAccount, startLimitedUntil } from "./quota";
 import type { Agent } from "./sessions";
 import { limitRecord } from "./transcript";
 
@@ -41,8 +40,7 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
 /**
  * Whether `account` of `agent`, read fresh from its provider, is now out of allowance, with when it is not. This is how
  * a Codex run's nonzero exit is told to be a limit: it prints no status code for it, but its provider's own usage
- * read shows the account full. An OpenCode run is told only by a limit already recorded against it: a full Go
- * window is not a refusal, so it never spends the account on its own.
+ * read shows the account full.
  */
 export function providerLimit(
   agent: Agent,
@@ -73,11 +71,11 @@ export function detectLimit(
       const refused = claudeLimit(record.id, record.startedAt);
       return refused
         ? { resetsAt: refused.resetsAt ?? reported?.resetsAt, ...(refused.limit ? { limit: refused.limit } : {}) }
-        : reported;
+        : undefined;
     }
     case "codex":
-    case "opencode":
       return reported;
+    case "opencode":
     case "pi":
       return undefined;
   }

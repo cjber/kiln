@@ -35,15 +35,19 @@ describe("footer", () => {
     codexRollout(now, join(fixtures, "codex")) as QuotaAccount,
     { agent: "muse", windows: [], source: "none" },
     { agent: "opencode", windows: [], source: "none" },
+    { agent: "agy", windows: [], source: "none" },
+    { agent: "pi", windows: [], source: "none" },
   ] satisfies QuotaAccount[];
 
   test("one line per account, every agent in turn", () => {
     expect(text(quotaFooter(accounts, now))).toEqual([
       "claude jenny 50%·5h 38%·wk",
       "claude cjberragan 0%·wk",
-      "codex 34%·wk",
-      "muse",
-      "opencode",
+      "codex 34%·wk (session history)",
+      "muse usage unknown",
+      "opencode usage unknown",
+      "agy usage unknown",
+      "pi usage unknown",
     ]);
   });
 
@@ -83,6 +87,6 @@ describe("OpenCode Go allowance", () => {
       spentUntil: Date.parse("2026-12-02T09:46:55Z"),
       source: "opencode-go",
     };
-    expect(text(quotaFooter([spent], now))).toEqual(["opencode spent ↻Dec 2 100%·mo ↻12d10h"]);
+    expect(text(quotaFooter([spent], now))).toEqual(["opencode spent ↻Dec 2 100%·mo ↻12d10h (Go)"]);
   });
 });

@@ -39,9 +39,9 @@ test("each account says whether a run can start on it, with its usage and pins",
   expect(rows.map((row) => row.state)).toEqual(["login", "ok", "disabled", "spent"]);
   expect(formatAccounts(rows).split("\n")).toEqual([
     "claude  default  login                          12%·5h",
-    "claude  work     ok                             12%·5h  pinned /srv/job",
+    "claude  work     ok                             12%·5h         pinned /srv/job",
     "claude  old      disabled                       12%·5h",
-    "codex            spent until 2026-11-20T00:15Z          recorded run limit",
+    "codex            spent until 2026-11-20T00:15Z  usage unknown  recorded run limit",
   ]);
 });
 
@@ -81,7 +81,7 @@ test("mclaude accounts not yet listed are adopted under their login's name, a ta
 
 test("a full window with no reset time is spent with no time to print", () => {
   const rows = accountRows(
-    [{ agent: "codex", windows: [{ label: "wk", percent: 100 }], source: "codex-daemon" }],
+    [{ agent: "codex", windows: [{ label: "wk", percent: 100 }], spentUntil: later, source: "codex-daemon" }],
     { ...defaults },
     0,
   );

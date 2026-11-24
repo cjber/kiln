@@ -2,11 +2,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { type LimitScope } from "./limit-scope";
+import type { LimitScope } from "./limit-scope";
 
 /** A run that ended because its account has no allowance left, and when the provider says it has some again, ms. */
 export type LimitHit = {
   resetsAt?: number;
+  observedAt?: number;
   /** The limit the provider named, when it named one; absent refuses the whole account, as every agent's own limits do. */
   limit?: LimitScope;
 };
@@ -33,31 +34,35 @@ export function museLimit(id: string, root = museSessions()): LimitHit | undefin
   }
   if (!path) return undefined;
   let limited = false;
+  let observedAt: number | undefined;
   let resetsAt: number | undefined;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (!line.includes("tier_limit") && !line.includes("resets at")) continue;
     try {
       const event = JSON.parse(line) as {
+        recorded_at?: number;
         payload?: {
           event?: { details?: { facets?: { error_kind?: string; http_status?: number }[] }; reason?: string };
         };
       };
       const body = event.payload?.event;
-      if (body?.details?.facets?.some((facet) => facet.error_kind === "tier_limit" && facet.http_status === 429))
+      if (body?.details?.facets?.some((facet) => facet.error_kind === "tier_limit" && facet.http_status === 429)) {
         limited = true;
+        observedAt = typeof event.recorded_at === "number" ? event.recorded_at / 1_000 : undefined;
+      }
       const reset = body?.reason ? museResetSentence.exec(body.reason)?.[1] : undefined;
       if (reset) resetsAt = Date.parse(reset);
     } catch {
       // A line still being written is skipped.
     }
   }
-  return limited ? { resetsAt: resetsAt !== undefined && !Number.isNaN(resetsAt) ? resetsAt : undefined } : undefined;
+  return limited
+    ? { resetsAt: resetsAt !== undefined && !Number.isNaN(resetsAt) ? resetsAt : undefined, observedAt }
+    : undefined;
 }
 
 /**
- * The limit Muse's newest session logs show still in force at `now`. Muse publishes no usage numbers
- * (`muse usage --json` answers `server_sent_no_usage`), so a run that ended on the limit is the only evidence, and it
- * counts until the reset time its log names.
+ * An unexpired refusal in Muse's newest shared session logs. Use only when the log can be attributed to a single login.
  */
 export function museRecentLimit(now: number, root = museSessions()): LimitHit | undefined {
   try {

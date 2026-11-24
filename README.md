@@ -116,6 +116,23 @@ interactive Muse session shows its activity as unknown; messages still reach it 
 through Muse's own session messaging. Kiln cannot read a Muse transcript, so `kiln msg view`
 has nothing to show for a Muse session: a Muse child answers by messaging its parent, and
 its exit report carries its last output.
+To show model-group quota in Kiln, add this to Antigravity's
+[`~/.gemini/antigravity-cli/settings.json`](https://antigravity.google/docs/cli/statusline?app=antigravity).
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "kiln accounts capture-agy",
+    "stack_with_default": true
+  }
+}
+```
+
+If you already have a custom status line, have its command pass a copy of its input
+to `kiln accounts capture-agy`. Kiln records only quota fields. Run `/quota` in
+Antigravity to refresh its reading.
+
 An Antigravity child runs as `agy -p` and is listed as `working` until it exits. Antigravity reports its
 status in its own summary database, so an interactive `agy` session shows working or idle once its first
 prompt creates the conversation; before that it is listed without a status. `kiln msg view` has nothing

@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
 import { spendsAccount } from "./limit-scope";
-import { forgetReads, type QuotaAccount } from "./quota";
-import { routeNew, startLimitedUntil } from "./routing";
+import { forgetReads, type QuotaAccount, startLimitedUntil } from "./quota";
+import { routeNew } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
 import { claudeRefusedAt, headlessSpawn, moveClaude } from "./spawn";
@@ -143,7 +143,7 @@ export function availableAgain(quota: readonly QuotaAccount[], now = Date.now(),
       continue;
     }
     // A limit recorded with no known end has ended when the provider stops reporting it.
-    if (recorded === undefined || (Number.isFinite(recorded) && recorded > now)) continue;
+    if (account.source === "none" || recorded === undefined || (Number.isFinite(recorded) && recorded > now)) continue;
     try {
       unlinkSync(path);
     } catch {

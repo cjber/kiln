@@ -7,7 +7,7 @@ import {
   prepareHome,
   type Routing,
 } from "./accounts";
-import { type QuotaAccount, readQuota } from "./quota";
+import { type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import type { Agent } from "./sessions";
 
 /** Which account a new run uses: the environment that pins it (`unset` is a variable it must not inherit), and its name for display. */
@@ -18,35 +18,17 @@ export function routed(argv: string[], route: Pick<Route, "unset">): string[] {
   return route.unset ? ["env", "-u", route.unset, ...argv] : argv;
 }
 
-/** When the account has allowance again, if the provider says it has none now: a run found it spent, or a window is full. */
-export function limitedUntil(account: QuotaAccount, now: number): number | undefined {
-  const ends = [
-    account.spentUntil,
-    ...account.windows.filter((window) => window.percent >= 100).map((window) => window.resetsAt),
-  ].filter((at): at is number => at !== undefined && at > now);
-  if (ends.length) return Math.max(...ends);
-  // A full window with no reset time is not known to end.
-  return account.windows.some((window) => window.percent >= 100 && window.resetsAt === undefined)
-    ? Infinity
-    : undefined;
-}
-
-/**
- * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
- * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
- * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
- * a limit a run actually ended on, recorded as `spentUntil`, does.
- */
-export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
-  if (account.agent !== "opencode") return limitedUntil(account, now);
-  return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
-}
-
 export const atLimit = (account: QuotaAccount, now: number): boolean => startLimitedUntil(account, now) !== undefined;
+
+function describeLimit(account: QuotaAccount, now: number): string {
+  const until = startLimitedUntil(account, now);
+  const cause = until === account.spentUntil ? "recorded run limit" : "usage window full";
+  return until !== undefined && Number.isFinite(until) ? `${cause}, resets ${new Date(until).toISOString()}` : cause;
+}
 
 /** Spare allowance in the account's tightest window; an account whose provider reports no numbers ranks in the middle. */
 export function headroom(account: QuotaAccount): number {
-  return account.windows.length ? Math.min(...account.windows.map((window) => 100 - window.percent)) : 50;
+  return account.windows.length ? Math.max(0, Math.min(...account.windows.map((window) => 100 - window.percent))) : -1;
 }
 
 function routeFor(account: QuotaAccount, configured: readonly Account[]): Route {
@@ -95,7 +77,8 @@ export function chooseRoute(
     }
     if (found.disabled) throw new Error(`${agent} account ${requested} is disabled in kiln's config`);
     if (found.needsLogin) throw new Error(`${agent} account ${requested} is signed out; ${signIn(found)}`);
-    if (atLimit(found, now)) throw new Error(`${agent} account ${requested} is at its limit`);
+    if (atLimit(found, now))
+      throw new Error(`${agent} account ${requested} is at its limit (${describeLimit(found, now)})`);
     return routeFor(found, configured);
   }
   if (!own.length) return { env: {} };
@@ -113,8 +96,12 @@ export function chooseRoute(
     // An account with allowance left that this run already tried stopped on a limit of its own, such as one model's
     // weekly allowance, so only the accounts this run has not tried are the ones at their limit.
     const spent = usable.filter((account) => atLimit(account, now));
-    if (spent.length === usable.length) throw new Error(`every ${agent} account is at its limit${soonest}`);
-    throw new Error(`every other ${agent} account is at its limit${soonest}`);
+    const details = spent
+      .map((account) => `${account.name ?? defaultAccount}: ${describeLimit(account, now)}`)
+      .join("; ");
+    const reason = details ? ` (${details})` : "";
+    if (spent.length === usable.length) throw new Error(`every ${agent} account is at its limit${soonest}${reason}`);
+    throw new Error(`every other ${agent} account is at its limit${soonest}${reason}`);
   }
   return routeFor(best, configured);
 }
