@@ -92,7 +92,7 @@ function login(home: string, now: number): ClaudeLogin {
  * Ask Claude Code about the login in `home`: `claude auth status` renews a token it can and answers whether it is
  * signed in. kiln never writes a token itself. Undefined when Claude Code is missing or gave no answer.
  */
-async function askClaude(home: string): Promise<boolean | undefined> {
+export async function askClaude(home: string): Promise<boolean | undefined> {
   const claude = Bun.which("claude");
   if (!claude) return undefined;
   // `~/.claude` is Claude Code's home only with its variable unset. A launcher's own variable naming where the

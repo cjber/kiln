@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, st
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { claudeHome, defaultAccount, expandHome } from "./accounts";
+import { type Account, claudeHome, defaultAccount, expandHome } from "./accounts";
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
-import { recordClaudeLoginFailure } from "./claude-usage";
+import { askClaude, recordClaudeLoginFailure } from "./claude-usage";
 import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { spendsAccount } from "./limit-scope";
 import { detectLimit } from "./limits";
@@ -17,7 +17,7 @@ import { codexThreadId } from "./native-sessions";
 import { newOpencodeSessionId } from "./opencode";
 import { piExtensionPath } from "./pi-status";
 import { forgetReads, readQuota } from "./quota";
-import { type Route, routed, routeNew } from "./routing";
+import { type Route, routed, routeNew, signIn } from "./routing";
 import { forget, recordSpawn, restoreRow, type Saved, savedRow, spawnRecord } from "./saved-sessions";
 import { type Agent, agentName, agents, isFullName, listSessions, type Session, sessionIdentity } from "./sessions";
 import { loadSettings, type Settings } from "./settings";
@@ -297,14 +297,15 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 }
 
 /**
- * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only: the common git dir and,
- * for a linked worktree, its own admin dir under it. Fetch writes `FETCH_HEAD` at the common dir's root (from the
- * main checkout) and in the worktree's admin dir (from a linked one), and merge and commit write refs, objects and
- * logs under the common dir, so the common dir itself is granted: a grant names a directory, and `FETCH_HEAD`
- * sits directly in it. That also lets the child write the shared `config` and `hooks`, as a child that can move
- * any branch of the repository already can in effect, and it covers every linked worktree of the repository, so a
- * spawn in the main checkout (or in one linked worktree) can fetch, merge and commit in any of them. A directory
- * that is not in a repository has none.
+ * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only: for a linked worktree
+ * its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`), and in every case the common
+ * dir's `objects`, `refs` and `logs`, which fetch, merge and commit write. The common dir itself is never granted:
+ * Codex's `--add-dir` names directories only, so granting it would also make its `config` and `hooks` writable, and
+ * a hook or `core.fsmonitor` planted there runs unsandboxed in every later checkout. Root files of the common dir
+ * (`FETCH_HEAD`, `ORIG_HEAD`, `packed-refs` and their locks) therefore stay unwritable: from a linked worktree
+ * fetch and merge write those names in its own admin dir and work, but from the main checkout a fetch must use
+ * `git fetch --no-write-fetch-head`, a merge cannot write `ORIG_HEAD`, and `git pack-refs` or gc cannot rewrite
+ * `packed-refs`. A directory that is not in a repository has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -317,7 +318,8 @@ function worktreeMetadata(dir: string): string[] {
   if (found.exitCode !== 0) return [];
   const [own, common] = found.stdout.toString().trim().split("\n");
   if (!own || !common) return [];
-  return own === common ? [common] : [common, own];
+  const shared = ["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path));
+  return own === common ? shared : [own, ...shared];
 }
 
 /**
@@ -1042,38 +1044,20 @@ export const claudeRefusedAt = (id: string): number | undefined => claudeConvers
 export const resumedOnAccount =
   "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
 
-/** Whether a child's last output says its login failed, the one failure kiln reads from output text. */
-export function isAuthFailure(output: string | undefined): boolean {
-  return (
-    output !== undefined &&
-    /failed to authenticate|oauth session expired|could not be refreshed|authentication failed|invalid authentication credentials/i.test(
-      output,
-    )
-  );
-}
-
-/** The home of the Claude account a run was on, whose login an auth failure ends. */
-function claudeAccountHome(account: string | undefined, settings: Settings): string {
-  if (!account || account === defaultAccount) return claudeHome();
-  const found = settings.accounts.find((candidate) => candidate.agent === "claude" && candidate.name === account);
-  return found ? expandHome(found.home) : claudeHome();
-}
-
-/** How a signed-out Claude account is signed in again. */
-function claudeSignIn(account: string | undefined): string {
-  return !account || account === defaultAccount ? "sign in with claude auth login" : `run kiln login claude ${account}`;
-}
-
-/** What a child restarted after a login failure is told. */
-function authHandoffPrompt(record: Saved, resumed: boolean): string {
-  if (resumed)
-    return "Your previous run stopped because its account login had ended. Continue the task where you left off.";
-  return [
-    record.brief,
-    `A previous run of this task stopped because its claude account${record.account ? ` ${record.account}` : ""} login had ended. Continue from where it stopped, without redoing finished work.`,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+/**
+ * The Claude config home a run actually used, mirroring {@link spawnAgent}'s config dir: a named account's home,
+ * the default `~/.claude` when named accounts exist, else the `CLAUDE_CONFIG_DIR` kiln itself was started with.
+ * Undefined when the run named an account that is no longer in settings: that account is unknown, and no other
+ * home's login may be marked for it.
+ */
+export function claudeRunHome(account: string | undefined, accounts: readonly Account[]): string | undefined {
+  const named = accounts.filter((candidate) => candidate.agent === "claude");
+  if (account && account !== defaultAccount) {
+    const found = named.find((candidate) => candidate.name === account);
+    return found ? expandHome(found.home) : undefined;
+  }
+  if (named.length) return claudeHome();
+  return Bun.env.CLAUDE_CONFIG_DIR ? expandHome(Bun.env.CLAUDE_CONFIG_DIR) : claudeHome();
 }
 
 /** What a restarted child is told. */
@@ -1095,66 +1079,23 @@ function handoffPrompt(record: Saved, output: string | undefined, resumed: boole
  * output. Claude resumes the same conversation, since its accounts share one transcript store; Codex, Muse and
  * OpenCode keep conversations per account, so they start fresh with the original brief and the child's last output.
  */
-async function failOver(record: Saved, output: string | undefined, to: string): Promise<void> {
-  const settings = loadSettings();
-  // An auth failure ends the account's login: mark it first, so accounts and routing stop calling it usable
-  // (even when it has no quota windows), then restart on a usable account or say how to sign in again.
-  if (record.agent === "claude" && isAuthFailure(output)) {
-    recordClaudeLoginFailure(claudeAccountHome(record.account, settings));
-    forgetReads();
-    const identity = `${record.agent}:${record.id}`;
-    const account = record.account ?? defaultAccount;
-    const tried = [...(record.tried?.split(",").filter(Boolean) ?? []), account];
-    const stopped = `Child ${identity} stopped because its claude account ${account} login has ended.`;
-    let report: string;
-    try {
-      const route = await routeNew(record.agent, settings, { skip: tried, cwd: record.cwd });
-      const conversation = claudeConversation(record.id);
-      const resume = conversation
-        ? { id: record.id, codeMode: conversation.codeMode, title: conversation.title }
-        : undefined;
-      const child = await spawnAgent(
-        {
-          agent: record.agent,
-          dir: record.cwd,
-          title: record.title,
-          prompt: authHandoffPrompt(record, resume !== undefined),
-          account: route.name,
-          tried,
-          resume,
-          interactive: record.interactive,
-        },
-        to || undefined,
-      );
-      report = `${stopped} Restarted on ${route.name ?? "its next account"} as ${child}: ${
-        resume
-          ? "the same conversation resumed, since Claude accounts share their transcripts"
-          : "a fresh run given the original brief, since this agent keeps conversations per account"
-      }.`;
-    } catch (error) {
-      report = `${stopped} It was not restarted: claude account ${account} is signed out; ${claudeSignIn(record.account)} (${error instanceof Error ? error.message : String(error)})`;
-    }
-    if (!to) return;
-    try {
-      post(spawnReportSender(identity), to, report, undefined, undefined, `failover:${exitReportId(record)}`);
-      await flush([]);
-    } catch {
-      // The report stays in the mailbox for the parent to read.
-    }
-    return;
-  }
-  if (record.brief === undefined) return;
-  forgetReads();
-  const now = Date.now();
-  const quota = await readQuota(now, settings.accounts).catch(() => []);
-  const hit = detectLimit(record, now, quota);
-  if (!hit) return;
-  // A limit that refuses one model leaves the rest of the account working, so only a whole-account limit spends it.
-  if (hit.resetsAt !== undefined && spendsAccount(hit.limit)) recordSpent(record.agent, record.account, hit.resetsAt);
+/**
+ * Restart a stopped child on the next usable account and tell its parent which way it went: `stopped` says why
+ * it stopped, `promptFor` what the restarted child is told once it is known whether its conversation resumes,
+ * and `notRestarted` why a failed restart was not one. Claude resumes the same conversation, since its accounts
+ * share one transcript store; the other agents start fresh.
+ */
+async function restartOnNextAccount(
+  record: Saved,
+  settings: Settings,
+  to: string,
+  stopped: string,
+  promptFor: (resumed: boolean) => string,
+  notRestarted: (error: unknown) => string,
+  now?: number,
+): Promise<void> {
   const identity = `${record.agent}:${record.id}`;
   const tried = [...(record.tried?.split(",").filter(Boolean) ?? []), record.account ?? defaultAccount];
-  const reset = hit.resetsAt === undefined ? "" : `, which resets ${new Date(hit.resetsAt).toISOString()}`;
-  const stopped = `Child ${identity} stopped on the ${hit.limit?.label ?? "usage limit"} of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`;
   let report: string;
   try {
     const route = await routeNew(record.agent, settings, { skip: tried, now, cwd: record.cwd });
@@ -1167,7 +1108,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
         agent: record.agent,
         dir: record.cwd,
         title: record.title,
-        prompt: handoffPrompt(record, output, resume !== undefined),
+        prompt: promptFor(resume !== undefined),
         account: route.name,
         tried,
         resume,
@@ -1182,7 +1123,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
         : "a fresh run given the original brief and the child's last output, since this agent keeps conversations per account"
     }.`;
   } catch (error) {
-    report = `${stopped} It was not restarted: ${error instanceof Error ? error.message : String(error)}`;
+    report = `${stopped} It was not restarted: ${notRestarted(error)}`;
   }
   if (!to) return;
   try {
@@ -1191,4 +1132,57 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   } catch {
     // The report stays in the mailbox for the parent to read.
   }
+}
+
+async function failOver(record: Saved, output: string | undefined, to: string): Promise<void> {
+  // Only a spawn with its brief can be restarted; a record without one is reported, not replaced.
+  if (record.brief === undefined) return;
+  const settings = loadSettings();
+  // A Claude login is ended only when the CLI itself says so for the home the run used: pane text mentions
+  // authentication for many other reasons. Mark it first, so routing stops calling it usable (even when it has
+  // no quota windows), then restart on a usable account or say how to sign in again. An account no longer in
+  // settings is unknown: its home cannot be resolved, so nothing is asked or marked for it.
+  if (record.agent === "claude") {
+    const home = claudeRunHome(record.account, settings.accounts);
+    if (home !== undefined && (await askClaude(home)) === false) {
+      recordClaudeLoginFailure(home);
+      forgetReads();
+      const account = record.account ?? defaultAccount;
+      await restartOnNextAccount(
+        record,
+        settings,
+        to,
+        `Child ${record.agent}:${record.id} stopped because its claude account ${account} login has ended.`,
+        (resumed) =>
+          resumed
+            ? "Your previous run stopped because its account login had ended. Continue the task where you left off."
+            : [
+                record.brief,
+                `A previous run of this task stopped because its claude account${record.account ? ` ${record.account}` : ""} login had ended. Continue from where it stopped, without redoing finished work.`,
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+        (error) =>
+          `claude account ${account} is signed out; ${signIn({ agent: "claude", name: record.account })} (${error instanceof Error ? error.message : String(error)})`,
+      );
+      return;
+    }
+  }
+  forgetReads();
+  const now = Date.now();
+  const quota = await readQuota(now, settings.accounts).catch(() => []);
+  const hit = detectLimit(record, now, quota);
+  if (!hit) return;
+  // A limit that refuses one model leaves the rest of the account working, so only a whole-account limit spends it.
+  if (hit.resetsAt !== undefined && spendsAccount(hit.limit)) recordSpent(record.agent, record.account, hit.resetsAt);
+  const reset = hit.resetsAt === undefined ? "" : `, which resets ${new Date(hit.resetsAt).toISOString()}`;
+  await restartOnNextAccount(
+    record,
+    settings,
+    to,
+    `Child ${record.agent}:${record.id} stopped on the ${hit.limit?.label ?? "usage limit"} of its ${record.agent} account${record.account ? ` ${record.account}` : ""}${reset}.`,
+    (resumed) => handoffPrompt(record, output, resumed),
+    (error) => (error instanceof Error ? error.message : String(error)),
+    now,
+  );
 }
