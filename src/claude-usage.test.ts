@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   claudeNeedsLogin,
   claudeSignedIn,
+  claudeTokenHash,
   claudeUsage,
   forgetClaudeUsage,
   recordClaudeLoginFailure,
@@ -129,6 +130,40 @@ test("a child auth failure marks the login unusable, even with no quota window d
   expect(claudeNeedsLogin(now, expired.home, expired.state)).toBe(false);
   recordClaudeLoginFailure(expired.home, expired.state);
   expect(claudeNeedsLogin(now, expired.home, expired.state)).toBe(true);
+});
+
+test("a login failure is marked only for the token snapshotted before the check", () => {
+  const { home, state } = login();
+  const snapshot = claudeTokenHash(home);
+  expect(snapshot).toBeDefined();
+  // The same token is still there: the failure stands for it.
+  expect(recordClaudeLoginFailure(home, state, snapshot)).toBe(true);
+  expect(claudeNeedsLogin(now, home, state)).toBe(true);
+
+  // A different token written while the check ran is a fresh login: nothing is marked for it.
+  const raced = login();
+  const before = claudeTokenHash(raced.home);
+  writeFileSync(
+    join(raced.home, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "fresh", expiresAt: now + 3_600_000 } }),
+  );
+  expect(recordClaudeLoginFailure(raced.home, raced.state, before)).toBe(false);
+  expect(claudeNeedsLogin(now, raced.home, raced.state)).toBe(false);
+
+  // No token then, a token now: also a login completed in between, so nothing is marked.
+  const absent = login();
+  writeFileSync(join(absent.home, ".credentials.json"), JSON.stringify({ claudeAiOauth: {} }));
+  expect(claudeTokenHash(absent.home)).toBeUndefined();
+  writeFileSync(
+    join(absent.home, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "fresh", expiresAt: now + 3_600_000 } }),
+  );
+  expect(recordClaudeLoginFailure(absent.home, absent.state, null)).toBe(false);
+  expect(claudeNeedsLogin(now, absent.home, absent.state)).toBe(false);
+  // No token then or now: the failure still stands.
+  const empty = login();
+  writeFileSync(join(empty.home, ".credentials.json"), JSON.stringify({ claudeAiOauth: {} }));
+  expect(recordClaudeLoginFailure(empty.home, empty.state, null)).toBe(true);
 });
 
 test("a usage 401 is treated as an expired token and a failed renewal needs login", async () => {

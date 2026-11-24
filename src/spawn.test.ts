@@ -1403,14 +1403,16 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
     // Only the subdirectories a commit writes are granted, never the common dir itself: its config and hooks
-    // would run unsandboxed later. The grant applies in the main checkout too (#338).
+    // would run unsandboxed later. The grant applies only in a linked worktree: from the main checkout
+    // git add, commit and fetch write root files of the common dir (index, FETCH_HEAD), which a
+    // directory grant cannot name, so no partial grant is made there (#338).
     const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
       join(common, "worktrees", "tree"),
       ...shared,
     ]);
-    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox", ...shared]);
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",
@@ -1464,6 +1466,9 @@ test("claudeRunHome resolves the home a run actually used", () => {
     Bun.env.CLAUDE_CONFIG_DIR = "/tmp/env-home";
     expect(claudeRunHome(undefined, [])).toBe("/tmp/env-home");
     expect(claudeRunHome("default", [])).toBe("/tmp/env-home");
+    // An unnamed run is the env route spawnAgent used, even when named accounts exist: a quota
+    // read that failed leaves the route unnamed, and it runs in CLAUDE_CONFIG_DIR, not ~/.claude.
+    expect(claudeRunHome(undefined, accounts)).toBe("/tmp/env-home");
   } finally {
     if (saved === undefined) delete Bun.env.CLAUDE_CONFIG_DIR;
     else Bun.env.CLAUDE_CONFIG_DIR = saved;
@@ -1523,6 +1528,75 @@ test("a Claude child that dies on an expired login marks its account and is not 
     const messages = takeUnread("claude:parent");
     expect(messages.map((message) => message.body).join("\n")).toContain("jenny");
     expect(messages.map((message) => message.body).join("\n")).toContain("kiln login claude jenny");
+  } finally {
+    auth.mockRestore();
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
+  }
+});
+
+test("a login completed while Claude Code is asked is not recorded as failed (#337)", async () => {
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+  };
+  const root = join(paneDir, "auth-race");
+  const jenny = join(root, "jenny");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  writeFileSync(
+    join(jenny, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "old-token", expiresAt: Date.now() + 3_600_000 } }),
+  );
+  // The answer is for the old login; signing in again completes while the ask is in flight, so a
+  // later ask (the quota read below) finds the fresh login signed in.
+  let asks = 0;
+  const auth = spyOn(claudeUsage, "askClaude").mockImplementation(async () => {
+    if (asks++ > 0) return true;
+    writeFileSync(
+      join(jenny, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "fresh-token", expiresAt: Date.now() + 3_600_000 } }),
+    );
+    return false;
+  });
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  const name = "auth-race-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(start(name, paneDir, ["sh", "-c", "exit 1"], "auth race", true)).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-race-conversation",
+      cwd: paneDir,
+      title: "auth race",
+      startedAt: Date.now(),
+      pane: name,
+      account: "jenny",
+      brief: "do the work",
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(false);
+    const bodies = takeUnread("claude:parent")
+      .map((message) => message.body)
+      .join("\n");
+    expect(bodies).not.toContain("login has ended");
   } finally {
     auth.mockRestore();
     discovery.mockRestore();

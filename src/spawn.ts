@@ -6,7 +6,7 @@ import { type Account, claudeHome, defaultAccount, expandHome } from "./accounts
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
-import { askClaude, recordClaudeLoginFailure } from "./claude-usage";
+import { askClaude, claudeTokenHash, recordClaudeLoginFailure } from "./claude-usage";
 import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { spendsAccount } from "./limit-scope";
 import { detectLimit } from "./limits";
@@ -40,7 +40,8 @@ import {
 } from "./tmux";
 import { readTranscript } from "./transcript";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>`;
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
+       a Codex worker that must run git commands spawns with --dir at its linked worktree, not at the main checkout`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -297,15 +298,18 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 }
 
 /**
- * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only: for a linked worktree
- * its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`), and in every case the common
- * dir's `objects`, `refs` and `logs`, which fetch, merge and commit write. The common dir itself is never granted:
- * Codex's `--add-dir` names directories only, so granting it would also make its `config` and `hooks` writable, and
- * a hook or `core.fsmonitor` planted there runs unsandboxed in every later checkout. Root files of the common dir
- * (`FETCH_HEAD`, `ORIG_HEAD`, `packed-refs` and their locks) therefore stay unwritable: from a linked worktree
- * fetch and merge write those names in its own admin dir and work, but from the main checkout a fetch must use
- * `git fetch --no-write-fetch-head`, a merge cannot write `ORIG_HEAD`, and `git pack-refs` or gc cannot rewrite
- * `packed-refs`. A directory that is not in a repository has none.
+ * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. Only a linked
+ * worktree gets a grant: its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
+ * plus the common dir's `objects`, `refs` and `logs`, which fetch, merge and commit write, so a worker
+ * spawned with `--dir` at its linked worktree can fetch, merge and commit there. The common dir itself
+ * is never granted: Codex's `--add-dir` names directories only, so granting it would also make its
+ * `config` and `hooks` writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every
+ * later checkout, and the common `worktrees/` dir is never granted either, since it holds every sibling
+ * worktree's admin dir. From the main checkout there is no grant: `git add` and commit write the common
+ * dir's root `index` and lock, and fetch writes its root `FETCH_HEAD`, and a directory grant cannot name
+ * single files, so the partial grant of `objects`, `refs` and `logs` alone enabled no git operation
+ * there. A worker that must run git therefore spawns with `--dir` at its linked worktree, not at the
+ * main checkout. A directory that is not in a repository has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -317,14 +321,14 @@ function worktreeMetadata(dir: string): string[] {
   );
   if (found.exitCode !== 0) return [];
   const [own, common] = found.stdout.toString().trim().split("\n");
-  if (!own || !common) return [];
+  if (!own || !common || own === common) return [];
   const shared = ["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path));
-  return own === common ? shared : [own, ...shared];
+  return [own, ...shared];
 }
 
 /**
  * The directories a child's agent sandbox must let it write besides its own: the outbox it sends
- * from, and for Codex the worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
+ * from, and for Codex a linked worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
  * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
  * commands unsandboxed.
  */
@@ -1046,9 +1050,11 @@ export const resumedOnAccount =
 
 /**
  * The Claude config home a run actually used, mirroring {@link spawnAgent}'s config dir: a named account's home,
- * the default `~/.claude` when named accounts exist, else the `CLAUDE_CONFIG_DIR` kiln itself was started with.
- * Undefined when the run named an account that is no longer in settings: that account is unknown, and no other
- * home's login may be marked for it.
+ * the default `~/.claude` when named accounts exist, and for an unnamed run the `CLAUDE_CONFIG_DIR` kiln itself
+ * was started with, whether or not named accounts exist. An unnamed run is the route {@link routeNew} leaves
+ * unnamed when its quota read fails, and {@link spawnAgent} runs it in that config dir. Undefined when the run
+ * named an account that is no longer in settings: that account is unknown, and no other home's login may be
+ * marked for it.
  */
 export function claudeRunHome(account: string | undefined, accounts: readonly Account[]): string | undefined {
   const named = accounts.filter((candidate) => candidate.agent === "claude");
@@ -1056,6 +1062,7 @@ export function claudeRunHome(account: string | undefined, accounts: readonly Ac
     const found = named.find((candidate) => candidate.name === account);
     return found ? expandHome(found.home) : undefined;
   }
+  if (account === undefined) return Bun.env.CLAUDE_CONFIG_DIR ? expandHome(Bun.env.CLAUDE_CONFIG_DIR) : claudeHome();
   if (named.length) return claudeHome();
   return Bun.env.CLAUDE_CONFIG_DIR ? expandHome(Bun.env.CLAUDE_CONFIG_DIR) : claudeHome();
 }
@@ -1073,12 +1080,6 @@ function handoffPrompt(record: Saved, output: string | undefined, resumed: boole
     .join("\n\n");
 }
 
-/**
- * A child that exited on its account's usage limit is started again on the next account with headroom, and its parent is
- * told which way it went. The limit is read from the provider's signal ({@link detectLimit}), never from the child's
- * output. Claude resumes the same conversation, since its accounts share one transcript store; Codex, Muse and
- * OpenCode keep conversations per account, so they start fresh with the original brief and the child's last output.
- */
 /**
  * Restart a stopped child on the next usable account and tell its parent which way it went: `stopped` says why
  * it stopped, `promptFor` what the restarted child is told once it is known whether its conversation resumes,
@@ -1144,8 +1145,14 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   // settings is unknown: its home cannot be resolved, so nothing is asked or marked for it.
   if (record.agent === "claude") {
     const home = claudeRunHome(record.account, settings.accounts);
-    if (home !== undefined && (await askClaude(home)) === false) {
-      recordClaudeLoginFailure(home);
+    // The ask can take up to 30 s, so the token is snapshotted first: a login completed while it
+    // ran writes a different token, and that fresh login is not the failure the ask answered for.
+    const snapshot = home === undefined ? undefined : (claudeTokenHash(home) ?? null);
+    if (
+      home !== undefined &&
+      (await askClaude(home)) === false &&
+      recordClaudeLoginFailure(home, undefined, snapshot)
+    ) {
       forgetReads();
       const account = record.account ?? defaultAccount;
       await restartOnNextAccount(
