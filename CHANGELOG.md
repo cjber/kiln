@@ -9,7 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
-- **Kiln shows every harness and account in its usage list.** Missing usage is marked unknown, and the footer identifies Codex session history and OpenCode Go readings.
+- **Kiln shows every harness and account in its usage list.** Missing usage is marked unknown, and the footer identifies Codex session history and OpenCode Go readings. Muse usage comes from its native quota command, and shared history is used for refusals only when there is one Muse account.
+- **Claude sign-in checks follow the current login.** A renewal result from an old login no longer marks its replacement as signed out.
 
 ## [0.37.5] - 2026-11-24
 

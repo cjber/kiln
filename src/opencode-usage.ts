@@ -16,7 +16,7 @@ const usageUrl = "https://opencode.ai/zen/go/v1/usage";
 type GoWindow = { status: "ok" | "rate-limited"; percent: number; resetsAt: string };
 type GoUsage = { usage: { rolling: GoWindow; weekly: GoWindow; monthly: GoWindow } };
 
-export type OpencodeAllowance = { windows: QuotaWindow[] };
+export type OpencodeAllowance = { windows: QuotaWindow[]; fetchedAt?: number };
 
 /**
  * The windows of a Go usage response, for display and headroom only. A window the provider marks rate-limited does
@@ -85,7 +85,10 @@ export async function opencodeAllowance(
         signal: AbortSignal.timeout(8000),
       });
       // 403 is the provider saying this workspace has no Go plan.
-      if (response.ok) allowance = parseGoUsage(await response.json());
+      if (response.ok) {
+        const parsed = parseGoUsage(await response.json());
+        if (parsed) allowance = { ...parsed, fetchedAt: now };
+      }
     } catch {
       // Offline or slow: the footer shows the account without numbers until the next read.
     }

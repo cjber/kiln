@@ -97,7 +97,7 @@ test("an expired token is Claude Code's to renew, asked at most every half hour,
   writeFileSync(
     join(home, ".credentials.json"),
     JSON.stringify({
-      claudeAiOauth: { accessToken: "token", expiresAt: now + 2 * 3_600_000, refreshToken: "refresh" },
+      claudeAiOauth: { accessToken: "renewed", expiresAt: now + 2 * 3_600_000, refreshToken: "refresh" },
     }),
   );
   expect(claudeNeedsLogin(now + 32 * 60_000, home, state)).toBe(false);
@@ -174,4 +174,38 @@ test("a usage 401 is treated as an expired token and a failed renewal needs logi
   expect(await claudeUsage(now, home, state, provider(401).request, renew)).toEqual(good);
   await Bun.sleep(0);
   expect(claudeNeedsLogin(now, home, state)).toBe(true);
+});
+
+test("a renewal failure cannot sign out the replacement token", async () => {
+  forgetClaudeUsage(0);
+  const { home, state } = login();
+  const reply = Promise.withResolvers<boolean>();
+  await claudeUsage(now, home, state, provider(401).request, () => reply.promise);
+  writeFileSync(
+    join(home, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "replacement", expiresAt: now - 1, refreshToken: "replacement-refresh" },
+    }),
+  );
+  reply.resolve(false);
+  await Bun.sleep(0);
+
+  expect(claudeNeedsLogin(now, home, state)).toBe(false);
+});
+
+test("a successful renewal immediately rechecks usage using the renewed token", async () => {
+  forgetClaudeUsage(0);
+  const { home, state } = login();
+  const reply = Promise.withResolvers<boolean>();
+  const { asked, request } = provider();
+  await claudeUsage(now, home, state, provider(401).request, () => reply.promise);
+  writeFileSync(
+    join(home, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "renewed", expiresAt: now + 3_600_000 } }),
+  );
+  reply.resolve(true);
+  await Bun.sleep(0);
+
+  expect((await claudeUsage(now + 1, home, state, request))?.fetchedAt).toBe(now + 1);
+  expect(asked[0]?.get("authorization")).toBe("Bearer renewed");
 });

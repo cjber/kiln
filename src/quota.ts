@@ -5,6 +5,7 @@ import { type Account, defaultAccount } from "./accounts";
 import { claudeNeedsLogin, claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
 import { codexHome, codexRateLimits } from "./codex";
 import { museRecentLimit } from "./muse-limit";
+import { forgetMuseAllowances, museAllowance } from "./muse-usage";
 import { forgetAllowances, opencodeAllowance } from "./opencode-usage";
 import type { Agent } from "./sessions";
 import { spentUntil } from "./spent";
@@ -28,7 +29,7 @@ export type QuotaAccount = {
   /** When the provider's numbers were read, ms; absent when they are live. */
   fetchedAt?: number;
   /** Where the numbers came from, for diagnosing a wrong one. */
-  source: "claude-usage" | "codex-daemon" | "codex-rollout" | "opencode-go" | "none";
+  source: "claude-usage" | "codex-daemon" | "codex-rollout" | "muse-usage" | "opencode-go" | "none";
 };
 
 const staleMs = 30 * 60_000;
@@ -131,8 +132,7 @@ export async function codexAccount(now: number, home?: string): Promise<QuotaAcc
 /**
  * Every agent account's plan usage, as its provider reports it. Claude's comes from the usage meter Claude Code's own
  * `/usage` view reads, for each config dir that is signed in. OpenCode Go's allowance comes from the usage
- * endpoint OpenCode's own Console view reads. Muse publishes none kiln can read (`muse usage` answers
- * `server_sent_no_usage`), so it is listed without numbers rather than guessed.
+ * endpoint OpenCode's own Console view reads. Muse comes from its native usage command.
  */
 export async function readQuota(now = Date.now(), accounts: readonly Account[] = []): Promise<QuotaAccount[]> {
   const named = (agent: Account["agent"]) => accounts.filter((account) => account.agent === agent);
@@ -142,20 +142,25 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     ...named("codex").map((account) => codexAccount(now, account.home)),
   ]);
   const codexNames = named("codex").length ? [defaultAccount, ...named("codex").map((account) => account.name)] : [];
-  // Muse's sessions stay in its default data home whatever account ran them, so its recent limit is the default's.
-  const museLimit = museRecentLimit(now);
-  const withoutNumbers = (agent: "muse"): QuotaAccount[] =>
-    (named(agent).length ? [defaultAccount, ...named(agent).map((account) => account.name)] : [undefined]).map(
-      (name) => ({
-        agent,
+  const museNamed = named("muse");
+  // Shared history cannot identify the account once more than one login can run Muse.
+  const museLimit = museNamed.length ? undefined : museRecentLimit(now);
+  const muse = await Promise.all(
+    [
+      { name: museNamed.length ? defaultAccount : undefined, home: undefined },
+      ...museNamed.map((account) => ({ name: account.name, home: account.home })),
+    ].map(async ({ name, home }): Promise<QuotaAccount> => {
+      const allowance = await museAllowance(now, home);
+      return {
+        agent: "muse",
         name,
-        windows: [],
-        ...(museLimit?.resetsAt !== undefined && (name === undefined || name === defaultAccount)
-          ? { spentUntil: museLimit.resetsAt }
-          : {}),
-        source: "none" as const,
-      }),
-    );
+        windows: current(allowance?.windows ?? [], now),
+        fetchedAt: allowance?.fetchedAt,
+        ...(museLimit?.resetsAt === undefined ? {} : { spentUntil: museLimit.resetsAt }),
+        source: allowance ? "muse-usage" : "none",
+      };
+    }),
+  );
   const opencodeHomes = [
     { name: named("opencode").length ? defaultAccount : undefined, home: undefined },
     ...named("opencode").map((account) => ({ name: account.name, home: account.home })),
@@ -168,6 +173,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
         name,
         windows: current(allowance?.windows ?? [], now),
         source: allowance ? "opencode-go" : "none",
+        fetchedAt: allowance?.fetchedAt,
       };
     }),
   );
@@ -200,7 +206,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
         name: codexNames[index],
       }),
     ),
-    ...withoutNumbers("muse"),
+    ...muse,
     ...opencode,
     { agent: "agy", windows: [], source: "none" },
     { agent: "pi", windows: [], source: "none" },
@@ -216,6 +222,7 @@ export function forgetReads(): void {
   forgetClaudeUsage();
   codexReads.clear();
   forgetAllowances();
+  forgetMuseAllowances();
 }
 
 export type FooterSegment = { text: string; fg: string };

@@ -169,7 +169,7 @@ export function claudeNeedsLogin(now: number, home = claudeHome(), dir = stateDi
   const read = readFile(statePath(home, dir));
   return (
     current.state === "needsLogin" ||
-    (current.state === "expired" && read?.loggedOut === true) ||
+    (current.state === "expired" && read?.loggedOut === true && read.tokenHash === claudeTokenHash(home)) ||
     (current.state === "ok" && read?.loggedOut === true && read.tokenHash === tokenHash(current.token))
   );
 }
@@ -234,24 +234,27 @@ export async function claudeUsage(
   const last = readFile(path);
   if (last && now - last.askedAt < everyMs && last.askedAt >= staleBefore) return last.usage;
   const current = login(home, now);
-  const beginRenewal = (renewedAt: number, prior: Read | undefined, currentTokenHash?: string): boolean => {
-    if (renewedAt - (prior?.renewedAt ?? 0) < renewEveryMs || !renewing(path, renewedAt)) return false;
+  const beginRenewal = (snapshot: string | undefined): void => {
+    if (now - (last?.renewedAt ?? 0) < renewEveryMs || !renewing(path, now)) return;
     write(path, {
-      ...prior,
-      askedAt: prior?.askedAt ?? 0,
-      renewedAt,
-      // A verdict on an earlier token says nothing about this one; only renewing this token can set it again.
-      ...(currentTokenHash ? { tokenHash: currentTokenHash, loggedOut: undefined } : {}),
+      ...last,
+      askedAt: last?.askedAt ?? 0,
+      renewedAt: now,
+      tokenHash: snapshot,
+      loggedOut: last?.tokenHash === snapshot ? last?.loggedOut : undefined,
     });
     void renew(home)
       .then((loggedIn) => {
-        if (loggedIn !== undefined) write(path, { askedAt: 0, ...readFile(path), loggedOut: !loggedIn });
+        if (loggedIn === undefined || (!loggedIn && claudeTokenHash(home) !== snapshot)) return;
+        const state = readFile(path);
+        if (state?.renewedAt !== now || state.tokenHash !== snapshot) return;
+        // A successful renewal can replace the token. Refresh usage on the next read.
+        write(path, { ...state, askedAt: 0, loggedOut: !loggedIn });
       })
       .finally(() => rmSync(`${path}.renewing`, { force: true }));
-    return true;
   };
   if (current.state !== "ok") {
-    if (current.state === "expired") beginRenewal(now, last);
+    if (current.state === "expired") beginRenewal(claudeTokenHash(home));
     return last?.usage;
   }
   if (last?.loggedOut === true && last.tokenHash === tokenHash(current.token)) return last.usage;
@@ -266,14 +269,16 @@ export async function claudeUsage(
         "User-Agent": "kiln",
       },
     });
-    if (response.status === 401) beginRenewal(now, last, tokenHash(current.token));
-    const windows = response.ok ? parseClaudeUsage(await response.json()) : undefined;
-    if (windows) usage = { windows, fetchedAt: now };
     if (response.status === 401) {
+      const snapshot = tokenHash(current.token);
+      if (claudeTokenHash(home) !== snapshot) return readFile(path)?.usage;
+      beginRenewal(snapshot);
       const state = readFile(path);
       write(path, { ...state, askedAt: now, usage });
       return usage;
     }
+    const windows = response.ok ? parseClaudeUsage(await response.json()) : undefined;
+    if (windows) usage = { windows, fetchedAt: now };
   } catch {
     // A request that failed leaves the last good read standing.
   }
