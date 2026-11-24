@@ -7,7 +7,7 @@ import {
   prepareHome,
   type Routing,
 } from "./accounts";
-import { type QuotaAccount, readQuota } from "./quota";
+import { type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import type { Agent } from "./sessions";
 
 /** Which account a new run uses: the environment that pins it (`unset` is a variable it must not inherit), and its name for display. */
@@ -16,30 +16,6 @@ export type Route = { name?: string; env: Record<string, string>; unset?: string
 /** `argv` run without the variable the route takes away. tmux can only add to a pane's environment, so `env` removes it. */
 export function routed(argv: string[], route: Pick<Route, "unset">): string[] {
   return route.unset ? ["env", "-u", route.unset, ...argv] : argv;
-}
-
-/** When the account has allowance again, if the provider says it has none now: a run found it spent, or a window is full. */
-export function limitedUntil(account: QuotaAccount, now: number): number | undefined {
-  const ends = [
-    account.spentUntil,
-    ...account.windows.filter((window) => window.percent >= 100).map((window) => window.resetsAt),
-  ].filter((at): at is number => at !== undefined && at > now);
-  if (ends.length) return Math.max(...ends);
-  // A full window with no reset time is not known to end.
-  return account.windows.some((window) => window.percent >= 100 && window.resetsAt === undefined)
-    ? Infinity
-    : undefined;
-}
-
-/**
- * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
- * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
- * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
- * a limit a run actually ended on, recorded as `spentUntil`, does. Antigravity buckets cover model groups, so a full bucket cannot establish that every model is blocked.
- */
-export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
-  if (account.agent !== "opencode" && account.agent !== "agy") return limitedUntil(account, now);
-  return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
 }
 
 export const atLimit = (account: QuotaAccount, now: number): boolean => startLimitedUntil(account, now) !== undefined;
@@ -52,7 +28,7 @@ function describeLimit(account: QuotaAccount, now: number): string {
 
 /** Spare allowance in the account's tightest window; an account whose provider reports no numbers ranks in the middle. */
 export function headroom(account: QuotaAccount): number {
-  return account.windows.length ? Math.min(...account.windows.map((window) => 100 - window.percent)) : 50;
+  return account.windows.length ? Math.max(0, Math.min(...account.windows.map((window) => 100 - window.percent))) : -1;
 }
 
 function routeFor(account: QuotaAccount, configured: readonly Account[]): Route {

@@ -11,14 +11,14 @@ type UsageResponse = {
 
 export type MuseAllowance = { windows: QuotaWindow[]; fetchedAt?: number; tier?: string };
 
-/** Muse's native usage response. Its rolling window does not specify a duration. */
+/** Muse's native usage response. */
 export function parseMuseUsage(body: unknown): MuseAllowance | undefined {
   const response = body as UsageResponse | null;
   const allowance = response?.allowance;
   if (response?.schemaVersion !== 1 || !allowance) return undefined;
   const windows: QuotaWindow[] = [];
   for (const [label, meter] of [
-    ["rolling", allowance.window],
+    ["5h", allowance.window],
     ["wk", allowance.weekly],
   ] as const) {
     if (typeof meter?.usedPercent !== "number" || !Number.isFinite(meter.usedPercent)) continue;

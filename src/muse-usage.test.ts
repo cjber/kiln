@@ -19,7 +19,7 @@ test("Muse usage preserves both provider windows and their snapshot time", () =>
     fetchedAt: 1_795_528_432_820,
     tier: "Muse Code Power Usage",
     windows: [
-      { label: "rolling", percent: 83, resetsAt: 1_795_531_372_000 },
+      { label: "5h", percent: 83, resetsAt: 1_795_531_372_000 },
       { label: "wk", percent: 98, resetsAt: 1_795_996_800_000 },
     ],
   });

@@ -71,6 +71,8 @@ const demoQuota: QuotaAccount[] = [
     windows: [window("5h", 12, 2), window("wk", 30, 60), window("mo", 41, 300)],
     source: "opencode-go",
   },
+  { agent: "agy", windows: [], source: "none" },
+  { agent: "pi", windows: [], source: "none" },
 ];
 
 const demo: Session[] = [

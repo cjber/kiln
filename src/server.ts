@@ -30,8 +30,7 @@ import type { Pairing } from "./pairing";
 import { phoneHandoff } from "./phone-links";
 import { moves, parsePrompt } from "./prompt";
 import { failingAlerts, type PushAlert, pushTarget, sendPush } from "./push";
-import { type QuotaAccount, readQuota } from "./quota";
-import { startLimitedUntil } from "./routing";
+import { type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import { reparent } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import {
@@ -685,9 +684,13 @@ export function startServer({
     for (const account of accounts) {
       if (account.needsLogin) continue;
       const key = `${account.agent}:${account.name ?? ""}`;
+      if (startLimitedUntil(account, at) !== undefined) {
+        now.add(key);
+        continue;
+      }
+      if (account.source === "none") continue;
       now.delete(key);
-      if (startLimitedUntil(account, at) !== undefined) now.add(key);
-      else if (spent.has(key))
+      if (spent.has(key))
         pushAll({
           v: 1,
           host: snapshot.host,

@@ -166,6 +166,7 @@ test("a session listed on another account, and an account with allowance again, 
   pairing.setPush(paired.device.id, { endpoint: "https://push.example/x", p256dh: "k", auth: "a", machine: "m" });
   let account = "work";
   let spentUntil: number | undefined = 4_000_000_000_000;
+  let usageKnown = false;
   let reads = 0;
   const pushed: PushAlert[] = [];
   const server = startServer({
@@ -182,7 +183,15 @@ test("a session listed on another account, and an account with allowance again, 
     },
     quota: async () => {
       reads++;
-      return [{ agent: "claude", name: "work", windows: [], spentUntil, source: "none" }];
+      return [
+        {
+          agent: "claude",
+          name: "work",
+          windows: usageKnown ? [{ label: "wk", percent: 20 }] : [],
+          spentUntil,
+          source: usageKnown ? "claude-usage" : "none",
+        },
+      ];
     },
     discover: async () => ({
       sessions: [
@@ -210,6 +219,10 @@ test("a session listed on another account, and an account with allowance again, 
     expect(pushed.filter((alert) => alert.transition === "moved" || alert.transition === "available")).toEqual([]);
     account = "home";
     spentUntil = undefined;
+    const before = reads;
+    await until(() => reads > before + 1);
+    expect(pushed.some((alert) => alert.transition === "available")).toBe(false);
+    usageKnown = true;
     await until(() => ["moved", "available"].every((kind) => pushed.some((alert) => alert.transition === kind)));
     expect(pushed.filter((alert) => alert.transition === "moved")).toMatchObject([
       { session: "claude:one", title: "Fix", agent: "claude", account: "home" },

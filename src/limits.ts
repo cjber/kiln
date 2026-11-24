@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { findClaudeTranscript } from "./claude-inbox";
 import { type LimitHit, museLimit } from "./muse-limit";
-import type { QuotaAccount } from "./quota";
-import { startLimitedUntil } from "./routing";
+import { type QuotaAccount, startLimitedUntil } from "./quota";
 import type { Agent } from "./sessions";
 import { limitRecord } from "./transcript";
 

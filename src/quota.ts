@@ -34,6 +34,27 @@ export type QuotaAccount = {
   agyBuckets?: AgyBucket[];
 };
 
+/** When the account has allowance again, if the provider says it has none now: a run found it spent, or a window is full. */
+function limitedUntil(account: QuotaAccount, now: number): number | undefined {
+  if (account.windows.some((window) => window.percent >= 100 && window.resetsAt === undefined)) return Infinity;
+  const ends = [
+    account.spentUntil,
+    ...account.windows.filter((window) => window.percent >= 100).map((window) => window.resetsAt),
+  ].filter((at): at is number => at !== undefined && at > now);
+  return ends.length ? Math.max(...ends) : undefined;
+}
+
+/**
+ * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
+ * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
+ * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
+ * a limit a run actually ended on, recorded as `spentUntil`, does. Antigravity buckets cover model groups, so a full bucket cannot establish that every model is blocked.
+ */
+export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
+  if (account.agent !== "opencode" && account.agent !== "agy") return limitedUntil(account, now);
+  return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
+}
+
 const staleMs = 30 * 60_000;
 
 function windowLabel(minutes: number | null | undefined): string {
@@ -139,7 +160,7 @@ export async function codexAccount(now: number, home?: string): Promise<QuotaAcc
 export async function readQuota(now = Date.now(), accounts: readonly Account[] = []): Promise<QuotaAccount[]> {
   const named = (agent: Account["agent"]) => accounts.filter((account) => account.agent === agent);
   // An agent with configured accounts names its own home too, so every row says which login it is.
-  const codex = await Promise.all([
+  const codexRead = Promise.all([
     codexAccount(now),
     ...named("codex").map((account) => codexAccount(now, account.home)),
   ]);
@@ -147,18 +168,25 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
   const museNamed = named("muse");
   // Shared history cannot identify the account once more than one login can run Muse.
   const museLimit = museNamed.length ? undefined : museRecentLimit(now);
-  const muse = await Promise.all(
+  const museRead = Promise.all(
     [
       { name: museNamed.length ? defaultAccount : undefined, home: undefined },
       ...museNamed.map((account) => ({ name: account.name, home: account.home })),
     ].map(async ({ name, home }): Promise<QuotaAccount> => {
       const allowance = await museAllowance(now, home);
+      const windows = current(allowance?.windows ?? [], now);
+      const confirmedHeadroom =
+        allowance?.fetchedAt !== undefined &&
+        museLimit?.observedAt !== undefined &&
+        allowance.fetchedAt > museLimit.observedAt &&
+        windows.some((window) => window.label === "5h" && window.percent < 100) &&
+        windows.some((window) => window.label === "wk" && window.percent < 100);
       return {
         agent: "muse",
         name,
-        windows: current(allowance?.windows ?? [], now),
+        windows,
         fetchedAt: allowance?.fetchedAt,
-        ...(museLimit?.resetsAt === undefined ? {} : { spentUntil: museLimit.resetsAt }),
+        ...(confirmedHeadroom || museLimit?.resetsAt === undefined ? {} : { spentUntil: museLimit.resetsAt }),
         source: allowance ? "muse-usage" : "none",
       };
     }),
@@ -167,7 +195,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     { name: named("opencode").length ? defaultAccount : undefined, home: undefined },
     ...named("opencode").map((account) => ({ name: account.name, home: account.home })),
   ];
-  const opencode = await Promise.all(
+  const opencodeRead = Promise.all(
     opencodeHomes.map(async ({ name, home }): Promise<QuotaAccount> => {
       const allowance = await opencodeAllowance(now, home);
       return {
@@ -186,7 +214,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       : { name: undefined, home: Bun.env.CLAUDE_CONFIG_DIR || undefined },
     ...named("claude").map((account) => ({ name: account.name, home: account.home })),
   ];
-  const claude = await Promise.all(
+  const claudeRead = Promise.all(
     claudeHomes.map(async ({ name, home }): Promise<QuotaAccount> => {
       if (!claudeSignedIn(home))
         return { agent: "claude", name, windows: [], source: "none", ...(name ? { needsLogin: true } : {}) };
@@ -201,6 +229,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       };
     }),
   );
+  const [codex, muse, opencode, claude] = await Promise.all([codexRead, museRead, opencodeRead, claudeRead]);
   const agy = agyUsage();
   const listed = [
     ...claude,
@@ -271,8 +300,11 @@ export function quotaFooter(accounts: readonly QuotaAccount[], now: number): Foo
         lines.push(line);
         continue;
       }
-      if (account.spentUntil !== undefined)
-        line.push({ text: ` spent ↻${resetDay(account.spentUntil)}`, fg: color.red });
+      const until = startLimitedUntil(account, now);
+      if (until !== undefined) {
+        const reset = Number.isFinite(until) ? ` ↻${resetDay(until)}` : "";
+        line.push({ text: ` spent${reset}`, fg: color.red });
+      }
       for (const window of account.windows) {
         const reset = window.percent >= 85 && window.resetsAt ? ` ↻${untilReset(window.resetsAt, now)}` : "";
         line.push({
@@ -282,7 +314,8 @@ export function quotaFooter(accounts: readonly QuotaAccount[], now: number): Foo
       }
       if (!account.windows.length) line.push({ text: " usage unknown", fg: color.comment });
       else if (account.source === "codex-rollout") line.push({ text: " (session history)", fg: color.comment });
-      else if (account.source === "opencode-go") line.push({ text: " (Go)", fg: color.comment });
+      else if (account.source === "opencode-go")
+        line.push({ text: until === undefined ? " (Go, launch allowed)" : " (Go)", fg: color.comment });
       lines.push(line);
     }
   }

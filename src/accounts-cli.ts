@@ -4,8 +4,7 @@ import { join, resolve } from "node:path";
 
 import { type Account, accountDisabled, claudeHome, defaultAccount } from "./accounts";
 import { recordAgyUsage } from "./agy-usage";
-import { type QuotaAccount, readQuota } from "./quota";
-import { startLimitedUntil } from "./routing";
+import { type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
 import { clearSpent } from "./spent";
 

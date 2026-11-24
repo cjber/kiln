@@ -81,7 +81,7 @@ test("mclaude accounts not yet listed are adopted under their login's name, a ta
 
 test("a full window with no reset time is spent with no time to print", () => {
   const rows = accountRows(
-    [{ agent: "codex", windows: [{ label: "wk", percent: 100 }], source: "codex-daemon" }],
+    [{ agent: "codex", windows: [{ label: "wk", percent: 100 }], spentUntil: later, source: "codex-daemon" }],
     { ...defaults },
     0,
   );
