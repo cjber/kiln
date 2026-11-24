@@ -23,28 +23,50 @@ function read(path: string): Record<string, number> {
   }
 }
 
-/** Remember that `account` of `agent` is spent until `resetsAt` (ms). */
-export function recordSpent(agent: Agent, account: string | undefined, resetsAt: number, path = spentPath()): void {
+function update(path: string, edit: (state: Record<string, number>) => boolean): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   // The list, the phone server and each child's exit reporter all record here, and two that read the file before
-  // either wrote it would drop one account. A lock a dead process left is taken over after a second.
+  // either wrote it would drop one account. Only the process that acquired the lock can replace the file.
   const lock = `${path}.lock`;
+  let locked = false;
   for (let waited = 0; waited < 1_000; waited += 5) {
     try {
       mkdirSync(lock);
+      locked = true;
       break;
     } catch {
       Bun.sleepSync(5);
     }
   }
+  if (!locked) throw new Error("kiln account limit state is locked");
   try {
-    const next = { ...read(path), [key(agent, account)]: resetsAt };
+    const next = read(path);
+    if (!edit(next)) return false;
     const temporary = `${path}.${process.pid}`;
     writeFileSync(temporary, JSON.stringify(next), { mode: 0o600 });
     renameSync(temporary, path);
+    return true;
   } finally {
     rmSync(lock, { recursive: true, force: true });
   }
+}
+
+/** Remember that `account` of `agent` is spent until `resetsAt` (ms). */
+export function recordSpent(agent: Agent, account: string | undefined, resetsAt: number, path = spentPath()): void {
+  update(path, (state) => {
+    state[key(agent, account)] = resetsAt;
+    return true;
+  });
+}
+
+/** Forget a run refusal after the provider resets the account. */
+export function clearSpent(agent: Agent, account: string | undefined, path = spentPath()): boolean {
+  return update(path, (state) => {
+    const name = key(agent, account);
+    if (!Object.hasOwn(state, name)) return false;
+    delete state[name];
+    return true;
+  });
 }
 
 /** When `account` of `agent` is spent until, if it still is at `now`. */

@@ -24,6 +24,7 @@ const usage = `usage: kiln            open the session list
        kiln blame <file> [--json] which session and prompt wrote each line of a file
        kiln login <agent> <name>  sign in to a claude, codex, muse or opencode account from [[accounts]]
        kiln accounts [--json]     every agent account: usage, whether a run can start on it, its pins
+       kiln accounts reset-limit NAME  forget a recorded Claude refusal after a provider reset
        kiln accounts adopt [--dry-run]
                                   add each mclaude Claude account to [[accounts]], with no new login
        kiln skills list|share|sync    manage shared skills

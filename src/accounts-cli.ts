@@ -6,9 +6,11 @@ import { type Account, accountDisabled, claudeHome, defaultAccount } from "./acc
 import { type QuotaAccount, readQuota } from "./quota";
 import { startLimitedUntil } from "./routing";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
+import { clearSpent } from "./spent";
 
 const usage = `usage: kiln accounts [--json]            every agent account: its usage, whether a run can start on it, its pins
-       kiln accounts adopt [--dry-run]  add each mclaude Claude account to [[accounts]], with no new login`;
+       kiln accounts adopt [--dry-run]  add each mclaude Claude account to [[accounts]], with no new login
+       kiln accounts reset-limit NAME  forget a recorded Claude refusal after a provider reset`;
 
 /** Whether a run can start on the account now, and why not. */
 export type AccountState = "ok" | "spent" | "login" | "disabled";
@@ -20,6 +22,8 @@ export type AccountRow = {
   windows: QuotaAccount["windows"];
   /** When a spent account has allowance again, ms. */
   until?: number;
+  spentSource?: "run" | "usage";
+  usageFetchedAt?: number;
   /** Directories pinned to it. */
   pins: string[];
 };
@@ -39,6 +43,8 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       name: account.name,
       state,
       windows: account.windows,
+      ...(state === "spent" ? { spentSource: until === account.spentUntil ? "run" : "usage" } : {}),
+      ...(account.fetchedAt !== undefined ? { usageFetchedAt: account.fetchedAt } : {}),
       // A full window the provider gave no reset time for is spent with no known end.
       ...(state === "spent" && until !== undefined && Number.isFinite(until) ? { until } : {}),
       pins: settings.pins
@@ -57,7 +63,16 @@ export function formatAccounts(rows: readonly AccountRow[]): string {
     row.name ?? "",
     row.until === undefined ? row.state : `${row.state} until ${minute(row.until)}`,
     row.windows.map((window) => `${Math.round(window.percent)}%·${window.label}`).join(" "),
-    row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
+    [
+      row.spentSource === "run"
+        ? `recorded run limit${row.usageFetchedAt === undefined ? "" : ` (usage read ${minute(row.usageFetchedAt)})`}`
+        : row.spentSource === "usage"
+          ? "usage window full"
+          : "",
+      row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("  "),
   ]);
   const widths = [0, 1, 2, 3].map((column) => Math.max(...cells.map((row) => (row[column] as string).length)));
   return cells
@@ -121,6 +136,21 @@ export async function runAccountsCli(
   root = join(homedir(), ".mclaude", "accounts"),
 ): Promise<void> {
   const [first, ...rest] = args;
+  if (first === "reset-limit") {
+    const [name] = rest;
+    if (rest.length !== 1 || name === undefined) throw new Error(usage);
+    if (
+      name !== defaultAccount &&
+      !settings.accounts.some((account) => account.agent === "claude" && account.name === name)
+    )
+      throw new Error(`no claude account ${name}`);
+    console.log(
+      clearSpent("claude", name)
+        ? `cleared recorded run limit for claude ${name}`
+        : `no recorded run limit for claude ${name}`,
+    );
+    return;
+  }
   if (first === "adopt") {
     if (rest.some((arg) => arg !== "--dry-run")) throw new Error(usage);
     const blocks = adoptable(root, settings).map(block);

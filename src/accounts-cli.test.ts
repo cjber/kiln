@@ -41,7 +41,7 @@ test("each account says whether a run can start on it, with its usage and pins",
     "claude  default  login                          12%·5h",
     "claude  work     ok                             12%·5h  pinned /srv/job",
     "claude  old      disabled                       12%·5h",
-    "codex            spent until 2026-11-20T00:15Z",
+    "codex            spent until 2026-11-20T00:15Z          recorded run limit",
   ]);
 });
 
@@ -85,5 +85,26 @@ test("a full window with no reset time is spent with no time to print", () => {
     { ...defaults },
     0,
   );
-  expect(formatAccounts(rows)).toMatch(/^codex\s+spent\s+100%·wk$/);
+  expect(formatAccounts(rows)).toMatch(/^codex\s+spent\s+100%·wk\s+usage window full$/);
+});
+
+test("a recorded Claude refusal is distinct from a full usage window", () => {
+  const account: QuotaAccount = {
+    agent: "claude",
+    name: "work",
+    windows: [{ label: "wk", percent: 0, resetsAt: later }],
+    fetchedAt: now - 60_000,
+    spentUntil: later,
+    source: "claude-usage",
+  };
+  const [refusal, window] = accountRows(
+    [account, { ...account, name: "full", windows: [{ label: "wk", percent: 100, resetsAt: later + 1 }] }],
+    defaults,
+    now,
+  );
+  expect(refusal).toMatchObject({ state: "spent", spentSource: "run", usageFetchedAt: account.fetchedAt });
+  expect(window).toMatchObject({ state: "spent", spentSource: "usage", until: later + 1 });
+  expect(formatAccounts(accountRows([account], defaults, now))).toContain(
+    "0%·wk  recorded run limit (usage read 2026-11-19T23:14Z)",
+  );
 });
