@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { type Account, defaultAccount } from "./accounts";
+import { type AgyBucket, agyQuotaWindows, agyUsage } from "./agy-usage";
 import { claudeNeedsLogin, claudeSignedIn, claudeUsage, forgetClaudeUsage } from "./claude-usage";
 import { codexHome, codexRateLimits } from "./codex";
 import { museRecentLimit } from "./muse-limit";
@@ -29,7 +30,8 @@ export type QuotaAccount = {
   /** When the provider's numbers were read, ms; absent when they are live. */
   fetchedAt?: number;
   /** Where the numbers came from, for diagnosing a wrong one. */
-  source: "claude-usage" | "codex-daemon" | "codex-rollout" | "muse-usage" | "opencode-go" | "none";
+  source: "claude-usage" | "codex-daemon" | "codex-rollout" | "muse-usage" | "opencode-go" | "agy-statusline" | "none";
+  agyBuckets?: AgyBucket[];
 };
 
 const staleMs = 30 * 60_000;
@@ -186,7 +188,8 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
   ];
   const claude = await Promise.all(
     claudeHomes.map(async ({ name, home }): Promise<QuotaAccount> => {
-      if (!claudeSignedIn(home)) return { agent: "claude", name, windows: [], source: "none", needsLogin: true };
+      if (!claudeSignedIn(home))
+        return { agent: "claude", name, windows: [], source: "none", ...(name ? { needsLogin: true } : {}) };
       const usage = await claudeUsage(now, home);
       return {
         agent: "claude",
@@ -198,6 +201,7 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
       };
     }),
   );
+  const agy = agyUsage();
   const listed = [
     ...claude,
     ...codex.map(
@@ -208,7 +212,13 @@ export async function readQuota(now = Date.now(), accounts: readonly Account[] =
     ),
     ...muse,
     ...opencode,
-    { agent: "agy", windows: [], source: "none" },
+    {
+      agent: "agy",
+      windows: agy ? current(agyQuotaWindows(agy), now) : [],
+      fetchedAt: agy?.observedAt,
+      source: agy ? "agy-statusline" : "none",
+      agyBuckets: agy?.buckets,
+    },
     { agent: "pi", windows: [], source: "none" },
   ] satisfies QuotaAccount[];
   return listed.map((account) => {

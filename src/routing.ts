@@ -35,14 +35,20 @@ export function limitedUntil(account: QuotaAccount, now: number): number | undef
  * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
  * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
  * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
- * a limit a run actually ended on, recorded as `spentUntil`, does.
+ * a limit a run actually ended on, recorded as `spentUntil`, does. Antigravity buckets cover model groups, so a full bucket cannot establish that every model is blocked.
  */
 export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
-  if (account.agent !== "opencode") return limitedUntil(account, now);
+  if (account.agent !== "opencode" && account.agent !== "agy") return limitedUntil(account, now);
   return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
 }
 
 export const atLimit = (account: QuotaAccount, now: number): boolean => startLimitedUntil(account, now) !== undefined;
+
+function describeLimit(account: QuotaAccount, now: number): string {
+  const until = startLimitedUntil(account, now);
+  const cause = until === account.spentUntil ? "recorded run limit" : "usage window full";
+  return until !== undefined && Number.isFinite(until) ? `${cause}, resets ${new Date(until).toISOString()}` : cause;
+}
 
 /** Spare allowance in the account's tightest window; an account whose provider reports no numbers ranks in the middle. */
 export function headroom(account: QuotaAccount): number {
@@ -95,7 +101,8 @@ export function chooseRoute(
     }
     if (found.disabled) throw new Error(`${agent} account ${requested} is disabled in kiln's config`);
     if (found.needsLogin) throw new Error(`${agent} account ${requested} is signed out; ${signIn(found)}`);
-    if (atLimit(found, now)) throw new Error(`${agent} account ${requested} is at its limit`);
+    if (atLimit(found, now))
+      throw new Error(`${agent} account ${requested} is at its limit (${describeLimit(found, now)})`);
     return routeFor(found, configured);
   }
   if (!own.length) return { env: {} };
@@ -113,8 +120,12 @@ export function chooseRoute(
     // An account with allowance left that this run already tried stopped on a limit of its own, such as one model's
     // weekly allowance, so only the accounts this run has not tried are the ones at their limit.
     const spent = usable.filter((account) => atLimit(account, now));
-    if (spent.length === usable.length) throw new Error(`every ${agent} account is at its limit${soonest}`);
-    throw new Error(`every other ${agent} account is at its limit${soonest}`);
+    const details = spent
+      .map((account) => `${account.name ?? defaultAccount}: ${describeLimit(account, now)}`)
+      .join("; ");
+    const reason = details ? ` (${details})` : "";
+    if (spent.length === usable.length) throw new Error(`every ${agent} account is at its limit${soonest}${reason}`);
+    throw new Error(`every other ${agent} account is at its limit${soonest}${reason}`);
   }
   return routeFor(best, configured);
 }

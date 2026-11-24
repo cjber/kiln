@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { type Account, accountDisabled, claudeHome, defaultAccount } from "./accounts";
+import { recordAgyUsage } from "./agy-usage";
 import { type QuotaAccount, readQuota } from "./quota";
 import { startLimitedUntil } from "./routing";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
@@ -10,7 +11,8 @@ import { clearSpent } from "./spent";
 
 const usage = `usage: kiln accounts [--json]            every agent account: its usage, whether a run can start on it, its pins
        kiln accounts adopt [--dry-run]  add each mclaude Claude account to [[accounts]], with no new login
-       kiln accounts reset-limit NAME  forget a recorded Claude refusal after a provider reset`;
+       kiln accounts reset-limit NAME  forget a recorded Claude refusal after a provider reset
+       kiln accounts capture-agy      record the Antigravity status line quota from stdin`;
 
 /** Whether a run can start on the account now, and why not. */
 export type AccountState = "ok" | "spent" | "login" | "disabled";
@@ -25,6 +27,7 @@ export type AccountRow = {
   spentSource?: "run" | "usage";
   usageFetchedAt?: number;
   usageSource: QuotaAccount["source"];
+  agyBuckets?: QuotaAccount["agyBuckets"];
   /** Directories pinned to it. */
   pins: string[];
 };
@@ -45,6 +48,7 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       state,
       windows: account.windows,
       usageSource: account.source,
+      ...(account.agyBuckets ? { agyBuckets: account.agyBuckets } : {}),
       ...(state === "spent" ? { spentSource: until === account.spentUntil ? "run" : "usage" } : {}),
       ...(account.fetchedAt !== undefined ? { usageFetchedAt: account.fetchedAt } : {}),
       // A full window the provider gave no reset time for is spent with no known end.
@@ -75,6 +79,7 @@ export function formatAccounts(rows: readonly AccountRow[]): string {
           : "",
       row.usageSource === "codex-rollout" ? "session history" : "",
       row.usageSource === "opencode-go" ? "OpenCode Go" : "",
+      row.usageSource === "agy-statusline" ? "Antigravity status line" : "",
       row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
     ]
       .filter(Boolean)
@@ -142,6 +147,11 @@ export async function runAccountsCli(
   root = join(homedir(), ".mclaude", "accounts"),
 ): Promise<void> {
   const [first, ...rest] = args;
+  if (first === "capture-agy") {
+    if (rest.length || process.stdin.isTTY) throw new Error(usage);
+    recordAgyUsage(await Bun.stdin.json());
+    return;
+  }
   if (first === "reset-limit") {
     const [name] = rest;
     if (rest.length !== 1 || name === undefined) throw new Error(usage);

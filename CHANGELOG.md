@@ -10,6 +10,8 @@ verbatim.
 ## [Unreleased]
 
 - **Kiln shows every harness and account in its usage list.** Missing usage is marked unknown, and the footer identifies Codex session history and OpenCode Go readings. Muse usage comes from its native quota command, and shared history is used for refusals only when there is one Muse account.
+- **Antigravity quota can appear in Kiln.** Its native status line can pass model-group usage to Kiln while keeping the existing status line visible.
+- **Launch errors explain which accounts are blocked.** They identify a full meter or a recorded run limit and include known reset times.
 - **Claude sign-in checks follow the current login.** A renewal result from an old login no longer marks its replacement as signed out.
 
 ## [0.37.5] - 2026-11-24

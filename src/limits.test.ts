@@ -50,7 +50,7 @@ describe("limit detection", () => {
     expect(detectLimit(record, now, [{ ...full, windows: [{ label: "wk", percent: 40 }] }])).toBeUndefined();
   });
 
-  test("a full OpenCode Go window alone is not a limit, a recorded one is", () => {
+  test("OpenCode quota and earlier refusals do not identify why a new run exited", () => {
     const full: QuotaAccount = {
       agent: "opencode",
       windows: [{ label: "mo", percent: 100, resetsAt: now + 3_600_000 }],
@@ -58,6 +58,6 @@ describe("limit detection", () => {
     };
     const record = { agent: "opencode" as const, id: "ses_1", startedAt: now - 1000 };
     expect(detectLimit(record, now, [full])).toBeUndefined();
-    expect(detectLimit(record, now, [{ ...full, spentUntil: now + 3_600_000 }])?.resetsAt).toBe(now + 3_600_000);
+    expect(detectLimit(record, now, [{ ...full, spentUntil: now + 3_600_000 }])).toBeUndefined();
   });
 });
