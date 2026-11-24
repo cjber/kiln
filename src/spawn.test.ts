@@ -2,6 +2,7 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { claudeNeedsLogin } from "./claude-usage";
 import * as mailbox from "./mailbox";
 import { outboxPath, peekUnread, takeUnread, writeOutbox } from "./mailbox";
 import * as messages from "./messages";
@@ -19,6 +20,7 @@ import {
   exitReportId,
   headlessCommand,
   interactiveClaudeCommand,
+  isAuthFailure,
   reportSpawnExit,
   settleClaudeTrust,
   spawnAgent,
@@ -1393,15 +1395,16 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     ).toBe(0);
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
+    // Fetch writes FETCH_HEAD at the common dir's root (and, from the main checkout, in it), and a spawn in the
+    // main checkout may work in any linked worktree, whose admin dir lives under the common dir (#338).
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
+      common,
       join(common, "worktrees", "tree"),
-      join(common, "objects"),
-      join(common, "refs"),
-      join(common, "logs"),
     ]);
-    // A plain checkout keeps Codex's own rule for its .git, and Claude's sandbox already opens a worktree's metadata.
-    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox", common]);
+    // Claude's sandbox already opens a worktree's metadata.
+    expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toContain(join(common, "worktrees", "tree"));
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",
@@ -1441,5 +1444,73 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(interactive).toContain(grant(["/outbox"]));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a Claude child that dies on an expired login marks its account and is not restarted without a usable one (#337)", async () => {
+  expect(isAuthFailure("Failed to authenticate: OAuth session expired and could not be refreshed")).toBe(true);
+  expect(isAuthFailure("You've hit your limit")).toBe(false);
+  expect(isAuthFailure(undefined)).toBe(false);
+  const saved = {
+    state: Bun.env.XDG_STATE_HOME,
+    config: Bun.env.XDG_CONFIG_HOME,
+    home: Bun.env.HOME,
+  };
+  const root = join(paneDir, "auth-failure");
+  const jenny = join(root, "jenny");
+  mkdirSync(jenny, { recursive: true });
+  mkdirSync(join(root, "config", "kiln"), { recursive: true });
+  mkdirSync(join(root, "fakehome"), { recursive: true });
+  writeFileSync(
+    join(jenny, ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: { accessToken: "token", expiresAt: Date.now() + 3_600_000 } }),
+  );
+  writeFileSync(
+    join(root, "config", "kiln", "config.toml"),
+    `[agents]\nclaude = ["claude"]\n\n[[accounts]]\nagent = "claude"\nname = "jenny"\nhome = ${JSON.stringify(jenny)}\n\n[[accounts]]\nagent = "claude"\nname = "default"\ndisabled = true\n`,
+  );
+  Bun.env.XDG_STATE_HOME = join(root, "state");
+  Bun.env.XDG_CONFIG_HOME = join(root, "config");
+  Bun.env.HOME = join(root, "fakehome");
+  const name = "auth-child";
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    expect(
+      start(
+        name,
+        paneDir,
+        ["sh", "-c", "echo 'Failed to authenticate: OAuth session expired and could not be refreshed'; exit 1"],
+        "auth",
+        true,
+      ),
+    ).toBe(true);
+    for (let waited = 0; !ended(name) && waited < 2_000; waited += 20) await Bun.sleep(20);
+    recordSpawn({
+      agent: "claude",
+      id: "auth-conversation",
+      cwd: paneDir,
+      title: "auth",
+      startedAt: Date.now(),
+      pane: name,
+      account: "jenny",
+      brief: "do the work",
+    });
+    await reportSpawnExit(name, "", "claude:parent");
+    // The account had no quota windows, yet kiln no longer calls it usable.
+    expect(claudeNeedsLogin(Date.now(), jenny)).toBe(true);
+    const messages = takeUnread("claude:parent");
+    expect(messages.map((message) => message.body).join("\n")).toContain("jenny");
+    expect(messages.map((message) => message.body).join("\n")).toContain("kiln login claude jenny");
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    for (const [key, value] of [
+      ["XDG_STATE_HOME", saved.state],
+      ["XDG_CONFIG_HOME", saved.config],
+      ["HOME", saved.home],
+    ] as const) {
+      if (value === undefined) delete Bun.env[key];
+      else Bun.env[key] = value;
+    }
   }
 });

@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, st
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { defaultAccount } from "./accounts";
+import { claudeHome, defaultAccount, expandHome } from "./accounts";
 import { agyConversationId } from "./agy";
 import { claudeConfigDir } from "./claude-inbox";
 import { claudeConfig, type LaunchOutcome, settleLaunch, trustClaudeWorkspace } from "./claude-trust";
+import { recordClaudeLoginFailure } from "./claude-usage";
 import { agentCommand, claudeCommand, promptArguments } from "./launcher";
 import { spendsAccount } from "./limit-scope";
 import { detectLimit } from "./limits";
@@ -296,13 +297,14 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 }
 
 /**
- * The git metadata of the linked worktree `dir` is in, which lies outside it: the worktree's own git directory and the
- * main repository's objects, refs and logs, which a commit writes. The rest of the shared directory, its `hooks/` and
- * `config`, stays out, since a write there runs code in every checkout of the repository. The refs and objects are
- * shared, so the child can move or delete any branch, as Claude's sandbox lets a child in a worktree do already, and as
- * a commit from a worktree needs: git writes a branch through a lock file beside its siblings. The worktree's own directory
- * holds `commondir`, so a child could point git in that worktree at a config it wrote; that reaches only git run in the
- * worktree, where the child already writes the files a person or a gate will run. A plain checkout has none.
+ * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only: the common git dir and,
+ * for a linked worktree, its own admin dir under it. Fetch writes `FETCH_HEAD` at the common dir's root (from the
+ * main checkout) and in the worktree's admin dir (from a linked one), and merge and commit write refs, objects and
+ * logs under the common dir, so the common dir itself is granted: a grant names a directory, and `FETCH_HEAD`
+ * sits directly in it. That also lets the child write the shared `config` and `hooks`, as a child that can move
+ * any branch of the repository already can in effect, and it covers every linked worktree of the repository, so a
+ * spawn in the main checkout (or in one linked worktree) can fetch, merge and commit in any of them. A directory
+ * that is not in a repository has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -314,8 +316,8 @@ function worktreeMetadata(dir: string): string[] {
   );
   if (found.exitCode !== 0) return [];
   const [own, common] = found.stdout.toString().trim().split("\n");
-  if (!own || !common || own === common) return [];
-  return [own, ...["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path))];
+  if (!own || !common) return [];
+  return own === common ? [common] : [common, own];
 }
 
 /**
@@ -984,8 +986,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
       // A parent kiln cannot reach right now can still read the message from its mailbox.
     }
   }
-  if (firstReport && ending?.status !== undefined && ending.status !== 0 && record.brief !== undefined)
-    await failOver(record, ending.output, to);
+  if (firstReport && ending?.status !== undefined && ending.status !== 0) await failOver(record, ending.output, to);
   // Provider conversations can be resumed independently of this pane. Exit hooks cannot
   // bind a remote interrupt/archive to its generation, so only explicit close does that.
 }
@@ -1041,6 +1042,40 @@ export const claudeRefusedAt = (id: string): number | undefined => claudeConvers
 export const resumedOnAccount =
   "Your previous run stopped because its account reached its usage limit. Continue the task where you left off.";
 
+/** Whether a child's last output says its login failed, the one failure kiln reads from output text. */
+export function isAuthFailure(output: string | undefined): boolean {
+  return (
+    output !== undefined &&
+    /failed to authenticate|oauth session expired|could not be refreshed|authentication failed|invalid authentication credentials/i.test(
+      output,
+    )
+  );
+}
+
+/** The home of the Claude account a run was on, whose login an auth failure ends. */
+function claudeAccountHome(account: string | undefined, settings: Settings): string {
+  if (!account || account === defaultAccount) return claudeHome();
+  const found = settings.accounts.find((candidate) => candidate.agent === "claude" && candidate.name === account);
+  return found ? expandHome(found.home) : claudeHome();
+}
+
+/** How a signed-out Claude account is signed in again. */
+function claudeSignIn(account: string | undefined): string {
+  return !account || account === defaultAccount ? "sign in with claude auth login" : `run kiln login claude ${account}`;
+}
+
+/** What a child restarted after a login failure is told. */
+function authHandoffPrompt(record: Saved, resumed: boolean): string {
+  if (resumed)
+    return "Your previous run stopped because its account login had ended. Continue the task where you left off.";
+  return [
+    record.brief,
+    `A previous run of this task stopped because its claude account${record.account ? ` ${record.account}` : ""} login had ended. Continue from where it stopped, without redoing finished work.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /** What a restarted child is told. */
 function handoffPrompt(record: Saved, output: string | undefined, resumed: boolean): string {
   if (resumed) return resumedOnAccount;
@@ -1062,6 +1097,53 @@ function handoffPrompt(record: Saved, output: string | undefined, resumed: boole
  */
 async function failOver(record: Saved, output: string | undefined, to: string): Promise<void> {
   const settings = loadSettings();
+  // An auth failure ends the account's login: mark it first, so accounts and routing stop calling it usable
+  // (even when it has no quota windows), then restart on a usable account or say how to sign in again.
+  if (record.agent === "claude" && isAuthFailure(output)) {
+    recordClaudeLoginFailure(claudeAccountHome(record.account, settings));
+    forgetReads();
+    const identity = `${record.agent}:${record.id}`;
+    const account = record.account ?? defaultAccount;
+    const tried = [...(record.tried?.split(",").filter(Boolean) ?? []), account];
+    const stopped = `Child ${identity} stopped because its claude account ${account} login has ended.`;
+    let report: string;
+    try {
+      const route = await routeNew(record.agent, settings, { skip: tried, cwd: record.cwd });
+      const conversation = claudeConversation(record.id);
+      const resume = conversation
+        ? { id: record.id, codeMode: conversation.codeMode, title: conversation.title }
+        : undefined;
+      const child = await spawnAgent(
+        {
+          agent: record.agent,
+          dir: record.cwd,
+          title: record.title,
+          prompt: authHandoffPrompt(record, resume !== undefined),
+          account: route.name,
+          tried,
+          resume,
+          interactive: record.interactive,
+        },
+        to || undefined,
+      );
+      report = `${stopped} Restarted on ${route.name ?? "its next account"} as ${child}: ${
+        resume
+          ? "the same conversation resumed, since Claude accounts share their transcripts"
+          : "a fresh run given the original brief, since this agent keeps conversations per account"
+      }.`;
+    } catch (error) {
+      report = `${stopped} It was not restarted: claude account ${account} is signed out; ${claudeSignIn(record.account)} (${error instanceof Error ? error.message : String(error)})`;
+    }
+    if (!to) return;
+    try {
+      post(spawnReportSender(identity), to, report, undefined, undefined, `failover:${exitReportId(record)}`);
+      await flush([]);
+    } catch {
+      // The report stays in the mailbox for the parent to read.
+    }
+    return;
+  }
+  if (record.brief === undefined) return;
   forgetReads();
   const now = Date.now();
   const quota = await readQuota(now, settings.accounts).catch(() => []);

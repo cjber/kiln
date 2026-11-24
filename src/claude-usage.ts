@@ -156,6 +156,24 @@ export function claudeNeedsLogin(now: number, home = claudeHome(), dir = stateDi
 }
 
 /**
+ * Record that a run on the login in `home` failed to authenticate, so it is treated as signed out until a different
+ * token is written there. No usage read is needed: an account with no quota windows is marked the same way.
+ */
+export function recordClaudeLoginFailure(home = claudeHome(), dir = stateDir()): void {
+  const path = statePath(home, dir);
+  let token: string | undefined;
+  try {
+    const auth = JSON.parse(readFileSync(join(home, ".credentials.json"), "utf8"))?.claudeAiOauth;
+    if (typeof auth?.accessToken === "string" && auth.accessToken) token = auth.accessToken;
+  } catch {
+    // No readable token: the failure still stands for whatever login is there.
+  }
+  const prior = readFile(path);
+  const mark = { loggedOut: true, ...(token ? { tokenHash: tokenHash(token) } : {}) };
+  write(path, prior ? { ...prior, ...mark } : { askedAt: 0, ...mark });
+}
+
+/**
  * Take the renewal of one login for this process: the list and the phone server read usage at the same moments, and
  * only the one that creates this file asks Claude Code. A file left by a process that died is replaced after a minute.
  */
