@@ -41,7 +41,7 @@ import {
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
-       at a main checkout only ref and object writes work (no add, commit, merge or plain fetch); a Codex worker that needs full git spawns with --dir at its linked worktree`;
+       a Codex worker that must run git commands spawns with --dir at its linked worktree, not at the main checkout`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -298,19 +298,18 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
 }
 
 /**
- * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. A linked
- * worktree gets its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
+ * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. Only a linked
+ * worktree gets a grant: its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
  * plus the common dir's `objects`, `refs` and `logs`, which fetch, merge and commit write, so a worker
- * spawned with `--dir` at its linked worktree can fetch, merge and commit there. From a main checkout
- * only the common `objects`, `refs` and `logs` are granted: with only those, `git branch`, `tag` and
- * `commit-tree` plus `update-ref`, and `fetch --no-write-fetch-head`, work, but `add`, `commit`,
- * `merge` and plain `fetch` do not, since they write root files of the common dir (its `index` and
- * `FETCH_HEAD`) that a directory grant cannot name. A Codex worker that must run full git therefore
- * spawns with `--dir` at its linked worktree. The common dir itself is never granted: Codex's
- * `--add-dir` names directories only, so granting it would also make its `config` and `hooks`
- * writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every later checkout,
- * and the common `worktrees/` dir is never granted either, since it holds every sibling worktree's
- * admin dir. A directory that is not in a repository has none.
+ * spawned with `--dir` at its linked worktree can fetch, merge and commit there. The common dir itself
+ * is never granted: Codex's `--add-dir` names directories only, so granting it would also make its
+ * `config` and `hooks` writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every
+ * later checkout, and the common `worktrees/` dir is never granted either, since it holds every sibling
+ * worktree's admin dir. From the main checkout there is no grant: `git add` and commit write the common
+ * dir's root `index` and lock, and fetch writes its root `FETCH_HEAD`, and a directory grant cannot name
+ * single files, so the partial grant of `objects`, `refs` and `logs` alone enabled no git operation
+ * there. A worker that must run git therefore spawns with `--dir` at its linked worktree, not at the
+ * main checkout. A directory that is not in a repository has none.
  */
 function worktreeMetadata(dir: string): string[] {
   const found = Bun.spawnSync(
@@ -322,14 +321,14 @@ function worktreeMetadata(dir: string): string[] {
   );
   if (found.exitCode !== 0) return [];
   const [own, common] = found.stdout.toString().trim().split("\n");
-  if (!own || !common) return [];
+  if (!own || !common || own === common) return [];
   const shared = ["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path));
-  return own === common ? shared : [own, ...shared];
+  return [own, ...shared];
 }
 
 /**
  * The directories a child's agent sandbox must let it write besides its own: the outbox it sends
- * from, and for Codex its repository's git metadata (see {@link worktreeMetadata}), which Codex otherwise keeps read-only so `git commit` fails. Claude's
+ * from, and for Codex a linked worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
  * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
  * commands unsandboxed.
  */

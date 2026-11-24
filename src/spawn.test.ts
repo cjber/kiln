@@ -1403,17 +1403,16 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
     // Only the subdirectories a commit writes are granted, never the common dir itself: its config and hooks
-    // would run unsandboxed later. A linked worktree also gets its own admin dir. At a main checkout
-    // only the shared grant is made, so only ref and object writes work there (no add, commit, merge
-    // or plain fetch): those write root files of the common dir (index, FETCH_HEAD) a directory
-    // grant cannot name (#338).
+    // would run unsandboxed later. The grant applies only in a linked worktree: from the main checkout
+    // git add, commit and fetch write root files of the common dir (index, FETCH_HEAD), which a
+    // directory grant cannot name, so no partial grant is made there (#338).
     const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
       join(common, "worktrees", "tree"),
       ...shared,
     ]);
-    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox", ...shared]);
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",

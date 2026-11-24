@@ -75,11 +75,8 @@ command. When the child's process exits, kiln sends you the exit status and its 
 if the child did not message first, so a child that stops on a usage limit is reported rather than
 lost. Start it again with a model whose limit is not spent. A Codex child shows as `working` in
 `kiln msg list` while its process runs and leaves the list when it exits. A Codex worker that
-must run git commands spawns with `--dir` at its linked worktree, so kiln grants it that
-worktree's git metadata and it can fetch, merge and commit there. At a main checkout kiln
-grants only the common `objects`, `refs` and `logs`, so only ref and object writes work
-there (no add, commit, merge or plain fetch); a Codex worker that needs full git spawns
-with `--dir` at its linked worktree.
+must run git commands spawns with `--dir` at its linked worktree, not at the main checkout, so
+kiln grants it that worktree's git metadata and it can fetch, merge and commit there.
 
 Reach for a Muse child (`kiln msg spawn muse`) when a slice or a review wants the Muse model:
 a second implementation opinion beside your own, or the reviewer a Claude or Codex coordinator
