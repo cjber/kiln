@@ -9,6 +9,12 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.4] - 2026-11-24
+
+- **A spawned Claude run whose login expired no longer marks the wrong account.** Kiln records the Claude config home each spawn actually used, so the exit report checks and marks that login, whichever process reports the exit, and a login renewed while kiln was asking is not recorded as failed.
+- **A Codex worker spawned at a linked worktree can fetch, merge and commit there.** Kiln grants that worktree's own git metadata plus the shared `objects`, `refs` and `logs`, never the shared git dir itself or its `config` and `hooks`. A worker at the main checkout still gets no git write access, so spawn it with `--dir` at its linked worktree.
+- **Two kiln processes opening an older state database at once no longer fail upgrading it.**
+
 ## [0.37.3] - 2026-11-23
 
 - **A Claude limit that refuses one model no longer spends the whole account.** A plan keeps a weekly allowance for one model beside the account's own 5-hour and weekly windows, and a run that stopped on it (Claude Code calls it the Fable limit) was recorded as the account having no allowance until the weekly reset, so kiln refused every new run there for days while the account's usage still read 86% used. Only a limit that refuses every model spends the account now, and what kiln reports names the model limit that stopped the run.
