@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **Closing a spawned Codex child keeps it resumable.** `kiln close` no longer archives the thread of a headless `kiln msg spawn` Codex child, so `codex exec resume <id>` still works afterwards.
+
 ## [0.37.6] - 2026-11-24
 
 - **Kiln shows every harness and account in its usage list.** Missing usage is marked unknown, and the footer identifies Codex session history and OpenCode Go readings. Muse usage comes from its native quota command, and shared history is used for refusals only when there is one Muse account.
