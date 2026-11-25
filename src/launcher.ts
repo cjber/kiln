@@ -13,6 +13,7 @@ import { forget, restoreRow, savedRow } from "./saved-sessions";
 import { sessionTitle } from "./session-list";
 import { type Agent, agentName, listSessions, type Session } from "./sessions";
 import type { Settings } from "./settings";
+import { headlessSpawn } from "./spawn";
 import { awaitStart, endedPane, exists, kill, reapEnded, respawn, start, survives } from "./tmux";
 import { readTranscript } from "./transcript";
 import { tilde } from "./tui";
@@ -448,9 +449,11 @@ export async function closeSession(session: Session): Promise<true | string> {
   const place = session.place;
   try {
     switch (place.kind) {
-      case "kiln":
+      case "kiln": {
+        // A headless Codex child is resumed by id with `codex exec resume`, which refuses an archived thread.
+        const resumable = session.agent === "codex" && headlessSpawn(place.name);
         if (!kill(place.name)) throw new Error("tmux could not close this session");
-        if ((session.agent === "codex" || session.agent === "opencode") && session.id) {
+        if ((session.agent === "codex" || session.agent === "opencode") && session.id && !resumable) {
           try {
             await archiveClosed(session, session.id);
           } catch (error) {
@@ -460,6 +463,7 @@ export async function closeSession(session: Session): Promise<true | string> {
           }
         }
         break;
+      }
       case "thread":
         await archiveConversation(session, place.id);
         break;

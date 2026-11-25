@@ -12,7 +12,7 @@ import {
   messageCodexSession,
 } from "./codex";
 import { archiveClosed, closeSession } from "./launcher";
-import { restartStopped } from "./saved-sessions";
+import { recordSpawn, restartStopped } from "./saved-sessions";
 
 let root: string;
 let server: ReturnType<typeof Bun.serve>;
@@ -165,6 +165,19 @@ describe("Codex archive", () => {
       expect(
         requests.filter((request) => request.method === "thread/archive").map((request) => request.params),
       ).toEqual([{ threadId: "active" }]);
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  test("closing a headless spawned Codex child leaves its thread resumable by id", async () => {
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation((() => ({
+      exitCode: 0,
+    })) as unknown as typeof Bun.spawnSync);
+    try {
+      recordSpawn({ agent: "codex", id: "active", cwd: "/repo", startedAt: 1, pane: "codex-owned", pid: process.pid });
+      expect(await closeSession(ownedSession)).toBe(true);
+      expect(requests.filter((request) => request.method === "thread/archive")).toEqual([]);
     } finally {
       spawn.mockRestore();
     }
