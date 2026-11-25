@@ -451,7 +451,7 @@ export async function closeSession(session: Session): Promise<true | string> {
     switch (place.kind) {
       case "kiln": {
         // A headless Codex child is resumed by id with `codex exec resume`, which refuses an archived thread.
-        const resumable = session.agent === "codex" && headlessSpawn(place.name);
+        const resumable = session.agent === "codex" && (session.codexExec === true || headlessSpawn(place.name));
         if (!kill(place.name)) throw new Error("tmux could not close this session");
         if ((session.agent === "codex" || session.agent === "opencode") && session.id && !resumable) {
           try {
