@@ -41,7 +41,7 @@ import {
 import { readTranscript } from "./transcript";
 
 export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
-       a Codex worker that must run git commands spawns with --dir at its linked worktree, not at the main checkout`;
+       a Codex worker that must run git commands spawns with --dir at its linked worktree, or at the main checkout to work in any of its linked worktrees`;
 
 export type SpawnOptions = {
   agent: Agent;
@@ -297,21 +297,27 @@ function claudeCodeMode(resume: SpawnOptions["resume"]): string[] {
   return resume?.codeMode ? ["CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1"] : [];
 }
 
+/** What a Codex child may write beyond its own directory: linked worktrees' checkouts, and the git metadata under them. */
+type GitGrant = { checkouts: string[]; metadata: string[] };
+
+const grantPaths = ({ checkouts, metadata }: GitGrant) => [...checkouts, ...metadata];
+
 /**
- * The git metadata of the repository `dir` is in, which Codex otherwise keeps read-only. Only a linked
- * worktree gets a grant: its own admin dir (which holds its `HEAD`, `index`, `FETCH_HEAD` and `ORIG_HEAD`)
- * plus the common dir's `objects`, `refs` and `logs`, which fetch, merge and commit write, so a worker
- * spawned with `--dir` at its linked worktree can fetch, merge and commit there. The common dir itself
- * is never granted: Codex's `--add-dir` names directories only, so granting it would also make its
- * `config` and `hooks` writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every
- * later checkout, and the common `worktrees/` dir is never granted either, since it holds every sibling
- * worktree's admin dir. From the main checkout there is no grant: `git add` and commit write the common
- * dir's root `index` and lock, and fetch writes its root `FETCH_HEAD`, and a directory grant cannot name
- * single files, so the partial grant of `objects`, `refs` and `logs` alone enabled no git operation
- * there. A worker that must run git therefore spawns with `--dir` at its linked worktree, not at the
- * main checkout. A directory that is not in a repository has none.
+ * The git metadata and checkouts a Codex child may write in the repository `dir` is in, which Codex otherwise
+ * keeps read-only. Fetch, merge and commit in a linked worktree write that worktree's own admin dir (its `HEAD`,
+ * `index`, `FETCH_HEAD` and `ORIG_HEAD`) plus the common dir's `objects`, `refs` and `logs`, so those are granted.
+ * The common dir itself is never granted: Codex's `--add-dir` names directories only, so granting it would also make
+ * its `config` and `hooks` writable, and a hook or `core.fsmonitor` planted there runs unsandboxed in every later
+ * checkout. Nor is the common `worktrees/` dir, which holds every worktree's admin dir.
+ *
+ * Spawned in a linked worktree, `dir` gets its own admin dir. Spawned in the main checkout, `dir` gets every linked
+ * worktree's checkout and admin dir, found from the `gitdir` file each admin dir keeps, so the worker can work in
+ * them; it still cannot run git in the main checkout itself, whose `index` and `FETCH_HEAD` are root files of the
+ * common dir that a directory grant cannot name. A repository without linked worktrees, and a directory outside one,
+ * get no grant.
  */
-function worktreeMetadata(dir: string): string[] {
+function gitGrant(dir: string): GitGrant {
+  const none = { checkouts: [], metadata: [] };
   const found = Bun.spawnSync(
     ["git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
     {
@@ -319,17 +325,45 @@ function worktreeMetadata(dir: string): string[] {
       stderr: "ignore",
     },
   );
-  if (found.exitCode !== 0) return [];
+  if (found.exitCode !== 0) return none;
   const [own, common] = found.stdout.toString().trim().split("\n");
-  if (!own || !common || own === common) return [];
+  if (!own || !common) return none;
+  const worktrees = own === common ? linkedWorktrees(common) : [{ admin: own, checkout: undefined }];
+  if (worktrees.length === 0) return none;
   const shared = ["objects", "refs", "logs"].map((part) => join(common, part)).filter((path) => existsSync(path));
-  return [own, ...shared];
+  return {
+    checkouts: worktrees.flatMap(({ checkout }) => (checkout ? [checkout] : [])),
+    metadata: [...worktrees.map(({ admin }) => admin), ...shared],
+  };
+}
+
+/**
+ * Each linked worktree of the repository whose common git dir is `common`: its admin dir under `worktrees/` and
+ * the checkout that dir's `gitdir` file names (the `.git` file inside it). A worktree whose checkout is gone is
+ * left out, for `git worktree prune` to remove.
+ */
+function linkedWorktrees(common: string): { admin: string; checkout: string }[] {
+  let names: string[];
+  try {
+    names = readdirSync(join(common, "worktrees")).sort();
+  } catch {
+    return [];
+  }
+  return names.flatMap((name) => {
+    const admin = join(common, "worktrees", name);
+    try {
+      const checkout = dirname(readFileSync(join(admin, "gitdir"), "utf8").trim());
+      return existsSync(checkout) ? [{ admin, checkout }] : [];
+    } catch {
+      return [];
+    }
+  });
 }
 
 /**
  * The directories a child's agent sandbox must let it write besides its own: the outbox it sends
- * from, and for Codex a linked worktree's git metadata, which Codex otherwise keeps read-only so `git commit` fails. Claude's
- * sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
+ * from, and for Codex the git metadata and linked worktrees {@link gitGrant} names, which Codex otherwise keeps read-only
+ * so `git commit` fails. Claude's sandbox already opens a worktree's shared `.git` for a session started in the worktree. The other agents run their
  * commands unsandboxed.
  */
 export function spawnGrants(agent: Agent, dir: string, outbox: string): string[] {
@@ -337,7 +371,7 @@ export function spawnGrants(agent: Agent, dir: string, outbox: string): string[]
     case "claude":
       return [outbox];
     case "codex":
-      return [outbox, ...worktreeMetadata(dir)];
+      return [outbox, ...grantPaths(gitGrant(dir))];
     case "opencode":
     case "pi":
     case "muse":
@@ -454,9 +488,9 @@ function releaseOutbox(box: string): void {
  * `.agents`, `.git`), as a mount point, and leaves it behind. Git never gives an entry of its own a leading dot in a
  * granted git directory, and an outbox holds only messages, so an empty one there is Codex's, and goes once the child
  * has exited. Another Codex child of the same repository may still mount over one; removing it only lets that child
- * write a name git never reads.
+ * write a name git never reads. `only` limits the names cleared, for a directory where other dot directories are real.
  */
-function clearMountPoints(dirs: readonly string[]): void {
+function clearMountPoints(dirs: readonly string[], only?: readonly string[]): void {
   for (const dir of dirs) {
     let entries: string[] = [];
     try {
@@ -464,13 +498,23 @@ function clearMountPoints(dirs: readonly string[]): void {
     } catch {
       continue;
     }
-    for (const entry of entries.filter((entry) => entry.startsWith(".")))
+    for (const entry of entries.filter((entry) => (only ? only.includes(entry) : entry.startsWith("."))))
       try {
         rmdirSync(join(dir, entry));
       } catch {
         // Not empty, or not a directory: not a mount point.
       }
   }
+}
+
+/**
+ * Clear what Codex's sandbox left in the roots {@link gitGrant} granted for `dir`. A granted checkout is a working
+ * tree, where a leading dot is no sign of Codex's, so only the names it protects are cleared there.
+ */
+function clearGitMountPoints(dir: string): void {
+  const { checkouts, metadata } = gitGrant(dir);
+  clearMountPoints(metadata);
+  clearMountPoints(checkouts, [".codex", ".agents", ".git"]);
 }
 
 /**
@@ -795,7 +839,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     if (failed && (agent === "codex" || failed.status !== 0)) {
       kill(name);
       release();
-      if (agent === "codex") clearMountPoints(worktreeMetadata(options.dir));
+      if (agent === "codex") clearGitMountPoints(options.dir);
       const reason = failed.output.trim();
       throw new Error(
         `${agentName(agent)} exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`,
@@ -984,7 +1028,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
     }
   }
   if (ending) reapEnded(ending);
-  if (record.agent === "codex") clearMountPoints(worktreeMetadata(record.cwd));
+  if (record.agent === "codex") clearGitMountPoints(record.cwd);
   for (const box of boxes) releaseOutbox(box);
   if (to || relayed) {
     try {
