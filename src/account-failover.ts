@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
+import { claudeRecord } from "./claude-inbox";
+import { claudeUsageSince } from "./claude-usage";
 import { spendsAccount } from "./limit-scope";
-import { forgetReads, type QuotaAccount, startLimitedUntil } from "./quota";
+import { forgetReads, type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import { routeNew } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
@@ -23,30 +25,57 @@ const stateDir = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", 
 /**
  * Take `step` of one refusal for this process alone. The list and the phone server both watch the sessions, so each
  * step is a file only one of them can create; a conversation's older refusals are dropped as a new one is first seen.
+ * One watcher's listing can be older than another's, so a newer refusal's steps are never dropped.
  */
-function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "failed"): boolean {
+function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "failed", note = ""): boolean {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const own = `${id}.${at}.`;
   try {
-    writeFileSync(join(dir, `${own}${step}`), "", { flag: "wx", mode: 0o600 });
+    writeFileSync(join(dir, `${own}${step}`), note, { flag: "wx", mode: 0o600 });
   } catch {
     return false;
   }
   if (step === "seen")
     for (const entry of readdirSync(dir))
-      if (entry.startsWith(`${id}.`) && !entry.startsWith(own)) rmSync(join(dir, entry), { force: true });
+      if (entry.startsWith(`${id}.`) && Number(entry.split(".")[1]) < at) rmSync(join(dir, entry), { force: true });
   return true;
+}
+
+/** The reset time kept when this limit was first seen. */
+function seenReset(dir: string, id: string, at: number): number | undefined {
+  try {
+    return Number(readFileSync(join(dir, `${id}.${at}.seen`), "utf8")) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * When the Claude account `name` has allowance again, by a usage read asked since `since`; undefined if it has some.
+ */
+async function accountLimitedUntil(
+  name: string,
+  settings: Settings,
+  now: number,
+  since: number,
+): Promise<number | undefined> {
+  // A read from before the limit was reached still shows allowance, and would stand for minutes.
+  claudeUsageSince(since);
+  const quota = await readQuota(now, settings.accounts).catch(() => []);
+  const found = quota.find((account) => account.agent === "claude" && (account.name ?? defaultAccount) === name);
+  return found && startLimitedUntil(found, now);
 }
 
 let running = false;
 
 /**
  * Move each interactive Claude session that stopped on its account's usage limit to the account with the most
- * headroom, in its own pane and conversation. The refusal comes from the session's transcript, with the reset time the
- * provider gave; once that time has passed its own account answers again and it is left alone. A headless spawn is
- * left to its exit report, and a session on a login kiln has no name for is not moved, since nothing says which
- * account is spent. A session no account can take, or one in a directory pinned to its account, is reported once
- * and tried again on every call.
+ * headroom, in its own pane and conversation. The limit comes from the session's transcript, with the reset time the
+ * provider gave, or for a run told to wrap up the one its account's usage first gives; once that time has passed, or
+ * while that usage shows allowance left, its own account answers and it is left alone. A run told to wrap up is moved
+ * only once Claude's own record says nothing of it runs. A headless spawn is left to its exit report, and a session
+ * on a login kiln has no name for is not moved, since nothing says which account is spent. A session no account can
+ * take, or one in a directory pinned to its account, is reported once and tried again on every call.
  */
 export async function failOverLimited(
   sessions: readonly Session[],
@@ -56,6 +85,9 @@ export async function failOverLimited(
   route: typeof routeNew = routeNew,
   move: typeof moveClaude = moveClaude,
   refusedAt: (id: string) => number | undefined = claudeRefusedAt,
+  limitedUntil: typeof accountLimitedUntil = accountLimitedUntil,
+  // The session's `activity` says whether it takes a prompt; only Claude's record says that nothing of it still runs.
+  quiet: (pid: number) => boolean = (pid) => claudeRecord(pid).status === "idle",
 ): Promise<Failover[]> {
   if (running || !settings.accounts.some((account) => account.agent === "claude")) return [];
   running = true;
@@ -63,16 +95,22 @@ export async function failOverLimited(
   try {
     for (const session of sessions) {
       const { limited, id, account, place } = session;
-      if (session.agent !== "claude" || !limited || limited.resetsAt <= now) continue;
+      if (session.agent !== "claude" || !limited) continue;
       if (!id || !/^[A-Za-z0-9-]+$/.test(id) || account === undefined) continue;
       if (place.kind !== "kiln" || headlessSpawn(place.name)) continue;
       // A refusal from before this process started was another run's, perhaps on another account: the conversation
       // has since been resumed and has not written a record yet.
       if (limited.at < session.startedAt) continue;
-      const first = claim(dir, id, limited.at, "seen");
+      // A wrap-up note names no reset time. The first one the usage gives is kept, so a note that nothing took back
+      // ends with that window instead of applying again to a later one.
+      const resetsAt =
+        limited.resetsAt ?? seenReset(dir, id, limited.at) ?? (await limitedUntil(account, settings, now, limited.at));
+      if (resetsAt === undefined || resetsAt <= now) continue;
+      const first = claim(dir, id, limited.at, "seen", Number.isFinite(resetsAt) ? String(resetsAt) : "");
       if (first) {
         // A limit that only refuses one model leaves the account's other models working, so it does not spend it.
-        if (spendsAccount(limited.limit)) recordSpent("claude", account, limited.resetsAt);
+        // A full window with no reset time is already read as spent, and there is no time to record.
+        if (spendsAccount(limited.limit) && Number.isFinite(resetsAt)) recordSpent("claude", account, resetsAt);
         forgetReads();
       }
       let to: Awaited<ReturnType<typeof routeNew>>;
@@ -83,8 +121,10 @@ export async function failOverLimited(
         continue;
       }
       if (to.name === undefined || !claim(dir, id, limited.at, "moved")) continue;
-      // The listing can be seconds old, and a prompt typed since has put the conversation to work again.
-      if (refusedAt(id) !== limited.at) {
+      // The listing can be seconds old, and a prompt typed since has put the conversation to work again. A wrapped-up
+      // run still answers, so a restart must also wait for any background shell, agent or workflow it runs.
+      const busy = limited.resetsAt === undefined && !(session.pid !== undefined && quiet(session.pid));
+      if (busy || refusedAt(id) !== limited.at) {
         rmSync(join(dir, `${id}.${limited.at}.moved`), { force: true });
         continue;
       }

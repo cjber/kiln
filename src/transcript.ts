@@ -13,6 +13,11 @@ type Facts = {
   codeMode?: boolean;
   turnEnded?: boolean;
   limited?: Limited;
+  /**
+   * Claude Code's note that the usage limit was reached and to wrap up, until it takes that back: its time, its
+   * record, and whether a compaction has since dropped it.
+   */
+  wrappedUp?: { at: number; id?: string; dropped?: boolean };
 };
 
 type Progress = Facts & {
@@ -31,6 +36,9 @@ const cache = new Map<string, Progress>();
 
 const storePath = () => join(Bun.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "kiln", "transcripts.sqlite");
 const stores = new Map<string, Database>();
+/** Raised when a new fact is read: a row already read past its record cannot supply it, and older rows expire unused. */
+const factsVersion = 3;
+const rowKey = (path: string) => `${factsVersion}:${path}`;
 const forgetAfterMs = 30 * 24 * 60 * 60 * 1000;
 
 /**
@@ -60,7 +68,7 @@ function restore(path: string): Progress | undefined {
     .query<{ inode: number; offset: number; modified: number; facts: string }, [string]>(
       "SELECT inode, offset, modified, facts FROM transcripts WHERE path = ?",
     )
-    .get(path);
+    .get(rowKey(path));
   if (!row) return undefined;
   const facts = JSON.parse(row.facts) as Facts;
   return {
@@ -77,18 +85,18 @@ function restore(path: string): Progress | undefined {
 
 /** Saves progress at a line boundary; a row another process carried further on the same file is kept. */
 function persist(path: string, saved: Progress, size: number) {
-  const { title, generated, workdir, codeMode, turnEnded, limited } = saved;
+  const { title, generated, workdir, codeMode, turnEnded, limited, wrappedUp } = saved;
   store()
     .query(
       "INSERT INTO transcripts (path, inode, offset, modified, facts, used) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET inode = excluded.inode, offset = excluded.offset, modified = excluded.modified, facts = excluded.facts, used = excluded.used WHERE NOT (excluded.inode = transcripts.inode AND transcripts.offset > excluded.offset AND transcripts.offset <= ?)",
     )
     .run(
-      path,
+      rowKey(path),
       saved.inode,
       saved.lineEnd,
       // Only progress that reached the end of the file can vouch for its modification time.
       saved.lineEnd === size ? saved.modified : 0,
-      JSON.stringify({ title, generated, workdir, codeMode, turnEnded, limited }),
+      JSON.stringify({ title, generated, workdir, codeMode, turnEnded, limited, wrappedUp }),
       Date.now(),
       size,
     );
@@ -96,11 +104,12 @@ function persist(path: string, saved: Progress, size: number) {
 }
 
 /**
- * A usage-limit refusal in a Claude transcript: when the window that refused resets, when it was written (ms), and the
- * limit it names, which `quotaLimits.rateLimitType` says. The limit is absent for a record that named none, which
- * refuses the whole account.
+ * A usage limit a Claude conversation stopped on, and when its transcript said so (ms). A refusal also says when the
+ * window that refused resets and, in `quotaLimits.rateLimitType`, which limit it was; the limit is absent for a record
+ * that named none, which refuses the whole account. A conversation told to wrap up carries neither, so its account's
+ * usage says when it resets.
  */
-export type Limited = { resetsAt: number; at: number; limit?: LimitScope };
+export type Limited = { at: number; resetsAt?: number; limit?: LimitScope };
 
 /**
  * The refusal a transcript record holds, if it is one. Claude Code writes the provider's refusal as an assistant
@@ -112,7 +121,7 @@ export function limitRecord(record: {
   isApiErrorMessage?: unknown;
   timestamp?: unknown;
   quotaLimits?: { resetsAt?: unknown; rateLimitType?: unknown };
-}): Limited | undefined {
+}): (Limited & { resetsAt: number }) | undefined {
   if (record.error !== "rate_limit" || record.isApiErrorMessage !== true) return undefined;
   const resetsAt = record.quotaLimits?.resetsAt;
   const at = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : Number.NaN;
@@ -124,7 +133,8 @@ export function limitRecord(record: {
 /**
  * `codeMode` is Claude's own record that the conversation started in Code Mode, which it can only resume with it on.
  * `turnEnded` is true once Claude has finished a reply (`end_turn`) and nothing has been said to it since.
- * `limited` is the usage-limit refusal the conversation stopped on, while nothing has been said to it since.
+ * `limited` is the usage limit the conversation stopped on: a refusal while nothing has been said to it since, or a
+ * finished turn after Claude Code told it to wrap up, until it says that no longer applies.
  */
 export type TranscriptDetails = {
   title?: string;
@@ -179,6 +189,7 @@ export function readTranscript(path: string): TranscriptDetails {
             !line.includes('"repl-mode"') &&
             !line.includes('"end_turn"') &&
             !line.includes('"rate_limit"') &&
+            !line.includes('"compact_boundary"') &&
             !line.includes('"type":"user"')
           )
             continue;
@@ -190,11 +201,23 @@ export function readTranscript(path: string): TranscriptDetails {
               saved.generated = record.aiTitle.trim() || undefined;
             else if (record.type === "repl-mode" && typeof record.replMode === "boolean")
               saved.codeMode = record.replMode;
+            else if (record.type === "system" && record.subtype === "compact_boundary") {
+              const note = saved.wrappedUp;
+              if (note && !record.compactMetadata?.preservedMessages?.uuids?.includes(note.id)) note.dropped = true;
+            }
             // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn, and
             // the summary Claude writes when it compacts the conversation, as it does while idle, is not a prompt.
             else if (record.type === "user" && !record.isSidechain && !record.isCompactSummary) {
               saved.turnEnded = false;
               saved.limited = undefined;
+              // Claude Code marks its own notes on the record. A wrapped-up run answers later prompts and task
+              // notifications from the same grace allowance until a `release` note withdraws the first. A compaction
+              // can drop the note, after which no release follows and the next turn is told again if it still applies.
+              if (saved.wrappedUp?.dropped) saved.wrappedUp = undefined;
+              if (record.usageLimitNote === "wrap_up") {
+                const at = Date.parse(record.timestamp);
+                saved.wrappedUp = at ? { at, id: record.uuid } : undefined;
+              } else if (record.usageLimitNote === "release") saved.wrappedUp = undefined;
             } else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
@@ -203,8 +226,12 @@ export function readTranscript(path: string): TranscriptDetails {
               }
             if (record.type === "assistant" && !record.isSidechain && record.message?.stop_reason === "end_turn")
               saved.turnEnded = true;
-            if (record.type === "assistant" && !record.isSidechain)
-              saved.limited = limitRecord(record) ?? saved.limited;
+            const refused = record.type === "assistant" && !record.isSidechain ? limitRecord(record) : undefined;
+            if (refused) {
+              saved.limited = refused;
+              // A later turn of a wrapped-up run falls back to this refusal, never to the older note.
+              if (saved.wrappedUp) saved.wrappedUp.at = refused.at;
+            }
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
           }
@@ -242,6 +269,7 @@ function details(saved: Facts): TranscriptDetails {
     workdir: saved.workdir,
     codeMode: saved.codeMode,
     turnEnded: saved.turnEnded,
-    limited: saved.limited,
+    // Restarting a run mid-turn would cut off the work its grace allowance is for.
+    limited: saved.limited ?? (saved.wrappedUp && saved.turnEnded ? { at: saved.wrappedUp.at } : undefined),
   };
 }

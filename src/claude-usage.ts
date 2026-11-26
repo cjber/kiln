@@ -58,6 +58,11 @@ export function forgetClaudeUsage(now = Date.now()): void {
   staleBefore = now;
 }
 
+/** Ask again for any login last asked before `at`, keeping a later such mark. */
+export function claudeUsageSince(at: number): void {
+  staleBefore = Math.max(staleBefore, at);
+}
+
 const stateDir = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "kiln", "claude-usage");
 
 function readFile(path: string): Read | undefined {
