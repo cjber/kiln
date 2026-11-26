@@ -9,7 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
-- **A Codex worker spawned at a main checkout can work in its linked worktrees.** Kiln grants each linked worktree's checkout and git metadata plus the shared `objects`, `refs` and `logs`, so the worker can fetch, merge and commit there, and clears the mount points Codex's sandbox leaves in them when it exits. Git in the main checkout itself stays read-only.
+- **A Codex worker spawned at a main checkout can work in its linked worktrees.** Kiln grants each linked worktree's checkout and git metadata plus the shared `objects`, `refs` and `logs`, so the worker can fetch, merge and commit there, and clears the mount points Codex's sandbox leaves in that git metadata when it exits. Git in the main checkout itself stays read-only.
 - **Closing a spawned Codex child keeps it resumable.** `kiln close` no longer archives the thread of a headless `kiln msg spawn` Codex child, so `codex exec resume <id>` still works afterwards.
 
 ## [0.37.6] - 2026-11-24

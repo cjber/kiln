@@ -1,6 +1,16 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Account, claudeHome, defaultAccount, expandHome } from "./accounts";
 import { agyConversationId } from "./agy";
@@ -339,8 +349,11 @@ function gitGrant(dir: string): GitGrant {
 
 /**
  * Each linked worktree of the repository whose common git dir is `common`: its admin dir under `worktrees/` and
- * the checkout that dir's `gitdir` file names (the `.git` file inside it). A worktree whose checkout is gone is
- * left out, for `git worktree prune` to remove.
+ * the checkout whose `.git` file the admin dir's `gitdir` file names, resolved against the admin dir since git can
+ * record it relative. A child may write an admin dir it was granted, so the `gitdir` file is not trusted alone: the
+ * checkout's `.git` must be a regular file that points back at the same admin dir, and the checkout must lie outside
+ * the common dir. A worktree whose checkout is gone or fails that check is left out, the first for `git worktree
+ * prune` to remove.
  */
 function linkedWorktrees(common: string): { admin: string; checkout: string }[] {
   let names: string[];
@@ -352,8 +365,15 @@ function linkedWorktrees(common: string): { admin: string; checkout: string }[] 
   return names.flatMap((name) => {
     const admin = join(common, "worktrees", name);
     try {
-      const checkout = dirname(readFileSync(join(admin, "gitdir"), "utf8").trim());
-      return existsSync(checkout) ? [{ admin, checkout }] : [];
+      const named = readFileSync(join(admin, "gitdir"), "utf8").trim();
+      if (!named) return [];
+      const dotGit = resolve(admin, named);
+      const checkout = dirname(dotGit);
+      if (basename(dotGit) !== ".git" || !lstatSync(dotGit).isFile()) return [];
+      const back = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+      if (!back || realpathSync(resolve(checkout, back)) !== realpathSync(admin)) return [];
+      if (!relative(realpathSync(common), realpathSync(checkout)).startsWith("..")) return [];
+      return [{ admin, checkout }];
     } catch {
       return [];
     }
@@ -488,9 +508,10 @@ function releaseOutbox(box: string): void {
  * `.agents`, `.git`), as a mount point, and leaves it behind. Git never gives an entry of its own a leading dot in a
  * granted git directory, and an outbox holds only messages, so an empty one there is Codex's, and goes once the child
  * has exited. Another Codex child of the same repository may still mount over one; removing it only lets that child
- * write a name git never reads. `only` limits the names cleared, for a directory where other dot directories are real.
+ * write a name git never reads. A granted checkout is a working tree, where a leading dot is no sign of Codex's and a
+ * sibling child's protection may be live, so its mount points are left.
  */
-function clearMountPoints(dirs: readonly string[], only?: readonly string[]): void {
+function clearMountPoints(dirs: readonly string[]): void {
   for (const dir of dirs) {
     let entries: string[] = [];
     try {
@@ -498,23 +519,13 @@ function clearMountPoints(dirs: readonly string[], only?: readonly string[]): vo
     } catch {
       continue;
     }
-    for (const entry of entries.filter((entry) => (only ? only.includes(entry) : entry.startsWith("."))))
+    for (const entry of entries.filter((entry) => entry.startsWith(".")))
       try {
         rmdirSync(join(dir, entry));
       } catch {
         // Not empty, or not a directory: not a mount point.
       }
   }
-}
-
-/**
- * Clear what Codex's sandbox left in the roots {@link gitGrant} granted for `dir`. A granted checkout is a working
- * tree, where a leading dot is no sign of Codex's, so only the names it protects are cleared there.
- */
-function clearGitMountPoints(dir: string): void {
-  const { checkouts, metadata } = gitGrant(dir);
-  clearMountPoints(metadata);
-  clearMountPoints(checkouts, [".codex", ".agents", ".git"]);
 }
 
 /**
@@ -839,7 +850,7 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
     if (failed && (agent === "codex" || failed.status !== 0)) {
       kill(name);
       release();
-      if (agent === "codex") clearGitMountPoints(options.dir);
+      if (agent === "codex") clearMountPoints(gitGrant(options.dir).metadata);
       const reason = failed.output.trim();
       throw new Error(
         `${agentName(agent)} exited with status ${failed.status} before it started${reason ? `:\n${reason}` : ""}`,
@@ -1028,7 +1039,7 @@ export async function reportSpawnExit(name: string, _child: string, parent: stri
     }
   }
   if (ending) reapEnded(ending);
-  if (record.agent === "codex") clearGitMountPoints(record.cwd);
+  if (record.agent === "codex") clearMountPoints(gitGrant(record.cwd).metadata);
   for (const box of boxes) releaseOutbox(box);
   if (to || relayed) {
     try {
