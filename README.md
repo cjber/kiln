@@ -101,10 +101,10 @@ A child usually runs in its agent's sandbox, which hides the other sessions from
 outside the sandbox. Elsewhere, a sandboxed `send` that names its recipient in full (`claude:<id>`)
 waits in the mailbox until kiln's list or phone server delivers it. A Codex child spawned with
 `--dir` at a linked worktree may also write that worktree's git metadata, so it can fetch, merge
-and commit there; like a Claude child in a worktree, it can then move any branch of the
-repository. A Codex worker that must run git commands spawns with `--dir` at its linked
-worktree, not at the main checkout: from the main checkout git writes files a directory grant
-cannot name, so kiln makes no git grant there.
+and commit there; spawned at the main checkout it may write each linked worktree's checkout and
+git metadata instead. Like a Claude child in a worktree, it can then move any branch of the
+repository. Git in the main checkout itself stays read-only for a Codex child: from there git
+writes files a directory grant cannot name.
 A Codex child runs as `codex exec`, which works through one turn and exits: it is listed as
 `working` while its process runs and leaves the list when it exits. It is not on Codex's shared
 daemon, so messages to it wait in its mailbox and it cannot be interrupted. It runs with

@@ -1346,6 +1346,39 @@ test("an exit watcher relays what a sandboxed child left in its outbox, as from 
   }
 });
 
+test("a Codex child's exit clears the mount points its sandbox left in granted git metadata, not in checkouts (#338)", async () => {
+  const state = Bun.env.XDG_STATE_HOME;
+  Bun.env.XDG_STATE_HOME = join(paneDir, "mount-state");
+  const name = "mount-child";
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "kiln-mounts-")));
+  const discovery = spyOn(sessions, "listSessions").mockResolvedValue([]);
+  try {
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect(git("init", "-q", "main").exitCode).toBe(0);
+    expect(
+      git("-C", "main", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        .exitCode,
+    ).toBe(0);
+    expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
+    const admin = join(root, "main", ".git", "worktrees", "tree");
+    // Codex mounts the names it protects, empty, in each root; a checkout's directories are the user's, and a sibling
+    // child may still have its own protection mounted there.
+    for (const dir of [join(root, "tree", ".codex"), join(admin, ".git")]) mkdirSync(dir);
+    expect(start(name, paneDir, ["sleep", "60"], "mount", true)).toBe(true);
+    recordSpawn({ agent: "codex", id: "mount-thread", cwd: join(root, "main"), startedAt: Date.now(), pane: name });
+    kill(name);
+    await reportSpawnExit(name, "codex:mount-thread", "");
+    expect(existsSync(join(admin, ".git"))).toBe(false);
+    expect(existsSync(join(root, "tree", ".codex"))).toBe(true);
+  } finally {
+    discovery.mockRestore();
+    kill(name);
+    rmSync(root, { recursive: true, force: true });
+    if (state === undefined) delete Bun.env.XDG_STATE_HOME;
+    else Bun.env.XDG_STATE_HOME = state;
+  }
+});
+
 test("an exit without discovery relays full names, and the resumed run relays the rest (#264)", async () => {
   const state = Bun.env.XDG_STATE_HOME;
   Bun.env.XDG_STATE_HOME = join(paneDir, "outbox-offline-state");
@@ -1403,16 +1436,21 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     expect(git("-C", "main", "worktree", "add", "-q", join(root, "tree")).exitCode).toBe(0);
     const common = join(realpathSync(root), "main", ".git");
     // Only the subdirectories a commit writes are granted, never the common dir itself: its config and hooks
-    // would run unsandboxed later. The grant applies only in a linked worktree: from the main checkout
-    // git add, commit and fetch write root files of the common dir (index, FETCH_HEAD), which a
-    // directory grant cannot name, so no partial grant is made there (#338).
+    // would run unsandboxed later. A linked worktree is granted its own admin dir; the main checkout is
+    // granted the linked worktrees' checkouts and admin dirs, because git add, commit and fetch in the main checkout
+    // write root files of the common dir (index, FETCH_HEAD) that a directory grant cannot name (#338).
     const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
     expect(spawnGrants("codex", join(root, "tree"), "/outbox")).toEqual([
       "/outbox",
       join(common, "worktrees", "tree"),
       ...shared,
     ]);
-    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual([
+      "/outbox",
+      join(realpathSync(root), "tree"),
+      join(common, "worktrees", "tree"),
+      ...shared,
+    ]);
     expect(spawnGrants("claude", join(root, "tree"), "/outbox")).toEqual(["/outbox"]);
     expect(headlessCommand(["codex"], "codex", "", "go", undefined, undefined, undefined, ["/a", "/b"])).toEqual([
       "codex",
@@ -1450,6 +1488,64 @@ test("a Codex child in a linked worktree may write that worktree's git metadata 
     const interactive = interactiveClaudeCommand(claudeGrants(["claude"], root, ["/outbox"]), "id", "go");
     expect(interactive).not.toContain("--add-dir");
     expect(interactive).toContain(grant(["/outbox"]));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a Codex child at a main checkout may work in each of its linked worktrees (#338)", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "kiln-grants-")));
+  try {
+    const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect(git("init", "-q", "main").exitCode).toBe(0);
+    // A repository without a linked worktree has nothing to grant, and neither does a directory outside one.
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    expect(spawnGrants("codex", root, "/outbox")).toEqual(["/outbox"]);
+    expect(
+      git("-C", "main", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x")
+        .exitCode,
+    ).toBe(0);
+    for (const name of ["b", "a", "gone"])
+      expect(git("-C", "main", "worktree", "add", "-q", join(root, name)).exitCode).toBe(0);
+    rmSync(join(root, "gone"), { recursive: true });
+    mkdirSync(join(root, "main", "sub"));
+    const common = join(root, "main", ".git");
+    const shared = ["objects", "refs", "logs"].map((part) => join(common, part));
+    // Each live worktree gets its checkout and admin dir, in name order; one whose checkout is gone is left for
+    // `git worktree prune`. A directory below the main checkout is the same repository.
+    const expected = [
+      "/outbox",
+      join(root, "a"),
+      join(root, "b"),
+      join(common, "worktrees", "a"),
+      join(common, "worktrees", "b"),
+      ...shared,
+    ];
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(expected);
+    expect(spawnGrants("codex", join(root, "main", "sub"), "/outbox")).toEqual(expected);
+    // Never the common dir, whose config and hooks run later, nor the worktrees dir that holds every admin dir.
+    expect(expected).not.toContain(common);
+    expect(expected).not.toContain(join(common, "worktrees"));
+    // A child may write the admin dir it was granted, so a `gitdir` file that does not lead to a checkout pointing
+    // back at that admin dir grants nothing: empty, the common dir, a directory outside the repository, an
+    // unrelated checkout.
+    const gitdir = (name: string) => join(common, "worktrees", name, "gitdir");
+    const stray = join(root, "stray");
+    mkdirSync(stray);
+    writeFileSync(join(stray, ".git"), `gitdir: ${join(common, "worktrees", "a")}\n`);
+    writeFileSync(gitdir("a"), "\n");
+    writeFileSync(gitdir("b"), join(stray, ".git"));
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    writeFileSync(gitdir("a"), join(common, "x"));
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual(["/outbox"]);
+    // A relative `gitdir`, as git writes with worktree.useRelativePaths, is read from the admin dir.
+    writeFileSync(gitdir("a"), "../../../../a/.git");
+    expect(spawnGrants("codex", join(root, "main"), "/outbox")).toEqual([
+      "/outbox",
+      join(root, "a"),
+      join(common, "worktrees", "a"),
+      ...shared,
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
