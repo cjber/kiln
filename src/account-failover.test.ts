@@ -98,6 +98,10 @@ test("a session stopped on its usage limit restarts once, in its pane, on the ne
   expect(launches[0]).toStartWith(`${two}|--resume ${id} -- `);
   // The new account's own config trusts the folder, or Claude would stop at its dialog.
   expect(readFileSync(join(two, ".claude.json"), "utf8")).toContain(cwd);
+  // A watcher with an older listing leaves what was claimed of this refusal.
+  const stale = { ...session, limited: { resetsAt: now + 3_600_000, at: now - 2_000 } };
+  expect(await failOverLimited([stale], settings, now, dir, route, move, refused)).toEqual([]);
+  expect(await failOverLimited([session], settings, now, dir, route, move, refused)).toEqual([]);
   // Once the provider's reset has passed the session's own account answers again, and it is left where it is.
   const later = { ...session, limited: { resetsAt: now - 1, at: now + 5 } };
   expect(await failOverLimited([later], settings, now, dir, route, move, refused)).toEqual([]);
@@ -155,7 +159,7 @@ test("a session told to wrap up moves only while its account's usage shows it ou
     startedAt: now - 2_000,
     account: "grace",
     limited: { at: now - 1_000 },
-    activity: "working",
+    pid: 7,
     place: { kind: "kiln", name: "claude-grace" },
   };
   const settings: Settings = { ...defaults, accounts: [{ agent: "claude", name: "grace", home: join(root, "grace") }] };
@@ -164,6 +168,7 @@ test("a session told to wrap up moves only while its account's usage shows it ou
     return { name: "two", env: {} };
   };
   let open = false;
+  let quiet = false;
   const moved: string[] = [];
   const move = async (name: string) => {
     moved.push(name);
@@ -181,18 +186,20 @@ test("a session told to wrap up moves only while its account's usage shows it ou
         move,
         refused,
         async () => until,
+        () => quiet,
       )
     ).map((event) => event.kind);
-  // Background work a restart would end holds the session where it is.
-  expect(await run(now + 3_600_000)).toEqual([]);
-  session.activity = "idle";
   expect(await run(undefined)).toEqual([]);
   expect(await run(now + 3_600_000)).toEqual(["stuck"]);
   expect(spentUntil("claude", "grace", now)).toBe(now + 3_600_000);
   open = true;
+  // Background work a restart would end holds the session where it is.
+  expect(await run(undefined)).toEqual([]);
+  expect(moved).toEqual([]);
   // The window the note was for has reset: a later full one is not this note's.
   expect(await run(now + 9_000_000, now + 3_600_000)).toEqual([]);
   expect(moved).toEqual([]);
+  quiet = true;
   expect(await run(undefined)).toEqual(["moved"]);
   expect(await run(undefined)).toEqual([]);
   expect(moved).toEqual(["claude-grace"]);

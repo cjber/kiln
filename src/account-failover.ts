@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
+import { claudeRecord } from "./claude-inbox";
 import { claudeUsageSince } from "./claude-usage";
 import { spendsAccount } from "./limit-scope";
 import { forgetReads, type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
@@ -24,6 +25,7 @@ const stateDir = () => join(Bun.env.XDG_STATE_HOME || join(homedir(), ".local", 
 /**
  * Take `step` of one refusal for this process alone. The list and the phone server both watch the sessions, so each
  * step is a file only one of them can create; a conversation's older refusals are dropped as a new one is first seen.
+ * One watcher's listing can be older than another's, so a newer refusal's steps are never dropped.
  */
 function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "failed", note = ""): boolean {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -35,7 +37,7 @@ function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "fa
   }
   if (step === "seen")
     for (const entry of readdirSync(dir))
-      if (entry.startsWith(`${id}.`) && !entry.startsWith(own)) rmSync(join(dir, entry), { force: true });
+      if (entry.startsWith(`${id}.`) && Number(entry.split(".")[1]) < at) rmSync(join(dir, entry), { force: true });
   return true;
 }
 
@@ -70,11 +72,10 @@ let running = false;
  * Move each interactive Claude session that stopped on its account's usage limit to the account with the most
  * headroom, in its own pane and conversation. The limit comes from the session's transcript, with the reset time the
  * provider gave, or for a run told to wrap up the one its account's usage first gives; once that time has passed, or
- * while that usage shows allowance left, its own account answers and it is left alone. A run told to wrap up still
- * answers, so it is moved only while idle, with no background shell or agent for a restart to end. A headless spawn is
- * left to its exit report, and a session on a login kiln has no name for is not moved, since nothing says which
- * account is spent. A session no account can take, or one in a directory pinned to its account, is reported once
- * and tried again on every call.
+ * while that usage shows allowance left, its own account answers and it is left alone. A run told to wrap up is moved
+ * only once Claude's own record says nothing of it runs. A headless spawn is left to its exit report, and a session
+ * on a login kiln has no name for is not moved, since nothing says which account is spent. A session no account can
+ * take, or one in a directory pinned to its account, is reported once and tried again on every call.
  */
 export async function failOverLimited(
   sessions: readonly Session[],
@@ -85,6 +86,8 @@ export async function failOverLimited(
   move: typeof moveClaude = moveClaude,
   refusedAt: (id: string) => number | undefined = claudeRefusedAt,
   limitedUntil: typeof accountLimitedUntil = accountLimitedUntil,
+  // The session's `activity` says whether it takes a prompt; only Claude's record says that nothing of it still runs.
+  quiet: (pid: number) => boolean = (pid) => claudeRecord(pid).status === "idle",
 ): Promise<Failover[]> {
   if (running || !settings.accounts.some((account) => account.agent === "claude")) return [];
   running = true;
@@ -98,7 +101,6 @@ export async function failOverLimited(
       // A refusal from before this process started was another run's, perhaps on another account: the conversation
       // has since been resumed and has not written a record yet.
       if (limited.at < session.startedAt) continue;
-      if (limited.resetsAt === undefined && session.activity !== "idle") continue;
       // A wrap-up note names no reset time. The first one the usage gives is kept, so a note that nothing took back
       // ends with that window instead of applying again to a later one.
       const resetsAt =
@@ -119,8 +121,10 @@ export async function failOverLimited(
         continue;
       }
       if (to.name === undefined || !claim(dir, id, limited.at, "moved")) continue;
-      // The listing can be seconds old, and a prompt typed since has put the conversation to work again.
-      if (refusedAt(id) !== limited.at) {
+      // The listing can be seconds old, and a prompt typed since has put the conversation to work again. A wrapped-up
+      // run still answers, so a restart must also wait for any background shell, agent or workflow it runs.
+      const busy = limited.resetsAt === undefined && !(session.pid !== undefined && quiet(session.pid));
+      if (busy || refusedAt(id) !== limited.at) {
         rmSync(join(dir, `${id}.${limited.at}.moved`), { force: true });
         continue;
       }

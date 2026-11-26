@@ -149,6 +149,16 @@ test("a run told to wrap up is limited once its turn ends, until Claude Code tak
     expect(readTranscript(path).limited).toEqual({ at: Date.parse("2026-11-20T10:10:00.000Z") });
     appendFileSync(path, user({ isMeta: true, usageLimitNote: "release" }) + reply);
     expect(readTranscript(path).limited).toBeUndefined();
+    // A compaction that drops the note ends it at the next turn; until then the run is still wrapped up.
+    const compacted = (kept: string[]) =>
+      record({ type: "system", subtype: "compact_boundary", compactMetadata: { preservedMessages: { uuids: kept } } });
+    appendFileSync(path, user({ uuid: "note", isMeta: true, usageLimitNote: "wrap_up" }) + reply);
+    appendFileSync(path, compacted(["note"]) + user() + reply);
+    expect(readTranscript(path).limited).toEqual(wrapped);
+    appendFileSync(path, compacted([]));
+    expect(readTranscript(path).limited).toEqual(wrapped);
+    appendFileSync(path, user() + reply);
+    expect(readTranscript(path).limited).toBeUndefined();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

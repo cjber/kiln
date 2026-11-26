@@ -13,8 +13,11 @@ type Facts = {
   codeMode?: boolean;
   turnEnded?: boolean;
   limited?: Limited;
-  /** When Claude Code told the run its usage limit was reached and to wrap up, until it takes that back. */
-  wrappedUp?: number;
+  /**
+   * Claude Code's note that the usage limit was reached and to wrap up, until it takes that back: its time, its
+   * record, and whether a compaction has since dropped it.
+   */
+  wrappedUp?: { at: number; id?: string; dropped?: boolean };
 };
 
 type Progress = Facts & {
@@ -34,7 +37,7 @@ const cache = new Map<string, Progress>();
 const storePath = () => join(Bun.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "kiln", "transcripts.sqlite");
 const stores = new Map<string, Database>();
 /** Raised when a new fact is read: a row already read past its record cannot supply it, and older rows expire unused. */
-const factsVersion = 2;
+const factsVersion = 3;
 const rowKey = (path: string) => `${factsVersion}:${path}`;
 const forgetAfterMs = 30 * 24 * 60 * 60 * 1000;
 
@@ -186,6 +189,7 @@ export function readTranscript(path: string): TranscriptDetails {
             !line.includes('"repl-mode"') &&
             !line.includes('"end_turn"') &&
             !line.includes('"rate_limit"') &&
+            !line.includes('"compact_boundary"') &&
             !line.includes('"type":"user"')
           )
             continue;
@@ -197,15 +201,23 @@ export function readTranscript(path: string): TranscriptDetails {
               saved.generated = record.aiTitle.trim() || undefined;
             else if (record.type === "repl-mode" && typeof record.replMode === "boolean")
               saved.codeMode = record.replMode;
+            else if (record.type === "system" && record.subtype === "compact_boundary") {
+              const note = saved.wrappedUp;
+              if (note && !record.compactMetadata?.preservedMessages?.uuids?.includes(note.id)) note.dropped = true;
+            }
             // A prompt or a tool result starts or continues a turn; a subagent's records are not the session's turn, and
             // the summary Claude writes when it compacts the conversation, as it does while idle, is not a prompt.
             else if (record.type === "user" && !record.isSidechain && !record.isCompactSummary) {
               saved.turnEnded = false;
               saved.limited = undefined;
               // Claude Code marks its own notes on the record. A wrapped-up run answers later prompts and task
-              // notifications from the same grace allowance, so only its `release` note ends that state.
-              if (record.usageLimitNote === "wrap_up") saved.wrappedUp = Date.parse(record.timestamp) || undefined;
-              else if (record.usageLimitNote === "release") saved.wrappedUp = undefined;
+              // notifications from the same grace allowance until a `release` note withdraws the first. A compaction
+              // can drop the note, after which no release follows and the next turn is told again if it still applies.
+              if (saved.wrappedUp?.dropped) saved.wrappedUp = undefined;
+              if (record.usageLimitNote === "wrap_up") {
+                const at = Date.parse(record.timestamp);
+                saved.wrappedUp = at ? { at, id: record.uuid } : undefined;
+              } else if (record.usageLimitNote === "release") saved.wrappedUp = undefined;
             } else if (record.type === "assistant" && Array.isArray(record.message?.content))
               for (const part of record.message.content) {
                 const path = part?.type === "tool_use" ? toolPath(String(part.name), part.input ?? {}) : undefined;
@@ -218,7 +230,7 @@ export function readTranscript(path: string): TranscriptDetails {
             if (refused) {
               saved.limited = refused;
               // A later turn of a wrapped-up run falls back to this refusal, never to the older note.
-              if (saved.wrappedUp) saved.wrappedUp = refused.at;
+              if (saved.wrappedUp) saved.wrappedUp.at = refused.at;
             }
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
@@ -258,6 +270,6 @@ function details(saved: Facts): TranscriptDetails {
     codeMode: saved.codeMode,
     turnEnded: saved.turnEnded,
     // Restarting a run mid-turn would cut off the work its grace allowance is for.
-    limited: saved.limited ?? (saved.wrappedUp && saved.turnEnded ? { at: saved.wrappedUp } : undefined),
+    limited: saved.limited ?? (saved.wrappedUp && saved.turnEnded ? { at: saved.wrappedUp.at } : undefined),
   };
 }
