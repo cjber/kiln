@@ -145,6 +145,36 @@ test("a session no account can take is reported once and left in its pane", asyn
   expect(moved).toEqual(["claude-none"]);
 });
 
+test("a session told to wrap up moves only while its account's usage shows it out of allowance", async () => {
+  const now = Date.now();
+  const session: Session = {
+    agent: "claude",
+    id: crypto.randomUUID(),
+    title: "wrapped",
+    cwd: root,
+    startedAt: now - 2_000,
+    account: "grace",
+    limited: { at: now - 1_000 },
+    place: { kind: "kiln", name: "claude-grace" },
+  };
+  const settings: Settings = { ...defaults, accounts: [{ agent: "claude", name: "grace", home: join(root, "grace") }] };
+  const route = async () => ({ name: "two", env: {} });
+  const moved: string[] = [];
+  const move = async (name: string) => {
+    moved.push(name);
+    return true;
+  };
+  const refused = () => session.limited?.at;
+  const run = (until: number | undefined) =>
+    failOverLimited([session], settings, now, join(root, "grace-claims"), route, move, refused, async () => until);
+  expect(await run(undefined)).toEqual([]);
+  expect(moved).toEqual([]);
+  expect((await run(now + 3_600_000)).map((event) => event.kind)).toEqual(["moved"]);
+  expect(await run(now + 3_600_000)).toEqual([]);
+  expect(moved).toEqual(["claude-grace"]);
+  expect(spentUntil("claude", "grace", now)).toBe(now + 3_600_000);
+});
+
 test("a session stopped on one model's weekly allowance leaves the account open for every other model", async () => {
   const now = Date.now();
   const session: Session = {

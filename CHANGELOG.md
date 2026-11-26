@@ -9,6 +9,7 @@ verbatim.
 
 ## [Unreleased]
 
+- **A Claude session that wraps up on its usage limit moves to another account.** Claude Code can end a limited turn by telling the model to wrap up instead of refusing the request, which left the session idle on the spent account. Kiln now restarts it on another account once that turn ends and the account's usage shows it is out of allowance.
 - **A Codex worker spawned at a main checkout can work in its linked worktrees.** Kiln grants each linked worktree's checkout and git metadata plus the shared `objects`, `refs` and `logs`, so the worker can fetch, merge and commit there, and clears the mount points Codex's sandbox leaves in that git metadata when it exits. Git in the main checkout itself stays read-only.
 - **Closing a spawned Codex child keeps it resumable.** `kiln close` no longer archives the thread of a headless `kiln msg spawn` Codex child, so `codex exec resume <id>` still works afterwards.
 

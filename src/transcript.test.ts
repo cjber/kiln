@@ -120,6 +120,31 @@ test("a usage-limit refusal marks the conversation limited until the next prompt
   }
 });
 
+test("a run told to wrap up is limited once its turn ends, until Claude Code takes the note back", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-wrap-up-"));
+  const path = join(root, "session.jsonl");
+  const user = (extra: object = {}) =>
+    record({ type: "user", timestamp: "2026-11-20T10:00:00.000Z", message: { content: "text" }, ...extra });
+  const reply = record({ type: "assistant", message: { content: [], stop_reason: "end_turn" } });
+  const wrapped = { at: Date.parse("2026-11-20T10:00:00.000Z") };
+  try {
+    writeFileSync(path, user({ isMeta: true, usageLimitNote: "wrap_up" }));
+    // The grace turn is still running.
+    expect(readTranscript(path).limited).toBeUndefined();
+    appendFileSync(path, reply);
+    expect(readTranscript(path).limited).toEqual(wrapped);
+    // A task notification answered from the same allowance does not mean the limit has gone.
+    appendFileSync(path, user({ timestamp: "2026-11-20T10:05:00.000Z" }));
+    expect(readTranscript(path).limited).toBeUndefined();
+    appendFileSync(path, reply);
+    expect(readTranscript(path).limited).toEqual(wrapped);
+    appendFileSync(path, user({ isMeta: true, usageLimitNote: "release" }) + reply);
+    expect(readTranscript(path).limited).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a new process carries on from where any kiln process last read a transcript", () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-shared-"));
   const path = join(root, "session.jsonl");

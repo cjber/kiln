@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { defaultAccount } from "./accounts";
 import { spendsAccount } from "./limit-scope";
-import { forgetReads, type QuotaAccount, startLimitedUntil } from "./quota";
+import { forgetReads, type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import { routeNew } from "./routing";
 import type { Session } from "./sessions";
 import type { Settings } from "./settings";
@@ -38,12 +38,20 @@ function claim(dir: string, id: string, at: number, step: "seen" | "moved" | "fa
   return true;
 }
 
+/** When the Claude account `name`, as its provider reads now, has allowance again; undefined if it has some. */
+async function accountLimitedUntil(name: string, settings: Settings, now: number): Promise<number | undefined> {
+  const quota = await readQuota(now, settings.accounts).catch(() => []);
+  const found = quota.find((account) => account.agent === "claude" && (account.name ?? defaultAccount) === name);
+  return found && startLimitedUntil(found, now);
+}
+
 let running = false;
 
 /**
  * Move each interactive Claude session that stopped on its account's usage limit to the account with the most
- * headroom, in its own pane and conversation. The refusal comes from the session's transcript, with the reset time the
- * provider gave; once that time has passed its own account answers again and it is left alone. A headless spawn is
+ * headroom, in its own pane and conversation. The limit comes from the session's transcript, with the reset time the
+ * provider gave, or for a run told to wrap up the one its account's usage gives; once that time has passed, or while
+ * that usage shows allowance left, its own account answers and it is left alone. A headless spawn is
  * left to its exit report, and a session on a login kiln has no name for is not moved, since nothing says which
  * account is spent. A session no account can take, or one in a directory pinned to its account, is reported once
  * and tried again on every call.
@@ -56,6 +64,7 @@ export async function failOverLimited(
   route: typeof routeNew = routeNew,
   move: typeof moveClaude = moveClaude,
   refusedAt: (id: string) => number | undefined = claudeRefusedAt,
+  limitedUntil: typeof accountLimitedUntil = accountLimitedUntil,
 ): Promise<Failover[]> {
   if (running || !settings.accounts.some((account) => account.agent === "claude")) return [];
   running = true;
@@ -63,16 +72,19 @@ export async function failOverLimited(
   try {
     for (const session of sessions) {
       const { limited, id, account, place } = session;
-      if (session.agent !== "claude" || !limited || limited.resetsAt <= now) continue;
+      if (session.agent !== "claude" || !limited) continue;
       if (!id || !/^[A-Za-z0-9-]+$/.test(id) || account === undefined) continue;
       if (place.kind !== "kiln" || headlessSpawn(place.name)) continue;
       // A refusal from before this process started was another run's, perhaps on another account: the conversation
       // has since been resumed and has not written a record yet.
       if (limited.at < session.startedAt) continue;
+      const resetsAt = limited.resetsAt ?? (await limitedUntil(account, settings, now));
+      if (resetsAt === undefined || resetsAt <= now) continue;
       const first = claim(dir, id, limited.at, "seen");
       if (first) {
         // A limit that only refuses one model leaves the account's other models working, so it does not spend it.
-        if (spendsAccount(limited.limit)) recordSpent("claude", account, limited.resetsAt);
+        // A full window with no reset time is already read as spent, and there is no time to record.
+        if (spendsAccount(limited.limit) && Number.isFinite(resetsAt)) recordSpent("claude", account, resetsAt);
         forgetReads();
       }
       let to: Awaited<ReturnType<typeof routeNew>>;
