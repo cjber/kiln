@@ -155,24 +155,47 @@ test("a session told to wrap up moves only while its account's usage shows it ou
     startedAt: now - 2_000,
     account: "grace",
     limited: { at: now - 1_000 },
+    activity: "working",
     place: { kind: "kiln", name: "claude-grace" },
   };
   const settings: Settings = { ...defaults, accounts: [{ agent: "claude", name: "grace", home: join(root, "grace") }] };
-  const route = async () => ({ name: "two", env: {} });
+  const route = async () => {
+    if (!open) throw new Error("every other claude account is at its limit");
+    return { name: "two", env: {} };
+  };
+  let open = false;
   const moved: string[] = [];
   const move = async (name: string) => {
     moved.push(name);
     return true;
   };
   const refused = () => session.limited?.at;
-  const run = (until: number | undefined) =>
-    failOverLimited([session], settings, now, join(root, "grace-claims"), route, move, refused, async () => until);
-  expect(await run(undefined)).toEqual([]);
-  expect(moved).toEqual([]);
-  expect((await run(now + 3_600_000)).map((event) => event.kind)).toEqual(["moved"]);
+  const run = async (until: number | undefined, at = now) =>
+    (
+      await failOverLimited(
+        [session],
+        settings,
+        at,
+        join(root, "grace-claims"),
+        route,
+        move,
+        refused,
+        async () => until,
+      )
+    ).map((event) => event.kind);
+  // Background work a restart would end holds the session where it is.
   expect(await run(now + 3_600_000)).toEqual([]);
-  expect(moved).toEqual(["claude-grace"]);
+  session.activity = "idle";
+  expect(await run(undefined)).toEqual([]);
+  expect(await run(now + 3_600_000)).toEqual(["stuck"]);
   expect(spentUntil("claude", "grace", now)).toBe(now + 3_600_000);
+  open = true;
+  // The window the note was for has reset: a later full one is not this note's.
+  expect(await run(now + 9_000_000, now + 3_600_000)).toEqual([]);
+  expect(moved).toEqual([]);
+  expect(await run(undefined)).toEqual(["moved"]);
+  expect(await run(undefined)).toEqual([]);
+  expect(moved).toEqual(["claude-grace"]);
 });
 
 test("a session stopped on one model's weekly allowance leaves the account open for every other model", async () => {

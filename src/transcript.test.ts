@@ -138,6 +138,15 @@ test("a run told to wrap up is limited once its turn ends, until Claude Code tak
     expect(readTranscript(path).limited).toBeUndefined();
     appendFileSync(path, reply);
     expect(readTranscript(path).limited).toEqual(wrapped);
+    const refusal = record({
+      type: "assistant",
+      timestamp: "2026-11-20T10:10:00.000Z",
+      error: "rate_limit",
+      isApiErrorMessage: true,
+      quotaLimits: { resetsAt: 1795200000 },
+    });
+    appendFileSync(path, refusal + user() + reply);
+    expect(readTranscript(path).limited).toEqual({ at: Date.parse("2026-11-20T10:10:00.000Z") });
     appendFileSync(path, user({ isMeta: true, usageLimitNote: "release" }) + reply);
     expect(readTranscript(path).limited).toBeUndefined();
   } finally {

@@ -214,8 +214,12 @@ export function readTranscript(path: string): TranscriptDetails {
               }
             if (record.type === "assistant" && !record.isSidechain && record.message?.stop_reason === "end_turn")
               saved.turnEnded = true;
-            if (record.type === "assistant" && !record.isSidechain)
-              saved.limited = limitRecord(record) ?? saved.limited;
+            const refused = record.type === "assistant" && !record.isSidechain ? limitRecord(record) : undefined;
+            if (refused) {
+              saved.limited = refused;
+              // A later turn of a wrapped-up run falls back to this refusal, never to the older note.
+              if (saved.wrappedUp) saved.wrappedUp = refused.at;
+            }
           } catch {
             // Ignore incomplete or unrelated records; a title never establishes activity.
           }
