@@ -122,6 +122,31 @@ test("a message counts as delivered once Claude records queueing it, and a close
   await expect(sendClaudeInbox({ socket, token }, "hi", transcript)).rejects.toBeInstanceOf(InboxClosed);
 });
 
+test("a workflow counts as running until each agent it started has a result or failed", () => {
+  const root = mkdtempSync(join(tmpdir(), "kiln-workflows-"));
+  const transcript = join(root, "s1.jsonl");
+  const run = join(root, "s1", "subagents", "workflows", "wf_1");
+  mkdirSync(run, { recursive: true });
+  const journal = (...entries: object[]) =>
+    writeFileSync(join(run, "journal.jsonl"), `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
+  journal({ type: "launched" });
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(false);
+  journal({ type: "launched" }, { type: "started", agentId: "a1" }, { type: "started", agentId: "a2" });
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(true);
+  // One launched before this process started belongs to an earlier run.
+  expect(claudeBackgroundAgentRunning(transcript, Date.now() + 60_000)).toBe(false);
+  journal({ type: "started", agentId: "a1" }, { type: "started", agentId: "a2" }, { type: "result", agentId: "a1" });
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(true);
+  journal(
+    { type: "started", agentId: "a1" },
+    { type: "started", agentId: "a2" },
+    { type: "result", agentId: "a1" },
+    { type: "failed", agentId: "a2" },
+  );
+  expect(claudeBackgroundAgentRunning(transcript, 0)).toBe(false);
+  rmSync(root, { recursive: true });
+});
+
 test("a background agent counts as running until its meta file says it finished", () => {
   const root = mkdtempSync(join(tmpdir(), "kiln-agents-"));
   const transcript = join(root, "s1.jsonl");

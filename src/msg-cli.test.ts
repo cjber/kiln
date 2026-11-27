@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as mailbox from "./mailbox";
 import { isPeer, peekUnread, peerName } from "./mailbox";
 import { runMsgCli } from "./msg-cli";
 import * as sessions from "./sessions";
@@ -50,6 +51,28 @@ test("JSON inbox and peer sends work without session discovery", async () => {
     expect(viewOutput).toContain('"text": "ended answer"');
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a waiting inbox rides out a busy database until its deadline (#368)", async () => {
+  const busy = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+  const message = { id: "m1", from: "claude:a", to: "@waiter", body: "hi", createdAt: 1 };
+  let reads = 0;
+  const take = spyOn(mailbox, "takeUnread").mockImplementation(() => {
+    if (++reads < 3) throw busy;
+    return [message];
+  });
+  const printed = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await runMsgCli(["inbox", "--as", "@waiter", "--json", "--wait", "5"]);
+    expect(reads).toBe(3);
+    expect(JSON.parse(String(printed.mock.calls[0]?.[0]))).toEqual([message]);
+    // Without a wait there is no deadline to ride it out to.
+    reads = 0;
+    await expect(runMsgCli(["inbox", "--as", "@waiter", "--json"])).rejects.toThrow("database is locked");
+  } finally {
+    take.mockRestore();
+    printed.mockRestore();
   }
 });
 

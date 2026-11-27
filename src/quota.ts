@@ -45,14 +45,36 @@ function limitedUntil(account: QuotaAccount, now: number): number | undefined {
 }
 
 /**
- * When a new run may not start on the account. Everywhere but OpenCode that is {@link limitedUntil}. OpenCode's
- * windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
+ * The model groups of an Antigravity account whose allowance is used up, each with when it returns. A bucket id is its
+ * group and its window (`gemini-5h`, `3p-weekly`); a group is full while any of its windows is.
+ */
+export function agyFullGroups(account: QuotaAccount, now: number): { group: string; until: number }[] {
+  const groups = new Map<string, number | undefined>();
+  for (const window of account.windows) {
+    const group = window.label.replace(/-(5h|weekly)$/, "");
+    const full = window.percent >= 100 ? (window.resetsAt ?? Number.POSITIVE_INFINITY) : undefined;
+    groups.set(group, full === undefined ? groups.get(group) : Math.max(full, groups.get(group) ?? 0));
+  }
+  return [...groups].flatMap(([group, until]) => (until !== undefined && until > now ? [{ group, until }] : []));
+}
+
+/**
+ * When a new run may not start on the account. Everywhere but OpenCode and Antigravity that is {@link limitedUntil}.
+ * OpenCode's windows are OpenCode Go's alone, one provider of the many an opencode session runs on, and Go itself keeps
  * answering past a full monthly window, so a full Go window ranks the account last but never refuses a start; only
- * a limit a run actually ended on, recorded as `spentUntil`, does. Antigravity buckets cover model groups, so a full bucket cannot establish that every model is blocked.
+ * a limit a run actually ended on, recorded as `spentUntil`, does. Antigravity buckets cover model groups, so one full
+ * group leaves the others startable (`agyFullGroups` names it); only when every group is full, or a run recorded a
+ * limit, is no model left to start.
  */
 export function startLimitedUntil(account: QuotaAccount, now: number): number | undefined {
   if (account.agent !== "opencode" && account.agent !== "agy") return limitedUntil(account, now);
-  return account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
+  const recorded = account.spentUntil !== undefined && account.spentUntil > now ? account.spentUntil : undefined;
+  if (account.agent === "opencode") return recorded;
+  const groups = new Set(account.windows.map((window) => window.label.replace(/-(5h|weekly)$/, "")));
+  const full = agyFullGroups(account, now);
+  const exhausted =
+    groups.size > 0 && full.length === groups.size ? Math.min(...full.map((item) => item.until)) : undefined;
+  return recorded === undefined ? exhausted : Math.max(recorded, exhausted ?? 0);
 }
 
 const staleMs = 30 * 60_000;

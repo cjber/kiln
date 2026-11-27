@@ -189,7 +189,8 @@ export function sentSince(from: string, to: string, since: number, path = mailbo
 
 /** The recipient's undelivered messages, marked read as they are handed over. */
 export function takeUnread(to: string, path = mailboxPath(), now = Date.now()): Message[] {
-  if (!existsSync(path)) return [];
+  // A waiting inbox reads every 100 ms; only a read that finds mail takes the write lock, so idle waiters never contend.
+  if (!peekUnread(to, path).length) return [];
   const db = open(path);
   // Immediate: a deferred read that then writes cannot wait for another writer, so SQLite fails it at once as locked.
   return db

@@ -246,9 +246,17 @@ export async function runMsgCli(args: string[]): Promise<void> {
       const waitSeconds = values.wait === undefined ? 0 : Number(values.wait);
       if (!Number.isFinite(waitSeconds) || waitSeconds < 0 || waitSeconds > 300)
         throw new Error("--wait must be 0 to 300 seconds");
-      const read = () => (values.peek ? peekUnread(me) : takeUnread(me));
-      let messages = read();
       const deadline = Date.now() + waitSeconds * 1000;
+      // Other sessions write the mailbox too; a waiting inbox rides out a busy database until its own deadline.
+      const read = () => {
+        try {
+          return values.peek ? peekUnread(me) : takeUnread(me);
+        } catch (error) {
+          if (Date.now() < deadline && (error as { code?: string }).code === "SQLITE_BUSY") return [];
+          throw error;
+        }
+      };
+      let messages = read();
       while (!messages.length && Date.now() < deadline) {
         await Bun.sleep(Math.min(100, Math.max(1, deadline - Date.now())));
         messages = read();

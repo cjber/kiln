@@ -69,8 +69,11 @@ export function accountEnv(account: Account): Record<string, string> {
 /** Claude Code's own config dir, which is the `default` Claude account and what every other account shares. */
 export const claudeHome = () => join(homedir(), ".claude");
 
-/** The two files a Claude config dir keeps its login in: the token, and the account it belongs to. */
-const claudeLogin = [".credentials.json", ".claude.json"];
+/**
+ * What a Claude config dir keeps for its own login: the token, the account it belongs to, and the MCP servers that
+ * account is not signed in to (an MCP sign-in is per account, so "needs auth" is too).
+ */
+const claudeLogin = [".credentials.json", ".claude.json", "mcp-needs-auth-cache.json"];
 
 /**
  * The directory an agent's default home is, which an account's shared entries are linked from. Claude's is fixed:
@@ -97,14 +100,16 @@ function link(target: string, path: string, allowMissing = false): void {
   }
 }
 
-function removeLockLinks(home: string, root: string): void {
+/** Remove links into `root` that an account must not share: lock files, and anything named in `owned`. */
+function removeStaleLinks(home: string, root: string, owned: readonly string[]): void {
   const rootPath = resolve(root);
   for (const entry of readdirSync(home)) {
     const path = join(home, entry);
     try {
       if (!lstatSync(path).isSymbolicLink()) continue;
       const target = resolve(home, readlinkSync(path));
-      if (target.startsWith(`${rootPath}/`) && basename(target).endsWith(".lock")) unlinkSync(path);
+      if (target.startsWith(`${rootPath}/`) && (basename(target).endsWith(".lock") || owned.includes(entry)))
+        unlinkSync(path);
     } catch {
       // The account may be changed while its links are being repaired.
     }
@@ -117,7 +122,7 @@ function removeLockLinks(home: string, root: string): void {
  * `zoxide` keep working inside the session). Muse's settings and trust, and Codex's config and instructions, are
  * linked so an account behaves as the default does. A Claude account links everything but its login, so every account
  * has the same settings, skills, memory and transcripts, and a conversation begun on one resumes on another.
- * Idempotent: it repairs stale lock links and only adds missing shared entries.
+ * Idempotent: it repairs stale lock and login links and only adds missing shared entries.
  */
 export function prepareHome(account: Account, root = realRoot(account.agent)): void {
   mkdirSync(account.home, { recursive: true, mode: 0o700 });
@@ -126,7 +131,7 @@ export function prepareHome(account: Account, root = realRoot(account.agent)): v
       // The conversations and the session registry must exist to be linked: created inside an account instead, they
       // would be that account's alone, and its conversations could not be found or resumed from another.
       for (const shared of ["projects", "sessions"]) mkdirSync(join(root, shared), { recursive: true, mode: 0o700 });
-      removeLockLinks(account.home, root);
+      removeStaleLinks(account.home, root, claudeLogin);
       for (const entry of readdirSync(root))
         if (!claudeLogin.includes(entry) && !entry.endsWith(".lock"))
           link(join(root, entry), join(account.home, entry));

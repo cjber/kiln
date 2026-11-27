@@ -9,6 +9,11 @@ verbatim.
 
 ## [Unreleased]
 
+- **A signed-out Claude account no longer hides an MCP server from the signed-in ones.** Each Claude account now keeps its own `mcp-needs-auth-cache.json`, and kiln unlinks the shared one from existing accounts.
+- **`kiln accounts` names an Antigravity model group that is full.** An account with one full group (say `gemini`) still reads `ok` while others have allowance, and says which group is full and until when. It reads `spent` once every group is full.
+- **A Claude session waiting on workflows lists as working.** An interactive session whose turn has ended while background agents or workflows run shows `shell` instead of `idle`.
+- **`kiln msg inbox --wait` rides out a busy mailbox.** Reading an empty inbox no longer takes the database write lock, and a locked database is retried until the wait's own deadline.
+
 ## [0.37.7] - 2026-11-26
 
 - **A Claude session that wraps up on its usage limit moves to another account.** Claude Code can end a limited turn by telling the model to wrap up instead of refusing the request, which left the session idle on the spent account. Kiln now restarts it on another account once nothing in it is still running and the account's usage shows it is out of allowance.
