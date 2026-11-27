@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+## [0.37.8] - 2026-11-27
+
 - **A signed-out Claude account no longer hides an MCP server from the signed-in ones.** Each Claude account now keeps its own `mcp-needs-auth-cache.json`, and kiln unlinks the shared one from existing accounts.
 - **`kiln accounts` names an Antigravity model group that is full.** An account with one full group (say `gemini`) still reads `ok` while others have allowance, and says which group is full and until when. It reads `spent` once every group is full.
 - **A Claude session waiting on workflows lists as working.** An interactive session whose turn has ended while background agents or workflows run shows `shell` instead of `idle`.
