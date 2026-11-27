@@ -49,7 +49,7 @@ import { readTranscript } from "./transcript";
  *
  * An interactive Claude can stay `busy` with no turn running, as it does while it compacts an idle conversation. Its
  * pane says whether a turn runs (`turnShown`), so a session whose transcript ended its turn and whose pane shows none
- * running is idle; with no pane to read, Claude's own status stands.
+ * running is idle, or `shell` while background agents or workflows run; with no pane to read, Claude's own status stands.
  */
 export function claudeStatus(
   listed: string | undefined,
@@ -62,7 +62,8 @@ export function claudeStatus(
   if (listed !== "busy") return listed;
   if (record.entrypoint !== "sdk-cli") {
     if (record.status === "shell") return "shell";
-    return turnEnded && turnShown() === false ? "idle" : "busy";
+    if (turnEnded && turnShown() === false) return agentRunning() ? "shell" : "idle";
+    return "busy";
   }
   if (!turnEnded) return "busy";
   return shellRunning() || agentRunning() ? "shell" : "idle";

@@ -97,6 +97,26 @@ test("a Claude home does not link config locks and removes an old lock link", ()
   expect(() => lstatSync(join(home, ".claude.json.lock"))).toThrow();
 });
 
+test("a Claude home keeps its own MCP needs-auth cache and unlinks a shared one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kiln-home-"));
+  const real = join(dir, "claude");
+  mkdirSync(real);
+  writeFileSync(join(real, "mcp-needs-auth-cache.json"), '{"server":{"timestamp":1}}');
+  writeFileSync(join(real, "settings.json"), "{}");
+  const fresh = join(dir, "fresh");
+  const linked = join(dir, "linked");
+  mkdirSync(linked);
+  symlinkSync(join(real, "mcp-needs-auth-cache.json"), join(linked, "mcp-needs-auth-cache.json"));
+
+  prepareHome({ agent: "claude", name: "fresh", home: fresh }, real);
+  prepareHome({ agent: "claude", name: "linked", home: linked }, real);
+
+  for (const home of [fresh, linked]) {
+    expect(() => lstatSync(join(home, "mcp-needs-auth-cache.json"))).toThrow();
+    expect(lstatSync(join(home, "settings.json")).isSymbolicLink()).toBe(true);
+  }
+});
+
 test("a running Claude is named by its config dir, and one in an unlisted dir has no name", () => {
   const accounts = [{ agent: "claude" as const, name: "work", home: "/srv/claude-work" }];
   expect(accountOf("claude", { CLAUDE_CONFIG_DIR: "/srv/claude-work" }, accounts)).toBe("work");

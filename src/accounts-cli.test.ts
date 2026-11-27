@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { accountRows, adoptable, formatAccounts } from "./accounts-cli";
+import { type AccountRow, accountRows, adoptable, formatAccounts } from "./accounts-cli";
 import type { QuotaAccount } from "./quota";
 import { defaults, type Settings } from "./settings";
 
@@ -53,6 +53,23 @@ test("a full OpenCode Go window is ok to start on, a recorded limit is spent", (
   };
   expect(accountRows([go], { ...defaults }, now)[0]?.state).toBe("ok");
   expect(accountRows([{ ...go, spentUntil: later }], { ...defaults }, now)[0]?.state).toBe("spent");
+});
+
+test("an Antigravity account names its full model group, and is spent only when every group is full (#369)", () => {
+  const agy = (...windows: [string, number][]): QuotaAccount => ({
+    agent: "agy",
+    windows: windows.map(([label, percent]) => ({ label, percent, resetsAt: later })),
+    source: "agy-statusline",
+  });
+  const geminiFull = agy(["gemini-5h", 100], ["gemini-weekly", 49], ["3p-5h", 0], ["3p-weekly", 0]);
+  const [row] = accountRows([geminiFull], { ...defaults }, now);
+  expect(row?.state).toBe("ok");
+  expect(row?.fullGroups).toEqual([{ group: "gemini", until: later }]);
+  expect(formatAccounts([row as AccountRow])).toContain("gemini models full until");
+  const all = accountRows([agy(["gemini-5h", 100], ["3p-weekly", 100])], { ...defaults }, now)[0];
+  expect(all?.state).toBe("spent");
+  expect(all?.until).toBe(later);
+  expect(accountRows([agy(["gemini-5h", 50])], { ...defaults }, now)[0]).toMatchObject({ state: "ok" });
 });
 
 test("mclaude accounts not yet listed are adopted under their login's name, a taken name under its directory", () => {

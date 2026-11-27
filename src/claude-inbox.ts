@@ -75,12 +75,45 @@ export function claudeShellRunning(pid: number, dir = claudeConfigDir()): boolea
 }
 
 /**
- * Whether a background agent the conversation at `transcript` launched since `since` (ms) still runs. Claude writes each
- * subagent's `subagents/agent-<id>.meta.json` beside the transcript as it launches, with `requestShape` and, once the
- * agent is done, `finished: true`. A print-mode process runs such an agent in-process, so no child shell shows it.
+ * Whether an agent a workflow started since `since` (ms) has not answered. Claude journals each workflow beside the
+ * transcript, in `subagents/workflows/<run>/journal.jsonl`: a `started` entry per agent, then a `result` or `failed`
+ * entry carrying the same `agentId`. The agents' own `meta.json` files never record that they are done.
+ */
+function claudeWorkflowRunning(subagents: string, since: number): boolean {
+  const root = join(subagents, "workflows");
+  let runs: string[];
+  try {
+    runs = readdirSync(root);
+  } catch {
+    return false;
+  }
+  return runs.some((run) => {
+    try {
+      const path = join(root, run, "journal.jsonl");
+      if (statSync(path).mtimeMs < since) return false;
+      const open = new Set<string>();
+      for (const line of readFileSync(path, "utf8").split("\n")) {
+        if (!line) continue;
+        const entry = JSON.parse(line) as { type?: string; agentId?: string };
+        if (typeof entry.agentId !== "string") continue;
+        if (entry.type === "started") open.add(entry.agentId);
+        else if (entry.type === "result" || entry.type === "failed") open.delete(entry.agentId);
+      }
+      return open.size > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Whether a background agent or workflow the conversation at `transcript` launched since `since` (ms) still runs. Claude
+ * writes each subagent's `subagents/agent-<id>.meta.json` beside the transcript as it launches, with `requestShape` and,
+ * once the agent is done, `finished: true`. A print-mode process runs such an agent in-process, so no child shell shows it.
  */
 export function claudeBackgroundAgentRunning(transcript: string, since: number): boolean {
   const dir = join(transcript.replace(/\.jsonl$/, ""), "subagents");
+  if (claudeWorkflowRunning(dir, since)) return true;
   let names: string[];
   try {
     names = readdirSync(dir).filter((name) => name.endsWith(".meta.json"));

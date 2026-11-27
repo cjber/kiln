@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,21 @@ function mailbox(): string {
   roots.push(root);
   return join(root, "mailbox.sqlite");
 }
+
+test("reading an empty inbox takes no write lock, so another writer's transaction does not block it", () => {
+  const path = mailbox();
+  post("claude:a", "codex:b", "hello", path, 1_000);
+  const writer = new Database(path);
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    const started = Date.now();
+    expect(takeUnread("codex:other", path)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+  }
+});
 
 test("a message is delivered once, by whichever caller claims it, and never sent again once it may have arrived", () => {
   const path = mailbox();

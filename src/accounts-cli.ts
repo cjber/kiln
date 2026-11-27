@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 import { type Account, accountDisabled, claudeHome, defaultAccount } from "./accounts";
 import { recordAgyUsage } from "./agy-usage";
-import { type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
+import { agyFullGroups, type QuotaAccount, readQuota, startLimitedUntil } from "./quota";
 import { ensureSettingsFile, parseSettings, type Settings } from "./settings";
 import { clearSpent } from "./spent";
 
@@ -27,6 +27,8 @@ export type AccountRow = {
   usageFetchedAt?: number;
   usageSource: QuotaAccount["source"];
   agyBuckets?: QuotaAccount["agyBuckets"];
+  /** Antigravity model groups with no allowance left, while others may still start. */
+  fullGroups?: { group: string; until: number }[];
   /** Directories pinned to it. */
   pins: string[];
 };
@@ -48,6 +50,9 @@ export function accountRows(quota: readonly QuotaAccount[], settings: Settings, 
       windows: account.windows,
       usageSource: account.source,
       ...(account.agyBuckets ? { agyBuckets: account.agyBuckets } : {}),
+      ...(account.agent === "agy" && agyFullGroups(account, now).length
+        ? { fullGroups: agyFullGroups(account, now) }
+        : {}),
       ...(state === "spent" ? { spentSource: until === account.spentUntil ? "run" : "usage" } : {}),
       ...(account.fetchedAt !== undefined ? { usageFetchedAt: account.fetchedAt } : {}),
       // A full window the provider gave no reset time for is spent with no known end.
@@ -79,6 +84,9 @@ export function formatAccounts(rows: readonly AccountRow[]): string {
       row.usageSource === "codex-rollout" ? "session history" : "",
       row.usageSource === "opencode-go" ? "OpenCode Go" : "",
       row.usageSource === "agy-statusline" ? "Antigravity status line" : "",
+      ...(row.fullGroups ?? []).map(
+        ({ group, until }) => `${group} models full${Number.isFinite(until) ? ` until ${minute(until)}` : ""}`,
+      ),
       row.pins.length ? `pinned ${row.pins.join(", ")}` : "",
     ]
       .filter(Boolean)

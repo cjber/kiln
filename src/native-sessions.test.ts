@@ -225,6 +225,10 @@ test("a busy Claude session's status comes from its own record, or for print mod
   expect(claudeStatus("busy", { ...interactive, status: "busy" }, false, shells, idlePane)).toBe("busy");
   expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells, () => true)).toBe("busy");
   expect(claudeStatus("busy", { ...interactive, status: "busy" }, true, shells, () => undefined)).toBe("busy");
+  // Running agents or workflows keep the ended turn working, which the pane cannot show.
+  const busy = { ...interactive, status: "busy" };
+  expect(claudeStatus("busy", busy, true, none, idlePane, () => true)).toBe("shell");
+  expect(claudeStatus("busy", busy, true, none, idlePane, () => false)).toBe("idle");
   // A print-mode record stays busy for the life of the process.
   expect(claudeStatus("busy", print, false, shells)).toBe("busy");
   expect(claudeStatus("busy", print, undefined, none)).toBe("busy");
