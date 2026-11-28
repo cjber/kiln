@@ -52,6 +52,13 @@ describe("limit detection", () => {
     // Any other failure, or plain text that only reads like one, is not a limit.
     expect(agyLimit(`AGY_ERROR: ${JSON.stringify({ status: "INTERNAL", error_code: 500 })}`, now)).toBeUndefined();
     expect(agyLimit("RESOURCE_EXHAUSTED (code 429) Resets in 1h.", now)).toBeUndefined();
+    // A 429 naming no reset is a throttle, not an exhausted quota.
+    expect(
+      agyLimit(
+        `AGY_ERROR: ${JSON.stringify({ short_error: "slow down", status: "RESOURCE_EXHAUSTED", error_code: 429 })}`,
+        now,
+      ),
+    ).toBeUndefined();
     expect(detectLimit(record, now, [])).toBeUndefined();
   });
 

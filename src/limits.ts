@@ -40,7 +40,7 @@ export function claudeLimit(id: string, startedAt: number, path = findClaudeTran
 /**
  * Whether an Antigravity run stopped on its quota. `agy` exits 3 and writes one `AGY_ERROR: {json}` line to stderr, which
  * a pane's output keeps; the refusal is its `status` of `RESOURCE_EXHAUSTED` (code 429). The reset time is only in
- * `short_error`'s closing `Resets in 1h2m3s.`, so a refusal without one leaves it to the quota read.
+ * `short_error`'s closing `Resets in 1h2m3s.`; a refusal without one is a throttle and is not a limit.
  */
 export function agyLimit(output: string | undefined, now: number): LimitHit | undefined {
   for (const line of (output ?? "").split("\n").reverse()) {
@@ -55,7 +55,8 @@ export function agyLimit(output: string | undefined, now: number): LimitHit | un
     if (error.status !== "RESOURCE_EXHAUSTED" || error.error_code !== 429) return undefined;
     const reset = /Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?\.?$/.exec(String(error.short_error ?? ""));
     const seconds = reset ? Number(reset[1] ?? 0) * 3600 + Number(reset[2] ?? 0) * 60 + Number(reset[3] ?? 0) : 0;
-    return { resetsAt: seconds > 0 ? now + seconds * 1000 : undefined };
+    // A 429 that names no reset is a throttle, not an exhausted quota, and spends nothing.
+    return seconds > 0 ? { resetsAt: now + seconds * 1000 } : undefined;
   }
   return undefined;
 }
@@ -102,7 +103,7 @@ export function detectLimit(
       return reported;
     case "agy": {
       const refused = agyLimit(output, now);
-      return refused && { resetsAt: refused.resetsAt ?? reported?.resetsAt };
+      return refused;
     }
     case "opencode":
     case "pi":
