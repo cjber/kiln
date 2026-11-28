@@ -38,7 +38,7 @@ Supported top-level settings:
   account is spent, the start is refused with the reason.
 
 A new session or `kiln msg spawn` uses the account with the most headroom and skips one at its limit;
-`--account NAME` pins one. When a spawned run ends on the provider's usage-limit signal, kiln records
+`--account NAME` pins one. `--model M` and `--effort E` (Claude and Antigravity `--effort`, Codex `-c model_reasoning_effort`, Pi `--thinking`, Muse `--reasoning-effort`; refused for OpenCode) apply to that spawn only, not to a restart on another account. When a spawned run ends on the provider's usage-limit signal, kiln records
 the account as spent until its reset (shown red in the footer) and starts the work again on another
 account. Claude resumes the same conversation, since its accounts share one transcript store; Codex, Muse and
 OpenCode start fresh with the brief and the last output, and the parent is told which happened.

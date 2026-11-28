@@ -10,6 +10,8 @@ verbatim.
 ## [Unreleased]
 
 - **A web client for kiln.** `kiln serve` serves a browser client at its HTTPS origin with the phone's screens: the live session list with search and filters, conversations, replies, Stop, numbered-menu answers as buttons, new sessions and resuming stopped ones. `kiln pair` prints a browser link alongside the phone invitation. A paired browser holds an `HttpOnly`, `SameSite=Strict` cookie that `kiln revoke` ends, and the server refuses browser requests from any other origin. `kiln setup` now records the tunnel's origin in its service, so run it again to serve the web client from an existing install.
+- **`kiln msg spawn --effort E` sets a child's reasoning effort.** It maps to each agent's own flag for that one spawn (Claude and Antigravity `--effort`, Codex `-c model_reasoning_effort`, Pi `--thinking`, Muse `--reasoning-effort`); OpenCode has none and refuses it.
+- **A spawned Antigravity child that stops on its quota marks the account spent.** Kiln reads the structured `AGY_ERROR` refusal (`RESOURCE_EXHAUSTED`, code 429) and its reset time, so `kiln accounts` shows the account spent and a launch is refused until it resets.
 
 ## [0.37.8] - 2026-11-27
 
