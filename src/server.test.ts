@@ -84,7 +84,7 @@ test("HTTP and streams require credentials, refresh and reject revoked phones", 
     expect((await fetch(`${origin}/v1/sessions`)).status).toBe(401);
     const page = await fetch(`${origin}/`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("open the kiln app on your phone");
+    expect(await page.text()).toContain("Open the kiln app on your phone");
     expect(
       (await fetch(`${origin}/v1/pair`, { method: "POST", headers: { Origin: "https://evil.example" } })).status,
     ).toBe(403);

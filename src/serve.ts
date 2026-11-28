@@ -89,6 +89,8 @@ export async function printInvitation(pairing: Pairing, origin: string, qr = tru
   console.log(
     "Scan this QR code or paste the invitation into kiln on your phone. It expires in five minutes and works once.",
   );
+  // The code rides in the fragment, which a browser never sends to the server or the tunnel.
+  console.log(`To pair a browser instead, open ${serverOrigin(origin)}/#pair=${invitation.searchParams.get("code")}`);
   console.log(pairingMode(loadSettings().phoneWrite));
 }
 

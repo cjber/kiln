@@ -11,7 +11,7 @@
 
 - **Agents from different vendors message, interrupt and spawn each other.** A Claude session can start a Codex reviewer; when the reviewer exits, kiln messages its report to the parent, which reads it as soon as it is idle. Interrupting a turn works for Claude sessions kiln started, Codex and OpenCode.
 - **A Claude session that hits its usage limit carries on.** An interactive Claude session in a kiln pane is restarted on another of your accounts, in the same conversation, when one has allowance.
-- **An Android client** shows the same sessions, their progress and pull requests. With phone writes turned on it messages running sessions; cloud tasks and stopped sessions are read-only.
+- **An Android client and a web client** show the same sessions, their progress and pull requests. With phone writes turned on they message running sessions; cloud tasks and stopped sessions are read-only.
 
 [![CI](https://github.com/cjber/kiln/actions/workflows/ci.yml/badge.svg)](https://github.com/cjber/kiln/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/cjber/kiln)](https://github.com/cjber/kiln/releases/latest)
@@ -302,6 +302,16 @@ Set an agent command to `[]` to hide it from the new-session picker. `detach_key
 
 Claude cloud listing is opt-in because it uses Claude's internal API. It reads an existing OAuth login and never accepts arbitrary API origins. Cloud reads are cached and refreshed asynchronously at most once per minute; provider failures retain the last successful list and show an error.
 
+## Web client
+
+<img src="assets/web-list.png" width="820" alt="kiln web client with the session list and a live conversation" />
+
+`kiln serve` also serves a web client at its HTTPS origin, for using kiln from a browser on another computer. It covers the phone's screens: the session list with search and agent and status filters, updated live; a session's conversation, refreshed every two seconds while it is open; a reply box; Stop; a numbered menu's answers as buttons; New session; and Resume for a stopped session. As on the phone, reading conversations, replying, stopping, starting and resuming need `write = true` under `[phone]`; without it a paired browser sees the list only. Sessions kiln cannot read a transcript for, such as Antigravity and Muse, can be messaged but show no conversation.
+
+To pair a browser, run `kiln pair` (or `kiln setup`) and open the browser link it prints, `https://<origin>/#pair=<code>`, or open the origin and paste the code. The code travels in the address's fragment, which the browser never sends to the server or the tunnel, and the page clears it from the address bar. Pairing sets a `__Host-kiln` cookie that is `HttpOnly`, `Secure` and `SameSite=Strict`: page script never holds the token. The browser is listed by `kiln devices` under the name it gave, and `kiln revoke <device-id>` or the page's Unpair button ends it; a revoked browser's live connection closes within two seconds.
+
+The server accepts browser requests only from its own configured origin: any other `Origin`, including `null`, is refused, which also covers a page on another name that DNS rebinding points at this computer. Every write and the live event stream must carry that `Origin` as well as the cookie, so a form on another site cannot post to it. The page loads only its own script and styles and cannot be framed. `kiln serve --local` has no origin and serves no web client. Put the origin behind an access layer of its own, such as Tailscale or Cloudflare Access, as a second factor.
+
 ## Android
 
 <img src="assets/android-list.png" width="270" alt="Android session list" /> <img src="assets/android-progress.png" width="270" alt="Android progress tab grouping sessions by pull request stage" /> <img src="assets/android-pairing.png" width="270" alt="Android pairing screen" /> <img src="assets/android-handoff.png" width="270" alt="Android provider handoff" /> <img src="assets/android-start.png" width="270" alt="Android new session sheet with the agent's accounts" />
@@ -327,7 +337,7 @@ kiln revoke <device-id>
 
 Sign in to Tailscale before running `kiln serve`. An existing HTTPS root serving another application is preserved; use `--origin` with a separate tunnel in that case. Keep the server running while using the phone.
 
-`kiln setup` writes `~/.config/systemd/user/kiln-serve.service`, enables it and reports each change; running it again changes nothing. A unit that is a symlink, for example into a dotfiles repository, is left alone and reported. The service listens on localhost only and never prints a pairing code to the journal. It records the current `PATH` so the agents' CLIs are found; run `kiln setup` again after moving them. To start before login, run `loginctl enable-linger`. `--port` and `--origin` work as they do for `kiln serve`.
+`kiln setup` writes `~/.config/systemd/user/kiln-serve.service`, enables it and reports each change; running it again changes nothing. A unit that is a symlink, for example into a dotfiles repository, is left alone and reported. The service listens on localhost only, is told the tunnel's origin so it can serve the web client there, and never prints a pairing code to the journal. It records the current `PATH` so the agents' CLIs are found; run `kiln setup` again after moving them. To start before login, run `loginctl enable-linger`. `--port` and `--origin` work as they do for `kiln serve`.
 
 For OpenCode, `kiln setup` also pins OpenCode's background service to port 4096 and serves its web UI at `https://<your Tailscale name>:4096`, reachable only on your tailnet. "Open in OpenCode" then goes through kiln's own address, which signs the phone's browser in to OpenCode and opens the session; there is nothing to pair. Each link works once, for 15 minutes. Changing the port restarts OpenCode's service, so setup skips that step while a turn is running and asks you to run it again. Sessions in a terminal started with `--standalone` or `--server` belong to their own server and still open on the PC.
 
@@ -337,7 +347,7 @@ On the phone, finished Claude background jobs show as Completed or Stopped and l
 
 A paired phone only watches by default. To let it start sessions and send prompts, set `write = true` under `[phone]` in `config.toml`; a phone that can do this can run code on your computer. The app then shows a New session button: choose an agent, a directory from the ones kiln already knows (the directories of listed sessions, then zoxide's list) and a first prompt of up to 16 KB. The session starts in kiln's tmux with the provider's remote control on, and it opens in the app as a live conversation. A running session's details also have a Send box, which delivers a prompt the way `kiln msg send` does and shows "Delivered" or why it waits. When the agent has more than one account, the sheet also offers them, each marked when it is at its limit, signed out or turned off; "Any account" lets kiln choose as it does for a session started on the computer. A session's details name its account. A phone can start 20 sessions in ten minutes, and `kiln devices` lists each phone's latest starts.
 
-Pairing invitations expire after five minutes and work once. The phone stores its bearer token privately. The server binds to localhost, rejects browser requests and checks pairing for each request and streamed update. Keep the tunnel origin HTTPS. Revocation disconnects the phone without affecting agent sessions.
+Pairing invitations expire after five minutes and work once. The phone stores its bearer token privately. The server binds to localhost, refuses browser requests from any page but its own web client and checks pairing for each request and streamed update. Keep the tunnel origin HTTPS. Revocation disconnects the phone without affecting agent sessions.
 
 The list supports search, ordering, activity/agent filters, collapsed children and hiding sessions on that phone. Hidden rows can be restored. Saved machine connections survive upgrades.
 

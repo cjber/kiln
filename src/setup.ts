@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
-import { serveOptions, setupTailscale } from "./serve";
+import { serveOptions, setupTailscale, tailscaleOrigin } from "./serve";
 
 const unitName = "kiln-serve.service";
 const usage = "usage: kiln setup [--port 7437] [--origin https://host]";
@@ -13,17 +13,17 @@ function quote(value: string): string {
 }
 
 /**
- * The service serves localhost only: setup owns the tunnel and the invitation, so a restart
- * never writes a pairing code to the journal.
+ * The service listens on localhost only and is told its tunnel's origin, which the web client is served for: setup
+ * owns the tunnel and the invitation, so a restart never writes a pairing code to the journal.
  */
-export function serveUnit(command: readonly string[], port: number, path: string): string {
+export function serveUnit(command: readonly string[], port: number, path: string, origin: string): string {
   return `[Unit]
 Description=kiln phone server
 StartLimitIntervalSec=0
 
 [Service]
 Environment=${quote(`PATH=${path}`)}
-ExecStart=${[...command, "serve", "--local", "--port", String(port)].map(quote).join(" ")}
+ExecStart=${[...command, "serve", "--origin", origin, "--port", String(port)].map(quote).join(" ")}
 Restart=always
 RestartSec=5
 
@@ -68,6 +68,7 @@ export async function runSetup(
     command = kilnCommand(),
     path = Bun.env.PATH ?? "",
     isListening = listening,
+    named = tailscaleOrigin,
     tunnel = setupTailscale,
     user = userInfo().username,
     report = (line: string) => console.log(`kiln: ${line}`),
@@ -82,8 +83,10 @@ export async function runSetup(
     if (result.code) throw new Error(result.output || `systemctl --user ${rest.join(" ")} failed`);
   };
 
+  // The unit needs the origin now, but the tunnel is pointed at the port only once the service holds it.
+  const origin = options.origin ?? (await named());
   const unitPath = join(unitDirectory, unitName);
-  const unit = serveUnit(command, options.port, path);
+  const unit = serveUnit(command, options.port, path, origin);
   let existing: string | undefined;
   try {
     existing = readFileSync(unitPath, "utf8");
@@ -116,7 +119,7 @@ export async function runSetup(
   if ((await run(["loginctl", "show-user", user, "--property=Linger", "--value"])).output !== "yes")
     report(`to start it at boot, before you log in, run: loginctl enable-linger ${user}`);
 
-  const origin = options.origin ?? (await tunnel(options.port));
-  report(`phone access at ${origin}`);
+  if (!options.origin) await tunnel(options.port);
+  report(`phone and browser access at ${origin}`);
   return origin;
 }
