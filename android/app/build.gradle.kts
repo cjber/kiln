@@ -12,8 +12,8 @@ android {
         applicationId = "com.cjber.kiln"
         minSdk = 26
         targetSdk = 37
-        versionCode = 85
-        versionName = "0.37.8"
+        versionCode = 86
+        versionName = "0.37.9"
     }
     buildFeatures { compose = true }
     compileOptions {
