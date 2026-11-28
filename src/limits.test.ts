@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { claudeLimit, detectLimit } from "./limits";
+import { agyLimit, claudeLimit, detectLimit } from "./limits";
 import { museLimit } from "./muse-limit";
 import type { QuotaAccount } from "./quota";
 
@@ -37,6 +37,29 @@ describe("limit detection", () => {
       resetsAt: 1795687200_000,
       limit: { kind: "model", label: "Fable limit" },
     });
+  });
+
+  test("an agy run's AGY_ERROR RESOURCE_EXHAUSTED 429 line is a limit, with the reset time from its message", () => {
+    const refusal = JSON.stringify({
+      short_error: "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 146h21m11s.",
+      status: "RESOURCE_EXHAUSTED",
+      error_code: 429,
+    });
+    const output = `error: Individual quota reached.\nAGY_ERROR: ${refusal}\n`;
+    const record = { agent: "agy" as const, id: "1:2", startedAt: now - 1000 };
+    expect(agyLimit(output, now)?.resetsAt).toBe(now + (146 * 3600 + 21 * 60 + 11) * 1000);
+    expect(detectLimit(record, now, [], output)?.resetsAt).toBe(now + (146 * 3600 + 21 * 60 + 11) * 1000);
+    // Any other failure, or plain text that only reads like one, is not a limit.
+    expect(agyLimit(`AGY_ERROR: ${JSON.stringify({ status: "INTERNAL", error_code: 500 })}`, now)).toBeUndefined();
+    expect(agyLimit("RESOURCE_EXHAUSTED (code 429) Resets in 1h.", now)).toBeUndefined();
+    // A 429 naming no reset is a throttle, not an exhausted quota.
+    expect(
+      agyLimit(
+        `AGY_ERROR: ${JSON.stringify({ short_error: "slow down", status: "RESOURCE_EXHAUSTED", error_code: 429 })}`,
+        now,
+      ),
+    ).toBeUndefined();
+    expect(detectLimit(record, now, [])).toBeUndefined();
   });
 
   test("Codex is limited when its provider's own read shows the account full", () => {

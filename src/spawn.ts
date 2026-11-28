@@ -50,7 +50,7 @@ import {
 } from "./tmux";
 import { readTranscript } from "./transcript";
 
-export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
+export const spawnUsage = `usage: kiln msg spawn <agent> [--dir PATH | --resume ID] [--title T] [--model M] [--effort E] [--account NAME] [--interactive] [--as <@peer>] [--json] -- <prompt>
        a Codex worker that must run git commands spawns with --dir at its linked worktree, or at the main checkout to work in any of its linked worktrees`;
 
 export type SpawnOptions = {
@@ -58,6 +58,8 @@ export type SpawnOptions = {
   dir: string;
   title?: string;
   model?: string;
+  /** Reasoning effort for this run, passed as the agent's own flag. */
+  effort?: string;
   prompt: string;
   /** Start the agent's full terminal UI, so a person can attach and watch it, instead of its headless mode. */
   interactive?: boolean;
@@ -117,6 +119,7 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
       dir: { type: "string" },
       title: { type: "string" },
       model: { type: "string" },
+      effort: { type: "string" },
       account: { type: "string" },
       interactive: { type: "boolean" },
       resume: { type: "string" },
@@ -149,11 +152,15 @@ export function spawnOptions(args: readonly string[], cwd = process.cwd()): Spaw
   const dir = resolve(cwd, expanded);
   if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Error(`${dir} is not a directory`);
   if (values.interactive && agent !== "claude") throw new Error("--interactive is supported for claude only");
+  // OpenCode has no effort flag; its variants ride on the model name (`--model provider/model#variant`).
+  if (values.effort !== undefined && agent === "opencode")
+    throw new Error("--effort is not supported for opencode; pick a variant with --model provider/model#variant");
   return {
     agent: agent as Agent,
     dir,
     title: values.title,
     model: values.model,
+    ...(values.effort === undefined ? {} : { effort: values.effort }),
     account: values.account,
     prompt: prompt.join(" "),
     interactive: values.interactive,
@@ -172,6 +179,24 @@ export function shellCommand(argv: readonly string[]): string {
   return argv.map(quote).join(" ");
 }
 
+/** Each agent's own flag for a reasoning effort; OpenCode takes none, so {@link spawnOptions} refuses it there. */
+function effortFlags(agent: Agent, effort: string | undefined): string[] {
+  if (!effort) return [];
+  switch (agent) {
+    case "claude":
+    case "agy":
+      return ["--effort", effort];
+    case "codex":
+      return ["-c", `model_reasoning_effort=${effort}`];
+    case "pi":
+      return ["--thinking", effort];
+    case "muse":
+      return ["--reasoning-effort", effort];
+    case "opencode":
+      return [];
+  }
+}
+
 /**
  * The provider's headless command for a conversation whose id kiln already chose. `writable` is granted to Codex with
  * `--add-dir`; a Claude command carries its grant already, from {@link claudeGrants}.
@@ -185,8 +210,9 @@ export function headlessCommand(
   model?: string,
   resume?: SpawnOptions["resume"],
   writable: readonly string[] = [],
+  effort?: string,
 ): string[] {
-  const chosen = model ? ["--model", model] : [];
+  const chosen = [...(model ? ["--model", model] : []), ...effortFlags(agent, effort)];
   const granted = writable.flatMap((directory) => ["--add-dir", directory]);
   switch (agent) {
     case "opencode":
@@ -248,6 +274,7 @@ export function interactiveClaudeCommand(
   model?: string,
   configDir?: string,
   resume?: SpawnOptions["resume"],
+  effort?: string,
 ): string[] {
   return [
     "env",
@@ -257,6 +284,7 @@ export function interactiveClaudeCommand(
     ...claudeSession(id, resume),
     ...(title ? ["--name", title] : []),
     ...(model ? ["--model", model] : []),
+    ...effortFlags("claude", effort),
     ...promptArguments("claude", prompt),
   ];
 }
@@ -829,7 +857,17 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
       !start(
         name,
         options.dir,
-        headlessCommand(command, agent, "", options.prompt, undefined, options.model, undefined, writable),
+        headlessCommand(
+          command,
+          agent,
+          "",
+          options.prompt,
+          undefined,
+          options.model,
+          undefined,
+          writable,
+          options.effort,
+        ),
         title,
         false,
         hook,
@@ -917,7 +955,16 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
   const launch = options.agent === "claude" ? claudeGrants(command, options.dir, writable) : command;
   // Claude titles its own session from the prompt, and that title outranks the recorded one: name it only when asked.
   const argv = options.interactive
-    ? interactiveClaudeCommand(launch, id, options.prompt, options.title, options.model, configDir, options.resume)
+    ? interactiveClaudeCommand(
+        launch,
+        id,
+        options.prompt,
+        options.title,
+        options.model,
+        configDir,
+        options.resume,
+        options.effort,
+      )
     : routed(
         headlessCommand(
           launch,
@@ -927,6 +974,8 @@ export async function spawnAgent(options: SpawnOptions, parent?: string): Promis
           options.agent === "claude" ? options.title : title,
           options.model,
           options.resume,
+          [],
+          options.effort,
         ),
         route,
       );
@@ -1240,7 +1289,7 @@ async function failOver(record: Saved, output: string | undefined, to: string): 
   forgetReads();
   const now = Date.now();
   const quota = await readQuota(now, settings.accounts).catch(() => []);
-  const hit = detectLimit(record, now, quota);
+  const hit = detectLimit(record, now, quota, output);
   if (!hit) return;
   // A limit that refuses one model leaves the rest of the account working, so only a whole-account limit spends it.
   if (hit.resetsAt !== undefined && spendsAccount(hit.limit)) recordSpent(record.agent, record.account, hit.resetsAt);
