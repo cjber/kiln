@@ -22,7 +22,11 @@ test("setup installs and starts the service once, then changes nothing", async (
     path: "/usr/bin",
     user: "demo",
     isListening: async () => busy,
-    tunnel: async (port: number) => `https://machine.example:${port}`,
+    named: async () => "https://machine.example",
+    tunnel: async (port: number) => {
+      calls.push(`tunnel ${port}`);
+      return "https://machine.example";
+    },
     report: (line: string) => reports.push(line),
     run: async (argv: string[]) => {
       calls.push(argv.slice(2).join(" "));
@@ -36,19 +40,20 @@ test("setup installs and starts the service once, then changes nothing", async (
     await expect(runSetup([], dependencies)).rejects.toThrow("already in use");
     expect(calls).toEqual(["is-active --quiet kiln-serve.service"]);
     busy = false;
-    expect(await runSetup(["--port", "8000"], dependencies)).toBe("https://machine.example:8000");
+    expect(await runSetup(["--port", "8000"], dependencies)).toBe("https://machine.example");
     expect(readFileSync(join(unitDirectory, "kiln-serve.service"), "utf8")).toContain('"--port" "8000"');
     expect(calls).toContain("daemon-reload");
-    expect(calls).toContain("start kiln-serve.service");
+    // The tunnel points at the port only once the service holds it.
+    expect(calls.indexOf("tunnel 8000")).toBeGreaterThan(calls.indexOf("start kiln-serve.service"));
     expect(reports.some((line) => line.includes("loginctl enable-linger demo"))).toBe(true);
 
     calls.length = 0;
     reports.length = 0;
-    // Naming the origin the tunnel already has leaves the unit as it is.
-    expect(await runSetup(["--port", "8000", "--origin", "https://machine.example:8000"], dependencies)).toBe(
-      "https://machine.example:8000",
+    // Naming the origin the tunnel already has leaves the unit as it is, and a named origin brings its own tunnel.
+    expect(await runSetup(["--port", "8000", "--origin", "https://machine.example"], dependencies)).toBe(
+      "https://machine.example",
     );
-    expect(calls.some((call) => /daemon-reload|^start|^restart/.test(call))).toBe(false);
+    expect(calls.some((call) => /daemon-reload|^start|^restart|^tunnel/.test(call))).toBe(false);
     expect(reports[0]).toEndWith("is up to date");
 
     calls.length = 0;
@@ -60,7 +65,7 @@ test("setup installs and starts the service once, then changes nothing", async (
     writeFileSync(managed, "[Service]\nExecStart=/usr/bin/kiln serve\n");
     rmSync(join(unitDirectory, "kiln-serve.service"));
     symlinkSync(managed, join(unitDirectory, "kiln-serve.service"));
-    await expect(runSetup([], dependencies)).resolves.toBe("https://machine.example:7437");
+    await expect(runSetup([], dependencies)).resolves.toBe("https://machine.example");
     expect(reports.some((line) => line.includes("links to a unit kiln does not manage"))).toBe(true);
     expect(readFileSync(managed, "utf8")).toBe("[Service]\nExecStart=/usr/bin/kiln serve\n");
     rmSync(managed);

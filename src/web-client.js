@@ -250,14 +250,15 @@ function renderHeader() {
   const row = current();
   const header = byId("detail").querySelector("header");
   if (!header) return;
+  const back = el("button", { type: "button", class: "quiet back", onclick: closeView }, "Back");
   if (!row) {
-    header.replaceChildren(el("h2", {}, "This session is no longer listed"));
+    header.replaceChildren(back, el("h2", {}, "This session is no longer listed"));
     return;
   }
   const write = state.snapshot.write;
   const abilities = state.view?.abilities;
   const actions = [
-    el("button", { type: "button", class: "quiet back", onclick: closeView }, "Back"),
+    back,
     el(
       "div",
       { class: "heading" },

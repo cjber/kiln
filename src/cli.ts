@@ -133,7 +133,7 @@ export async function runCli(args: string[]): Promise<number | undefined> {
     try {
       const { Pairing, serverOrigin } = await import("./pairing");
       if (command === "serve") {
-        const { serveOptions, setupTailscale, printInvitation } = await import("./serve");
+        const { serveOptions, setupTailscale, tailscaleOrigin, printInvitation } = await import("./serve");
         const options = serveOptions(args.slice(1));
         loadSettings();
         const { startServer } = await import("./server");
@@ -141,9 +141,11 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         const pairing = new Pairing();
         let server: ReturnType<typeof startServer> | undefined;
         try {
-          const origin = options.local ? undefined : (options.origin ?? (await setupTailscale(options.port)));
+          const origin = options.local ? undefined : (options.origin ?? (await tailscaleOrigin()));
           server = startServer({ port: options.port, pairing, origin, awake: keepAwake() });
           console.log(`kiln: listening on http://127.0.0.1:${server.port}`);
+          // The tunnel is pointed at the port only once this server holds it.
+          if (origin && !options.origin) await setupTailscale(server.port ?? options.port);
           if (origin) {
             console.log(`kiln: phone and browser access at ${origin}`);
             // A service's log is no place for a pairing code, even a short-lived one.
