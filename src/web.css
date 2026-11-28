@@ -53,7 +53,7 @@ input,
 select,
 textarea {
   font: inherit;
-  color: inherit;
+  color: var(--text);
 }
 button {
   background: var(--accent);

@@ -256,7 +256,7 @@ function renderHeader() {
   }
   const write = state.snapshot.write;
   const abilities = state.view?.abilities;
-  header.replaceChildren(
+  const actions = [
     el("button", { type: "button", class: "quiet back", onclick: closeView }, "Back"),
     el(
       "div",
@@ -272,7 +272,9 @@ function renderHeader() {
     write && abilities?.stop
       ? el("button", { type: "button", class: "danger", onclick: () => act("interrupt") }, "Stop")
       : undefined,
-  );
+  ];
+  // replaceChildren, unlike el(), would print an absent button as the text "undefined".
+  header.replaceChildren(...actions.filter(Boolean));
 }
 
 function closeView() {
