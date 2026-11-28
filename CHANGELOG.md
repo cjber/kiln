@@ -9,6 +9,8 @@ verbatim.
 
 ## [Unreleased]
 
+- **A web client for kiln.** `kiln serve` serves a browser client at its HTTPS origin with the phone's screens: the live session list with search and filters, conversations, replies, Stop, numbered-menu answers as buttons, new sessions and resuming stopped ones. `kiln pair` prints a browser link alongside the phone invitation. A paired browser holds an `HttpOnly`, `SameSite=Strict` cookie that `kiln revoke` ends, and the server refuses browser requests from any other origin. `kiln setup` now records the tunnel's origin in its service, so run it again to serve the web client from an existing install.
+
 ## [0.37.8] - 2026-11-27
 
 - **A signed-out Claude account no longer hides an MCP server from the signed-in ones.** Each Claude account now keeps its own `mcp-needs-auth-cache.json`, and kiln unlinks the shared one from existing accounts.

@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSetup, serveUnit } from "./setup";
 
-test("the unit serves localhost only and escapes systemd specifiers", () => {
-  const unit = serveUnit(["/opt/my kiln/kiln"], 7437, "/usr/bin:/home/a%b/$bin");
-  expect(unit).toContain('ExecStart="/opt/my kiln/kiln" "serve" "--local" "--port" "7437"');
+test("the unit serves its tunnel's origin and escapes systemd specifiers", () => {
+  const unit = serveUnit(["/opt/my kiln/kiln"], 7437, "/usr/bin:/home/a%b/$bin", "https://machine.example");
+  expect(unit).toContain('ExecStart="/opt/my kiln/kiln" "serve" "--origin" "https://machine.example" "--port" "7437"');
   expect(unit).toContain('Environment="PATH=/usr/bin:/home/a%%b/$$bin"');
 });
 
@@ -44,8 +44,9 @@ test("setup installs and starts the service once, then changes nothing", async (
 
     calls.length = 0;
     reports.length = 0;
-    expect(await runSetup(["--port", "8000", "--origin", "https://own.example"], dependencies)).toBe(
-      "https://own.example",
+    // Naming the origin the tunnel already has leaves the unit as it is.
+    expect(await runSetup(["--port", "8000", "--origin", "https://machine.example:8000"], dependencies)).toBe(
+      "https://machine.example:8000",
     );
     expect(calls.some((call) => /daemon-reload|^start|^restart/.test(call))).toBe(false);
     expect(reports[0]).toEndWith("is up to date");

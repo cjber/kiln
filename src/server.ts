@@ -50,6 +50,7 @@ import { loadSettings, type Settings, SettingsError } from "./settings";
 import { spawn } from "./setup";
 import { lastSeen, pick, screen, submitText } from "./tmux";
 import { saveUpload, UploadsFull, uploadLimit } from "./uploads";
+import { clearedCookie, cookieToken, deviceCookie, webAsset } from "./web";
 import { rankedDirectories } from "./zoxide";
 
 /** The largest first prompt or message a phone can send, in UTF-8 bytes. */
@@ -195,6 +196,7 @@ function settingsDiscovery(): () => Promise<Discovered> {
 export function startServer({
   port,
   pairing,
+  origin: webOrigin,
   discover = settingsDiscovery(),
   interval = 2_000,
   idleInterval = 60_000,
@@ -226,6 +228,8 @@ export function startServer({
 }: {
   port: number;
   pairing: Pairing;
+  /** The HTTPS origin this server is reached at; with one, it serves the web client and takes requests from it. */
+  origin?: string;
   discover?: () => Promise<Discovered>;
   opencode?: ReturnType<typeof opencodeLinks>;
   interval?: number;
@@ -505,13 +509,21 @@ export function startServer({
       // The phone opens this in its browser; the one-use code in the path is the authorization.
       const opencodeCode = path.match(/^\/opencode\/([A-Za-z0-9_-]{32})$/)?.[1];
       if (opencodeCode && request.method === "GET") return opencode.open(opencodeCode, await servedOpencodeOrigin());
-      if (request.headers.has("Origin")) return response({ error: "Browser requests are not supported" }, 403);
-      // Opened in a browser, the address explains itself instead of reading as a lost pairing.
-      if (path === "/" && request.method === "GET")
-        return new Response(
-          "This is the kiln phone server. It has no web page: open the kiln app on your phone to see your sessions. To pair a phone, run kiln pair on this computer.\n",
-          { headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } },
-        );
+      const origin = request.headers.get("Origin");
+      // A browser names the page that sent each request; only the web client served from this origin may call.
+      // That also refuses a page on another name that DNS rebinding points here, and `Origin: null`.
+      if (origin !== null && origin !== webOrigin)
+        return response({ error: "Requests from other sites are refused" }, 403);
+      if (request.method === "GET") {
+        const asset = webOrigin ? webAsset(path) : undefined;
+        if (asset) return asset;
+        // Without an origin of its own there is no web client, and the address explains itself.
+        if (path === "/")
+          return new Response(
+            "This is the kiln phone server. Open the kiln app on your phone to see your sessions, or start kiln serve with an HTTPS origin to use it from a browser. To pair, run kiln pair on this computer.\n",
+            { headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } },
+          );
+      }
       if (path === "/v1/pair" && request.method === "POST") {
         if (Date.now() - windowStart >= 60_000) {
           attempts = 0;
@@ -528,13 +540,27 @@ export function startServer({
         if (typeof body.code !== "string" || typeof body.name !== "string")
           return response({ error: "Invalid pairing request" }, 400);
         const paired = pairing.exchange(body.code, body.name);
-        return paired
-          ? response({ ...paired, host: hostname() })
-          : response({ error: "Pairing code is invalid, expired or already used" }, 401);
+        if (!paired) return response({ error: "Pairing code is invalid, expired or already used" }, 401);
+        // A browser keeps its token only in the HttpOnly cookie, so no page script ever reads it.
+        if (origin === null) return response({ ...paired, host: hostname() });
+        const answer = response({ device: paired.device, host: hostname() });
+        answer.headers.set("Set-Cookie", deviceCookie(paired.token));
+        return answer;
       }
-      const token = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+      const bearer = request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+      const token = bearer ?? cookieToken(request);
       const device = token ? pairing.authenticate(token) : null;
       if (!token || !device) return response({ error: "Device is not paired" }, 401);
+      // SameSite=Strict keeps other sites from sending the cookie; a matching Origin on every write and on the event
+      // stream is the CSRF check that does not depend on the browser's cookie rules.
+      if (!bearer && origin === null && (request.method !== "GET" || path === "/v1/events"))
+        return response({ error: "Browser requests must come from the kiln web client" }, 403);
+      if (path === "/v1/unpair" && request.method === "POST") {
+        pairing.revoke(device.id);
+        const unpaired = response({ ok: true });
+        unpaired.headers.set("Set-Cookie", clearedCookie);
+        return unpaired;
+      }
       if (request.method === "GET" && path === "/v1/sessions") {
         refreshIfOld();
         return response(snapshot);

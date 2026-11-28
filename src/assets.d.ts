@@ -13,6 +13,16 @@ declare module "*kiln-status.js" {
   export default source;
 }
 
+declare module "*web.html" {
+  const text: string;
+  export default text;
+}
+
+declare module "*web.css" {
+  const text: string;
+  export default text;
+}
+
 declare module "*dashboard.html" {
   const text: string;
   export default text;

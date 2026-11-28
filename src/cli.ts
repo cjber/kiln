@@ -141,11 +141,11 @@ export async function runCli(args: string[]): Promise<number | undefined> {
         const pairing = new Pairing();
         let server: ReturnType<typeof startServer> | undefined;
         try {
-          server = startServer({ port: options.port, pairing, awake: keepAwake() });
+          const origin = options.local ? undefined : (options.origin ?? (await setupTailscale(options.port)));
+          server = startServer({ port: options.port, pairing, origin, awake: keepAwake() });
           console.log(`kiln: listening on http://127.0.0.1:${server.port}`);
-          if (!options.local) {
-            const origin = options.origin ?? (await setupTailscale(server.port ?? options.port));
-            console.log(`kiln: phone access at ${origin}`);
+          if (origin) {
+            console.log(`kiln: phone and browser access at ${origin}`);
             // A service's log is no place for a pairing code, even a short-lived one.
             if (process.stdout.isTTY) await printInvitation(pairing, origin);
             else console.log(`kiln: run kiln pair ${origin} to add a phone`);
