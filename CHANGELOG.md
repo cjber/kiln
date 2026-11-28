@@ -9,6 +9,9 @@ verbatim.
 
 ## [Unreleased]
 
+- **`kiln msg spawn --effort E` sets a child's reasoning effort.** It maps to each agent's own flag for that one spawn (Claude and Antigravity `--effort`, Codex `-c model_reasoning_effort`, Pi `--thinking`, Muse `--reasoning-effort`); OpenCode has none and refuses it.
+- **A spawned Antigravity child that stops on its quota marks the account spent.** Kiln reads the structured `AGY_ERROR` refusal (`RESOURCE_EXHAUSTED`, code 429) and its reset time, then starts the work again on another account.
+
 ## [0.37.8] - 2026-11-27
 
 - **A signed-out Claude account no longer hides an MCP server from the signed-in ones.** Each Claude account now keeps its own `mcp-needs-auth-cache.json`, and kiln unlinks the shared one from existing accounts.

@@ -94,6 +94,39 @@ test("spawn takes the agent, an optional directory and title, and the prompt aft
   }
 });
 
+test("--effort is passed as each agent's own flag, and refused where the agent has none", () => {
+  expect(headlessCommand(["claude"], "claude", "id", "work", undefined, undefined, undefined, [], "xhigh")).toContain(
+    "--effort",
+  );
+  expect(headlessCommand(["codex"], "codex", "", "work", undefined, undefined, undefined, [], "xhigh")).toEqual([
+    "codex",
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    "model_reasoning_effort=xhigh",
+    "work",
+  ]);
+  expect(headlessCommand(["pi"], "pi", "id", "work", undefined, undefined, undefined, [], "high")).toContain(
+    "--thinking",
+  );
+  expect(headlessCommand(["muse"], "muse", "id", "work", undefined, undefined, undefined, [], "high")).toContain(
+    "--reasoning-effort",
+  );
+  expect(headlessCommand(["agy"], "agy", "", "work", undefined, "m", undefined, [], "high")).toEqual([
+    "agy",
+    "-p",
+    "work",
+    "--model",
+    "m",
+    "--effort",
+    "high",
+  ]);
+  expect(spawnOptions(["codex", "--effort", "xhigh", "--", "work"], "/tmp").effort).toBe("xhigh");
+  expect(() => spawnOptions(["opencode", "--effort", "high", "--", "work"], "/tmp")).toThrow(
+    "not supported for opencode",
+  );
+});
+
 test("spawn defaults to the current directory and rejects a missing prompt or agent", () => {
   const dir = mkdtempSync(join(tmpdir(), "kiln-spawn-"));
   try {
